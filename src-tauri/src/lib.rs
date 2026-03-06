@@ -7,7 +7,7 @@ use commands::{
     jira::{get_jira_projects, validate_jira_credentials},
     xray::{
         authenticate_xray, create_test_execution, get_step_statuses, get_test_executions,
-        get_test_plans, get_test_runs, get_xray_statuses, update_test_run_comment,
+        get_test_plans, get_test_runs, get_tests, get_xray_statuses, update_test_run_comment,
         update_test_run_status, update_test_run_step, update_test_run_step_status,
     },
 };
@@ -36,6 +36,7 @@ pub fn run() {
             update_test_run_step_status,
             update_test_run_step,
             create_test_execution,
+            get_tests,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

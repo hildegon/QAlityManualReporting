@@ -5,7 +5,8 @@ use crate::{
     commands::config::load_config,
     models::xray::{
         CreateTestExecutionInput, CreateTestExecutionResult, TestExecution, TestPlan, TestRunsPage,
-        UpdateTestRunStatusInput, UpdateTestRunStepData, XrayStepStatus, XrayTestRunStatus,
+        UpdateTestRunStatusInput, UpdateTestRunStepData, XrayStepStatus, XrayTest,
+        XrayTestRunStatus,
     },
 };
 
@@ -115,21 +116,37 @@ pub async fn get_xray_statuses(
 #[tauri::command]
 pub async fn create_test_execution(
     app: AppHandle,
-    project_id: String,
+    project_key: String,
     summary: String,
     test_plan_id: Option<String>,
+    test_issue_ids: Option<Vec<String>>,
     description: Option<String>,
 ) -> Result<CreateTestExecutionResult, String> {
     let client = make_xray_client(&app)?;
-    client
+    let result = client
         .create_test_execution(CreateTestExecutionInput {
-            project_id,
+            project_key,
             summary,
-            test_plan_id,
             description,
+            test_issue_ids,
         })
         .await
-        .map_err(format_err)
+        .map_err(format_err)?;
+
+    // If a test plan was specified, associate the new execution with it.
+    if let Some(plan_id) = test_plan_id {
+        client
+            .add_test_executions_to_test_plan(
+                crate::models::xray::AddTestExecutionsToTestPlanInput {
+                    test_plan_issue_id: plan_id,
+                    test_exec_issue_ids: vec![result.test_execution.issue_id.clone()],
+                },
+            )
+            .await
+            .map_err(format_err)?;
+    }
+
+    Ok(result)
 }
 
 #[tauri::command]
@@ -183,4 +200,17 @@ pub async fn update_test_run_step(
 pub async fn authenticate_xray(app: AppHandle) -> Result<(), String> {
     let client = make_xray_client(&app)?;
     client.authenticate().await.map_err(format_err)
+}
+
+#[tauri::command]
+pub async fn get_tests(
+    app: AppHandle,
+    project_key: String,
+    limit: Option<u32>,
+) -> Result<Vec<XrayTest>, String> {
+    let client = make_xray_client(&app)?;
+    client
+        .get_tests(&project_key, limit.unwrap_or(100))
+        .await
+        .map_err(format_err)
 }

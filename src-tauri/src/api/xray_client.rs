@@ -4,9 +4,10 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 
 use crate::models::xray::{
-    CreateTestExecutionInput, CreateTestExecutionResult, GraphQLRequest, GraphQLResponse,
-    StatusesResult, StepStatusesResult, TestExecutionsResult, TestPlansResult, TestRunsResult,
-    UpdateTestRunStatusInput, XrayAuthRequest, XrayStepStatus, XrayTestRunStatus,
+    AddTestExecutionsToTestPlanInput, CreateTestExecutionInput, CreateTestExecutionResponse,
+    CreateTestExecutionResult, GraphQLRequest, GraphQLResponse, StatusesResult, StepStatusesResult,
+    TestExecutionsResult, TestPlansResult, TestRunsResult, TestsResult, UpdateTestRunStatusInput,
+    XrayAuthRequest, XrayStepStatus, XrayTest, XrayTestRunStatus,
 };
 
 const XRAY_AUTH_URL: &str = "https://xray.cloud.getxray.app/api/v2/authenticate";
@@ -109,19 +110,29 @@ impl XrayClient {
                 bail!("Xray GraphQL request failed with status {status}: {raw_body}");
             }
 
-            let gql: GraphQLResponse<T> = serde_json::from_str(&raw_body)
+            // Parse into a raw-value response first so we can check errors
+            // before attempting to deserialize the typed data field.
+            let gql: GraphQLResponse<serde_json::Value> = serde_json::from_str(&raw_body)
                 .with_context(|| {
                     format!(
                         "Failed to parse Xray GraphQL response (status {status}). Raw body:\n{raw_body}"
                     )
                 })?;
 
+            // Surface GraphQL application-level errors before attempting
+            // to deserialize the data payload.
             if let Some(errors) = gql.errors {
                 let messages: Vec<_> = errors.iter().map(|e| e.message.as_str()).collect();
                 bail!("Xray GraphQL errors: {}", messages.join("; "));
             }
 
-            return gql.data.context("Xray GraphQL response contained no data");
+            let data = gql
+                .data
+                .context("Xray GraphQL response contained no data")?;
+            let typed: T = serde_json::from_value(data).with_context(|| {
+                format!("Failed to deserialize Xray GraphQL data. Raw body:\n{raw_body}")
+            })?;
+            return Ok(typed);
         }
         bail!("Xray authentication failed after retry");
     }
@@ -245,6 +256,30 @@ impl XrayClient {
         Ok(())
     }
 
+    // ── Get Tests ─────────────────────────────────────────────────────────────
+
+    /// Fetch tests for a project using JQL.
+    pub async fn get_tests(&self, project_key: &str, limit: u32) -> Result<Vec<XrayTest>> {
+        let jql = format!("project = '{project_key}'");
+        let query = r#"
+            query GetTests($jql: String, $limit: Int!) {
+                getTests(jql: $jql, limit: $limit) {
+                    total
+                    start
+                    limit
+                    results {
+                        issueId
+                        jira(fields: ["key", "summary"])
+                    }
+                }
+            }
+        "#;
+        let result: TestsResult = self
+            .graphql(query, serde_json::json!({ "jql": jql, "limit": limit }))
+            .await?;
+        Ok(result.get_tests.results)
+    }
+
     // ── Create Test Execution ─────────────────────────────────────────────────
 
     pub async fn create_test_execution(
@@ -252,34 +287,84 @@ impl XrayClient {
         input: CreateTestExecutionInput,
     ) -> Result<CreateTestExecutionResult> {
         let query = r#"
-            mutation CreateTestExecution($testPlanId: String, $projectId: String!, $summary: String!, $description: String) {
+            mutation CreateTestExecution(
+                $testIssueIds: [String],
+                $jira: JSON!
+            ) {
                 createTestExecution(
-                    testPlanId: $testPlanId
-                    jira: {
-                        fields: {
-                            project: { id: $projectId }
-                            summary: $summary
-                            description: $description
-                        }
-                    }
+                    testIssueIds: $testIssueIds
+                    jira: $jira
                 ) {
                     testExecution {
                         issueId
                         jira(fields: ["key", "summary", "status"])
                     }
+                    warnings
                 }
             }
         "#;
-        self.graphql(
-            query,
-            serde_json::json!({
-                "testPlanId": input.test_plan_id,
-                "projectId": input.project_id,
-                "summary": input.summary,
-                "description": input.description,
-            }),
-        )
-        .await
+
+        let mut fields = serde_json::Map::new();
+        fields.insert(
+            "summary".to_owned(),
+            serde_json::json!(input.summary.trim()),
+        );
+        // The config field may contain either a project key (e.g. "PROJ")
+        // or a numeric project ID (e.g. "10428"). Jira's issue-create API
+        // uses `project.key` for the former and `project.id` for the latter.
+        let pk = input.project_key.trim();
+        let project_value = if pk.chars().all(|c| c.is_ascii_digit()) {
+            serde_json::json!({ "id": pk })
+        } else {
+            serde_json::json!({ "key": pk })
+        };
+        fields.insert("project".to_owned(), project_value);
+        if let Some(desc) = &input.description {
+            fields.insert("description".to_owned(), serde_json::json!(desc));
+        }
+
+        let jira = serde_json::json!({ "fields": fields });
+
+        let variables = serde_json::json!({
+            "testIssueIds": input.test_issue_ids,
+            "jira": jira,
+        });
+
+        let resp: CreateTestExecutionResponse = self.graphql(query, variables).await?;
+        Ok(resp.create_test_execution)
+    }
+
+    // ── Add Test Executions to Test Plan ──────────────────────────────────────
+
+    /// Associate one or more test executions with a test plan.
+    pub async fn add_test_executions_to_test_plan(
+        &self,
+        input: AddTestExecutionsToTestPlanInput,
+    ) -> Result<()> {
+        let query = r#"
+            mutation AddTestExecutionsToTestPlan(
+                $issueId: String!,
+                $testExecIssueIds: [String]!
+            ) {
+                addTestExecutionsToTestPlan(
+                    issueId: $issueId,
+                    testExecIssueIds: $testExecIssueIds
+                ) {
+                    addedTestExecutions
+                    warning
+                }
+            }
+        "#;
+        let _: serde_json::Value = self
+            .graphql(
+                query,
+                serde_json::json!({
+                    "issueId": input.test_plan_issue_id,
+                    "testExecIssueIds": input.test_exec_issue_ids,
+                }),
+            )
+            .await?;
+        Ok(())
     }
 
     // ── Get Statuses ──────────────────────────────────────────────────────────
