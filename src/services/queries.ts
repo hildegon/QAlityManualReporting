@@ -8,7 +8,7 @@ import {
   useQueryClient,
   type UseMutationResult,
 } from "@tanstack/react-query";
-import type { AppConfig, CreateTestExecutionResult, JiraProject, TestExecution, TestPlan, TestRun, XrayTestRunStatus } from "@/types";
+import type { AppConfig, CreateTestExecutionResult, JiraProject, TestExecution, TestPlan, TestRun, XrayStepStatus, XrayTestRunStatus } from "@/types";
 import * as api from "./tauri";
 
 // ── Query keys ────────────────────────────────────────────────────────────────
@@ -20,6 +20,7 @@ export const queryKeys = {
   testExecutions: (projectKey: string) => ["xray", "test-executions", projectKey] as const,
   testRuns: (executionIssueId: string) => ["xray", "test-runs", executionIssueId] as const,
   xrayStatuses: (projectId: string) => ["xray", "statuses", projectId] as const,
+  stepStatuses: (projectId: string) => ["xray", "step-statuses", projectId] as const,
 };
 
 // ── Config ────────────────────────────────────────────────────────────────────
@@ -96,6 +97,17 @@ export function useXrayStatuses(projectId: string | null) {
   });
 }
 
+// ── Step statuses ─────────────────────────────────────────────────────────────
+
+export function useStepStatuses(projectId: string | null) {
+  return useQuery<XrayStepStatus[]>({
+    queryKey: queryKeys.stepStatuses(projectId ?? ""),
+    queryFn: () => api.getStepStatuses(projectId!),
+    enabled: !!projectId,
+    staleTime: 10 * 60 * 1000,
+  });
+}
+
 // ── Update test run status (optimistic) ──────────────────────────────────────
 
 interface UpdateStatusVars {
@@ -158,6 +170,61 @@ export function useUpdateTestRunComment() {
       const previous = queryClient.getQueryData<TestRun[]>(key);
       queryClient.setQueryData<TestRun[]>(key, (old) =>
         old?.map((run) => (run.id === testRunId ? { ...run, comment } : run)),
+      );
+      return { previous };
+    },
+
+    onError: (_err, { executionIssueId }, context) => {
+      const ctx = context as { previous?: TestRun[] } | undefined;
+      if (ctx?.previous) {
+        queryClient.setQueryData(queryKeys.testRuns(executionIssueId), ctx.previous);
+      }
+    },
+
+    onSettled: (_data, _err, { executionIssueId }) => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.testRuns(executionIssueId) });
+    },
+  });
+}
+
+// ── Update test run step status (optimistic) ────────────────────────────────
+
+interface UpdateStepStatusVars {
+  testRunId: string;
+  stepId: string;
+  status: string;
+  executionIssueId: string;
+}
+
+export function useUpdateTestRunStepStatus() {
+  const queryClient = useQueryClient();
+  return useMutation<void, Error, UpdateStepStatusVars>({
+    mutationFn: ({ testRunId, stepId, status }) =>
+      api.updateTestRunStepStatus(testRunId, stepId, status),
+
+    // Optimistic update: flip step status in the cache immediately
+    onMutate: async ({ testRunId, stepId, status, executionIssueId }) => {
+      const key = queryKeys.testRuns(executionIssueId);
+      await queryClient.cancelQueries({ queryKey: key });
+
+      const previous = queryClient.getQueryData<TestRun[]>(key);
+      queryClient.setQueryData<TestRun[]>(key, (old) =>
+        old?.map((run) =>
+          run.id === testRunId
+            ? {
+                ...run,
+                ...(run.steps
+                  ? {
+                      steps: run.steps.map((step) =>
+                        step.id === stepId
+                          ? { ...step, status: { ...step.status, name: status } }
+                          : step,
+                      ),
+                    }
+                  : {}),
+              }
+            : run,
+        ),
       );
       return { previous };
     },

@@ -4,14 +4,16 @@ import {
   useTestRuns,
   useUpdateTestRunStatus,
   useUpdateTestRunComment,
+  useUpdateTestRunStepStatus,
   useXrayStatuses,
+  useStepStatuses,
 } from "@/services/queries";
 import { Spinner } from "@/components/ui/spinner";
 import { Button } from "@/components/ui/button";
 import { Badge, statusVariant } from "@/components/ui/badge";
 import { cn } from "@/components/ui/utils";
-import { ArrowLeft, MessageSquare } from "lucide-react";
-import type { TestExecution, TestRun, XrayTestRunStatus } from "@/types";
+import { ArrowLeft, ChevronDown, ChevronRight, MessageSquare } from "lucide-react";
+import type { TestExecution, TestRun, TestRunStep, XrayStepStatus, XrayTestRunStatus } from "@/types";
 
 interface TestExecutionDetailProps {
   execution: TestExecution;
@@ -24,7 +26,6 @@ function statusButtonStyle(
   isActive: boolean,
 ): React.CSSProperties {
   if (!color) return {};
-  // Use the hex color at reduced opacity for inactive, full for active
   return isActive
     ? { backgroundColor: color, color: "#fff", borderColor: color }
     : { backgroundColor: `${color}22`, color, borderColor: `${color}55` };
@@ -39,18 +40,42 @@ const FALLBACK_STATUSES: XrayTestRunStatus[] = [
   { name: "BLOCKED" },
 ];
 
+const FALLBACK_STEP_STATUSES: XrayStepStatus[] = [
+  { name: "TODO" },
+  { name: "PASS" },
+  { name: "FAIL" },
+];
+
 export function TestExecutionDetail({ execution, onBack }: TestExecutionDetailProps) {
   const { data: runs, isLoading, isError, error } = useTestRuns(execution.issue_id);
   const { data: xrayStatuses } = useXrayStatuses(execution.project_id);
+  const { data: xrayStepStatuses } = useStepStatuses(execution.project_id);
   const updateStatus = useUpdateTestRunStatus();
   const updateComment = useUpdateTestRunComment();
+  const updateStepStatus = useUpdateTestRunStepStatus();
 
   const [activeComment, setActiveComment] = useState<string | null>(null);
   const [commentValue, setCommentValue] = useState("");
+  const [expandedRuns, setExpandedRuns] = useState<Set<string>>(new Set());
   const parentRef = useRef<HTMLDivElement>(null);
 
   const statuses: XrayTestRunStatus[] =
     xrayStatuses && xrayStatuses.length > 0 ? xrayStatuses : FALLBACK_STATUSES;
+
+  const stepStatuses: XrayStepStatus[] =
+    xrayStepStatuses && xrayStepStatuses.length > 0 ? xrayStepStatuses : FALLBACK_STEP_STATUSES;
+
+  const toggleExpanded = (runId: string) => {
+    setExpandedRuns((prev) => {
+      const next = new Set(prev);
+      if (next.has(runId)) {
+        next.delete(runId);
+      } else {
+        next.add(runId);
+      }
+      return next;
+    });
+  };
 
   const virtualizer = useVirtualizer({
     count: runs?.length ?? 0,
@@ -62,6 +87,15 @@ export function TestExecutionDetail({ execution, onBack }: TestExecutionDetailPr
   const handleStatusChange = (run: TestRun, newStatus: string) => {
     updateStatus.mutate({
       testRunId: run.id,
+      status: newStatus,
+      executionIssueId: execution.issue_id,
+    });
+  };
+
+  const handleStepStatusChange = (run: TestRun, step: TestRunStep, newStatus: string) => {
+    updateStepStatus.mutate({
+      testRunId: run.id,
+      stepId: step.id,
       status: newStatus,
       executionIssueId: execution.issue_id,
     });
@@ -164,7 +198,8 @@ export function TestExecutionDetail({ execution, onBack }: TestExecutionDetailPr
 
           <div className="rounded-lg border border-slate-200 bg-white shadow-sm">
             {/* Table header */}
-            <div className="grid grid-cols-[2fr_1fr_auto_auto] gap-4 border-b border-slate-100 bg-slate-50 px-4 py-2.5 text-xs font-medium uppercase tracking-wide text-slate-500">
+            <div className="grid grid-cols-[auto_2fr_1fr_auto_auto] gap-4 border-b border-slate-100 bg-slate-50 px-4 py-2.5 text-xs font-medium uppercase tracking-wide text-slate-500">
+              <span className="w-5"></span>
               <span>Test</span>
               <span>Status</span>
               <span>Update status</span>
@@ -182,6 +217,9 @@ export function TestExecutionDetail({ execution, onBack }: TestExecutionDetailPr
                   const run = runs[virtualRow.index];
                   if (!run) return null;
 
+                  const hasSteps = run.steps && run.steps.length > 0;
+                  const isExpanded = expandedRuns.has(run.id);
+
                   return (
                     <div
                       key={run.id}
@@ -195,7 +233,26 @@ export function TestExecutionDetail({ execution, onBack }: TestExecutionDetailPr
                         transform: `translateY(${virtualRow.start}px)`,
                       }}
                     >
-                      <div className="grid grid-cols-[2fr_1fr_auto_auto] items-center gap-4 border-b border-slate-50 px-4 py-3 last:border-0 hover:bg-slate-50/50">
+                      <div className="grid grid-cols-[auto_2fr_1fr_auto_auto] items-center gap-4 border-b border-slate-50 px-4 py-3 last:border-0 hover:bg-slate-50/50">
+                        {/* Expand toggle */}
+                        <button
+                          onClick={() => hasSteps && toggleExpanded(run.id)}
+                          className={cn(
+                            "flex h-5 w-5 items-center justify-center rounded",
+                            hasSteps
+                              ? "text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+                              : "cursor-default text-transparent",
+                          )}
+                          aria-label={isExpanded ? "Collapse steps" : "Expand steps"}
+                          tabIndex={hasSteps ? 0 : -1}
+                        >
+                          {hasSteps && (
+                            isExpanded
+                              ? <ChevronDown className="h-4 w-4" />
+                              : <ChevronRight className="h-4 w-4" />
+                          )}
+                        </button>
+
                         {/* Test identity */}
                         <div className="min-w-0">
                           <p className="truncate text-sm text-slate-800">
@@ -203,6 +260,11 @@ export function TestExecutionDetail({ execution, onBack }: TestExecutionDetailPr
                           </p>
                           <p className="font-mono text-xs text-slate-400">
                             {run.test.jira.key}
+                            {hasSteps && (
+                              <span className="ml-2 text-slate-300">
+                                {run.steps!.length} step{run.steps!.length !== 1 ? "s" : ""}
+                              </span>
+                            )}
                           </p>
                         </div>
 
@@ -289,6 +351,19 @@ export function TestExecutionDetail({ execution, onBack }: TestExecutionDetailPr
                           </Button>
                         </div>
                       )}
+
+                      {/* Expanded steps panel */}
+                      {isExpanded && hasSteps && (
+                        <StepsPanel
+                          run={run}
+                          steps={run.steps!}
+                          stepStatuses={stepStatuses}
+                          onStepStatusChange={(step, status) =>
+                            handleStepStatusChange(run, step, status)
+                          }
+                          isPending={updateStepStatus.isPending}
+                        />
+                      )}
                     </div>
                   );
                 })}
@@ -301,6 +376,109 @@ export function TestExecutionDetail({ execution, onBack }: TestExecutionDetailPr
           </div>
         </>
       )}
+    </div>
+  );
+}
+
+// ── Steps Panel ───────────────────────────────────────────────────────────────
+
+interface StepsPanelProps {
+  run: TestRun;
+  steps: TestRunStep[];
+  stepStatuses: XrayStepStatus[];
+  onStepStatusChange: (step: TestRunStep, status: string) => void;
+  isPending: boolean;
+}
+
+function StepsPanel({ steps, stepStatuses, onStepStatusChange, isPending }: StepsPanelProps) {
+  return (
+    <div className="border-b border-slate-100 bg-slate-50/60">
+      <div className="px-6 py-2">
+        <p className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-400">
+          Steps
+        </p>
+        <div className="space-y-1">
+          {steps.map((step, index) => {
+            const currentStatus = step.status?.name?.toUpperCase() ?? "";
+            return (
+              <div
+                key={step.id}
+                className="rounded-md border border-slate-200 bg-white px-3 py-2"
+              >
+                <div className="flex items-start gap-3">
+                  {/* Step number */}
+                  <span className="mt-0.5 flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full bg-slate-100 text-xs font-medium text-slate-500">
+                    {index + 1}
+                  </span>
+
+                  {/* Step content */}
+                  <div className="min-w-0 flex-1">
+                    {step.action && (
+                      <p className="text-sm text-slate-700">{step.action}</p>
+                    )}
+                    {step.data && (
+                      <p className="mt-0.5 text-xs text-slate-400">
+                        <span className="font-medium text-slate-500">Data: </span>
+                        {step.data}
+                      </p>
+                    )}
+                    {step.result && (
+                      <p className="mt-0.5 text-xs text-slate-400">
+                        <span className="font-medium text-slate-500">Expected: </span>
+                        {step.result}
+                      </p>
+                    )}
+                    {step.actual_result && (
+                      <p className="mt-0.5 text-xs text-slate-400">
+                        <span className="font-medium text-slate-500">Actual: </span>
+                        {step.actual_result}
+                      </p>
+                    )}
+                    {step.comment && (
+                      <p className="mt-0.5 text-xs italic text-slate-400">
+                        {step.comment}
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Step status + buttons */}
+                  <div className="flex flex-shrink-0 items-center gap-1.5">
+                    {step.status && (
+                      <Badge
+                        variant={statusVariant(step.status.name)}
+                        className="mr-1 text-[10px]"
+                      >
+                        {step.status.name}
+                      </Badge>
+                    )}
+                    {stepStatuses.map((s) => {
+                      const isActive = currentStatus === s.name.toUpperCase();
+                      return (
+                        <button
+                          key={s.name}
+                          title={s.description ?? s.name}
+                          disabled={isPending}
+                          onClick={() => onStepStatusChange(step, s.name)}
+                          style={statusButtonStyle(s.color, isActive)}
+                          className={cn(
+                            "rounded border px-1.5 py-0.5 text-[10px] font-medium transition-colors",
+                            !s.color &&
+                              (isActive
+                                ? "border-transparent bg-slate-800 text-white"
+                                : "border-transparent bg-slate-100 text-slate-600 hover:bg-slate-200"),
+                          )}
+                        >
+                          {s.name}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
     </div>
   );
 }

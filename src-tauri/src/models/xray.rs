@@ -75,6 +75,7 @@ pub struct TestRun {
     pub status: TestRunStatus,
     pub test: TestRunTest,
     pub comment: Option<String>,
+    pub steps: Option<Vec<TestRunStep>>,
     #[serde(rename(deserialize = "startedOn"))]
     pub started_on: Option<String>,
     #[serde(rename(deserialize = "finishedOn"))]
@@ -106,6 +107,43 @@ pub struct TestRunTest {
 pub struct TestRunTestJira {
     pub key: String,
     pub summary: String,
+}
+
+// ── Test Run Steps ────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TestRunStep {
+    pub id: String,
+    pub status: Option<StepStatus>,
+    pub action: Option<String>,
+    pub data: Option<String>,
+    pub result: Option<String>,
+    #[serde(rename(deserialize = "actualResult"))]
+    pub actual_result: Option<String>,
+    pub comment: Option<String>,
+    pub defects: Option<Vec<String>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StepStatus {
+    pub name: String,
+    pub description: Option<String>,
+    pub color: Option<String>,
+}
+
+/// Result from `getStepStatuses` query.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StepStatusesResult {
+    #[serde(rename(deserialize = "getStepStatuses"))]
+    pub step_statuses: Vec<XrayStepStatus>,
+}
+
+/// A configured step status returned by `getStepStatuses`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct XrayStepStatus {
+    pub name: String,
+    pub description: Option<String>,
+    pub color: Option<String>,
 }
 
 // ── Update Test Run ───────────────────────────────────────────────────────────

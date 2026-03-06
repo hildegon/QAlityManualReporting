@@ -73,4 +73,16 @@ describe("tauri service wrappers", () => {
       limit: undefined,
     });
   });
+
+  it("updateTestRunStepStatus passes testRunId, stepId, and status", async () => {
+    const { updateTestRunStepStatus } = await import("./tauri");
+    mockInvoke.mockResolvedValueOnce(undefined);
+
+    await updateTestRunStepStatus("run-123", "step-456", "FAILED");
+    expect(mockInvoke).toHaveBeenCalledWith("update_test_run_step_status", {
+      testRunId: "run-123",
+      stepId: "step-456",
+      status: "FAILED",
+    });
+  });
 });

@@ -54,6 +54,7 @@ export interface TestRun {
     jira: { key: string; summary: string };
   };
   comment?: string;
+  steps?: TestRunStep[];
   started_on?: string;
   finished_on?: string;
   assignee_id?: string;
@@ -67,11 +68,35 @@ export interface TestRunStatus {
   is_final?: boolean;
 }
 
+export interface TestRunStep {
+  id: string;
+  status?: StepStatus;
+  action?: string;
+  data?: string;
+  result?: string;
+  actual_result?: string;
+  comment?: string;
+  defects?: string[];
+}
+
+export interface StepStatus {
+  name: string;
+  description?: string;
+  color?: string;
+}
+
 /** Full status object returned by Xray's getStatuses API. */
 export interface XrayTestRunStatus {
   name: string;
   description?: string;
   is_final?: boolean;
+  color?: string;
+}
+
+/** Step status returned by Xray's getStepStatuses API. */
+export interface XrayStepStatus {
+  name: string;
+  description?: string;
   color?: string;
 }
 
