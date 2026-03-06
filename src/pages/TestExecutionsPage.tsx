@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useTestExecutions, useCreateTestExecution } from "@/services/queries";
 import { useProjectKey } from "@/hooks/useProjectKey";
+import { useProjectStore } from "@/stores/projectStore";
 import { Spinner } from "@/components/ui/spinner";
 import { Badge, statusVariant } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -13,6 +14,7 @@ import type { TestExecution } from "@/types";
 
 export function TestExecutionsPage() {
   const projectKey = useProjectKey();
+  const { activeProject } = useProjectStore();
   const {
     data: executions,
     isLoading,
@@ -25,9 +27,7 @@ export function TestExecutionsPage() {
   const [createOpen, setCreateOpen] = useState(false);
 
   if (!projectKey) {
-    return (
-      <EmptyState message="Set a Project Key in Settings to view test executions." />
-    );
+    return <EmptyState message="Set a Project Key in Settings to view test executions." />;
   }
 
   if (isLoading) {
@@ -39,15 +39,12 @@ export function TestExecutionsPage() {
   }
 
   if (isError) {
-    const errorMessage =
-      error instanceof Error ? error.message : String(error);
+    const errorMessage = error instanceof Error ? error.message : String(error);
     return (
       <div className="space-y-3">
         <div className="rounded-md bg-red-50 px-4 py-3 text-sm text-red-700">
           <p className="mb-1 font-medium">Failed to load test executions</p>
-          <pre className="whitespace-pre-wrap break-words font-mono text-xs">
-            {errorMessage}
-          </pre>
+          <pre className="whitespace-pre-wrap break-words font-mono text-xs">{errorMessage}</pre>
         </div>
         <Button variant="outline" size="sm" onClick={() => void refetch()}>
           <RefreshCw className="mr-1.5 h-4 w-4" />
@@ -58,12 +55,7 @@ export function TestExecutionsPage() {
   }
 
   if (selected) {
-    return (
-      <TestExecutionDetail
-        execution={selected}
-        onBack={() => setSelected(null)}
-      />
-    );
+    return <TestExecutionDetail execution={selected} onBack={() => setSelected(null)} />;
   }
 
   return (
@@ -76,12 +68,7 @@ export function TestExecutionsPage() {
           </span>
         </h1>
         <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => void refetch()}
-            disabled={isFetching}
-          >
+          <Button variant="outline" size="sm" onClick={() => void refetch()} disabled={isFetching}>
             <RefreshCw className={`h-4 w-4 ${isFetching ? "animate-spin" : ""}`} />
             Reload
           </Button>
@@ -112,9 +99,7 @@ export function TestExecutionsPage() {
                   className="cursor-pointer hover:bg-slate-50"
                   onClick={() => setSelected(exec)}
                 >
-                  <td className="px-4 py-3 font-mono text-xs text-slate-600">
-                    {exec.jira.key}
-                  </td>
+                  <td className="px-4 py-3 font-mono text-xs text-slate-600">{exec.jira.key}</td>
                   <td className="px-4 py-3 text-slate-800">{exec.jira.summary}</td>
                   <td className="px-4 py-3">
                     {exec.jira.status && (
@@ -136,7 +121,7 @@ export function TestExecutionsPage() {
       <CreateExecutionDialog
         open={createOpen}
         onOpenChange={setCreateOpen}
-        projectId={projectKey}
+        projectId={activeProject?.id ?? null}
         projectKey={projectKey}
       />
     </div>
@@ -146,8 +131,8 @@ export function TestExecutionsPage() {
 interface CreateExecutionDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  projectId: string;
-  projectKey: string;
+  projectId: string | null;
+  projectKey: string | null;
 }
 
 function CreateExecutionDialog({
@@ -162,7 +147,7 @@ function CreateExecutionDialog({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!summary.trim()) return;
+    if (!summary.trim() || !projectId || !projectKey) return;
     createExecution.mutate(
       { projectId, projectKey, summary, description: description || undefined },
       {
@@ -216,7 +201,10 @@ function CreateExecutionDialog({
                   Cancel
                 </Button>
               </Dialog.Close>
-              <Button type="submit" disabled={createExecution.isPending || !summary.trim()}>
+              <Button
+                type="submit"
+                disabled={createExecution.isPending || !summary.trim() || !projectId}
+              >
                 {createExecution.isPending ? <Spinner size="sm" /> : "Create"}
               </Button>
             </div>

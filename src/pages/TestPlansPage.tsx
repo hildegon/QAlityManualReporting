@@ -7,19 +7,10 @@ import { BookOpen, RefreshCw } from "lucide-react";
 
 export function TestPlansPage() {
   const projectKey = useProjectKey();
-  const {
-    data: plans,
-    isLoading,
-    isError,
-    error,
-    refetch,
-    isFetching,
-  } = useTestPlans(projectKey);
+  const { data: plans, isLoading, isError, error, refetch, isFetching } = useTestPlans(projectKey);
 
   if (!projectKey) {
-    return (
-      <EmptyState message="Set a Project Key in Settings to view test plans." />
-    );
+    return <EmptyState message="Set a Project Key in Settings to view test plans." />;
   }
 
   if (isLoading) {
@@ -31,15 +22,12 @@ export function TestPlansPage() {
   }
 
   if (isError) {
-    const errorMessage =
-      error instanceof Error ? error.message : String(error);
+    const errorMessage = error instanceof Error ? error.message : String(error);
     return (
       <div className="space-y-3">
         <div className="rounded-md bg-red-50 px-4 py-3 text-sm text-red-700">
           <p className="mb-1 font-medium">Failed to load test plans</p>
-          <pre className="whitespace-pre-wrap break-words font-mono text-xs">
-            {errorMessage}
-          </pre>
+          <pre className="whitespace-pre-wrap break-words font-mono text-xs">{errorMessage}</pre>
         </div>
         <Button variant="outline" size="sm" onClick={() => void refetch()}>
           <RefreshCw className="mr-1.5 h-4 w-4" />
@@ -58,12 +46,7 @@ export function TestPlansPage() {
             {projectKey} · {plans?.length ?? 0}
           </span>
         </h1>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => void refetch()}
-          disabled={isFetching}
-        >
+        <Button variant="outline" size="sm" onClick={() => void refetch()} disabled={isFetching}>
           <RefreshCw className={`h-4 w-4 ${isFetching ? "animate-spin" : ""}`} />
           Reload
         </Button>
@@ -84,9 +67,7 @@ export function TestPlansPage() {
             <tbody className="divide-y divide-slate-100">
               {plans.map((plan) => (
                 <tr key={plan.issue_id} className="hover:bg-slate-50">
-                  <td className="px-4 py-3 font-mono text-xs text-slate-600">
-                    {plan.jira.key}
-                  </td>
+                  <td className="px-4 py-3 font-mono text-xs text-slate-600">{plan.jira.key}</td>
                   <td className="px-4 py-3 text-slate-800">{plan.jira.summary}</td>
                   <td className="px-4 py-3">
                     {plan.jira.status && (

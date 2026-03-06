@@ -107,6 +107,14 @@ export interface CreateTestExecutionResult {
   };
 }
 
+/** Paginated response from `get_test_runs` Tauri command. */
+export interface TestRunsPage {
+  total: number;
+  start?: number;
+  limit?: number;
+  results: TestRun[];
+}
+
 // ── UI helpers ────────────────────────────────────────────────────────────────
 
 export type TestStatusName = "PASS" | "FAIL" | "TODO" | "EXECUTING" | "BLOCKED" | string;

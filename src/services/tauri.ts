@@ -9,7 +9,7 @@ import type {
   JiraProject,
   TestExecution,
   TestPlan,
-  TestRun,
+  TestRunsPage,
   XrayStepStatus,
   XrayTestRunStatus,
 } from "@/types";
@@ -27,8 +27,7 @@ export const clearConfig = (): Promise<void> => invoke("clear_config");
 
 export const getJiraProjects = (): Promise<JiraProject[]> => invoke("get_jira_projects");
 
-export const validateJiraCredentials = (): Promise<string> =>
-  invoke("validate_jira_credentials");
+export const validateJiraCredentials = (): Promise<string> => invoke("validate_jira_credentials");
 
 // ── Xray ──────────────────────────────────────────────────────────────────────
 
@@ -37,15 +36,14 @@ export const authenticateXray = (): Promise<void> => invoke("authenticate_xray")
 export const getTestPlans = (projectKey: string, limit?: number): Promise<TestPlan[]> =>
   invoke("get_test_plans", { projectKey, limit });
 
-export const getTestExecutions = (
-  projectKey: string,
-  limit?: number,
-): Promise<TestExecution[]> => invoke("get_test_executions", { projectKey, limit });
+export const getTestExecutions = (projectKey: string, limit?: number): Promise<TestExecution[]> =>
+  invoke("get_test_executions", { projectKey, limit });
 
 export const getTestRuns = (
   testExecutionIssueId: string,
   limit?: number,
-): Promise<TestRun[]> => invoke("get_test_runs", { testExecutionIssueId, limit });
+  start?: number,
+): Promise<TestRunsPage> => invoke("get_test_runs", { testExecutionIssueId, limit, start });
 
 export const updateTestRunStatus = (testRunId: string, status: string): Promise<void> =>
   invoke("update_test_run_status", { testRunId, status });
@@ -64,6 +62,15 @@ export const updateTestRunStepStatus = (
   stepId: string,
   status: string,
 ): Promise<void> => invoke("update_test_run_step_status", { testRunId, stepId, status });
+
+export const updateTestRunStep = (
+  testRunId: string,
+  stepId: string,
+  comment?: string,
+  actualResult?: string,
+  status?: string,
+): Promise<void> =>
+  invoke("update_test_run_step", { testRunId, stepId, comment, actualResult, status });
 
 export const createTestExecution = (
   projectId: string,

@@ -180,11 +180,14 @@ impl XrayClient {
         &self,
         test_execution_issue_id: &str,
         limit: u32,
+        start: u32,
     ) -> Result<TestRunsResult> {
         let query = r#"
-            query GetTestRuns($issueId: String!, $limit: Int!) {
-                getTestRuns(testExecIssueIds: [$issueId], limit: $limit) {
+            query GetTestRuns($issueId: String!, $limit: Int!, $start: Int) {
+                getTestRuns(testExecIssueIds: [$issueId], limit: $limit, start: $start) {
                     total
+                    start
+                    limit
                     results {
                         id
                         status { name color description final }
@@ -213,7 +216,7 @@ impl XrayClient {
         "#;
         self.graphql(
             query,
-            serde_json::json!({ "issueId": test_execution_issue_id, "limit": limit }),
+            serde_json::json!({ "issueId": test_execution_issue_id, "limit": limit, "start": start }),
         )
         .await
     }
@@ -342,6 +345,52 @@ impl XrayClient {
     }
 
     // ── Update Test Run Step Status ───────────────────────────────────────────
+
+    /// Update a step within a test run (comment, actualResult, status).
+    /// Uses the full `updateTestRunStep` mutation with `UpdateTestRunStepInput`.
+    pub async fn update_test_run_step(
+        &self,
+        test_run_id: &str,
+        step_id: &str,
+        update_data: &crate::models::xray::UpdateTestRunStepData,
+    ) -> Result<()> {
+        let query = r#"
+            mutation UpdateTestRunStep(
+                $testRunId: String!,
+                $stepId: String!,
+                $updateData: UpdateTestRunStepInput!
+            ) {
+                updateTestRunStep(
+                    testRunId: $testRunId,
+                    stepId: $stepId,
+                    updateData: $updateData
+                ) {
+                    warnings
+                }
+            }
+        "#;
+        let mut data = serde_json::Map::new();
+        if let Some(ref comment) = update_data.comment {
+            data.insert("comment".to_owned(), serde_json::json!(comment));
+        }
+        if let Some(ref actual_result) = update_data.actual_result {
+            data.insert("actualResult".to_owned(), serde_json::json!(actual_result));
+        }
+        if let Some(ref status) = update_data.status {
+            data.insert("status".to_owned(), serde_json::json!(status));
+        }
+        let _: serde_json::Value = self
+            .graphql(
+                query,
+                serde_json::json!({
+                    "testRunId": test_run_id,
+                    "stepId": step_id,
+                    "updateData": data,
+                }),
+            )
+            .await?;
+        Ok(())
+    }
 
     /// Update the status of a single step within a test run.
     pub async fn update_test_run_step_status(

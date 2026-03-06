@@ -21,17 +21,14 @@ const badgeVariants = cva(
 );
 
 export interface BadgeProps
-  extends React.HTMLAttributes<HTMLDivElement>,
-    VariantProps<typeof badgeVariants> {}
+  extends React.HTMLAttributes<HTMLDivElement>, VariantProps<typeof badgeVariants> {}
 
 export function Badge({ className, variant, ...props }: BadgeProps) {
   return <div className={cn(badgeVariants({ variant }), className)} {...props} />;
 }
 
 /** Maps an Xray test status name to a Badge variant. */
-export function statusVariant(
-  status: string,
-): VariantProps<typeof badgeVariants>["variant"] {
+export function statusVariant(status: string): VariantProps<typeof badgeVariants>["variant"] {
   switch (status.toUpperCase()) {
     case "PASS":
     case "PASSED":
