@@ -5,8 +5,8 @@ use tokio::sync::Mutex;
 
 use crate::models::xray::{
     CreateTestExecutionInput, CreateTestExecutionResult, GraphQLRequest, GraphQLResponse,
-    StatusesResult, TestExecutionsResult, TestPlansResult, TestRunsResult,
-    UpdateTestRunStatusInput, XrayAuthRequest, XrayTestRunStatus,
+    StatusesResult, StepStatusesResult, TestExecutionsResult, TestPlansResult, TestRunsResult,
+    UpdateTestRunStatusInput, XrayAuthRequest, XrayStepStatus, XrayTestRunStatus,
 };
 
 const XRAY_AUTH_URL: &str = "https://xray.cloud.getxray.app/api/v2/authenticate";
@@ -197,6 +197,16 @@ impl XrayClient {
                             issueId
                             jira(fields: ["key", "summary"])
                         }
+                        steps {
+                            id
+                            action
+                            data
+                            result
+                            actualResult
+                            comment
+                            defects
+                            status { name color description }
+                        }
                     }
                 }
             }
@@ -306,6 +316,62 @@ impl XrayClient {
                 serde_json::json!({
                     "id": test_run_id,
                     "comment": comment,
+                }),
+            )
+            .await?;
+        Ok(())
+    }
+
+    // ── Step Statuses ─────────────────────────────────────────────────────────
+
+    /// Fetch all configured step statuses for the project.
+    pub async fn get_step_statuses(&self, project_id: Option<&str>) -> Result<Vec<XrayStepStatus>> {
+        let query = r#"
+            query GetStepStatuses($projectId: String) {
+                getStepStatuses(projectId: $projectId) {
+                    name
+                    description
+                    color
+                }
+            }
+        "#;
+        let result: StepStatusesResult = self
+            .graphql(query, serde_json::json!({ "projectId": project_id }))
+            .await?;
+        Ok(result.step_statuses)
+    }
+
+    // ── Update Test Run Step Status ───────────────────────────────────────────
+
+    /// Update the status of a single step within a test run.
+    pub async fn update_test_run_step_status(
+        &self,
+        test_run_id: &str,
+        step_id: &str,
+        status: &str,
+    ) -> Result<()> {
+        let query = r#"
+            mutation UpdateTestRunStepStatus(
+                $testRunId: String!,
+                $stepId: String!,
+                $status: String!
+            ) {
+                updateTestRunStepStatus(
+                    testRunId: $testRunId,
+                    stepId: $stepId,
+                    status: $status
+                ) {
+                    warnings
+                }
+            }
+        "#;
+        let _: serde_json::Value = self
+            .graphql(
+                query,
+                serde_json::json!({
+                    "testRunId": test_run_id,
+                    "stepId": step_id,
+                    "status": status,
                 }),
             )
             .await?;

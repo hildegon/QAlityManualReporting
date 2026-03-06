@@ -10,6 +10,7 @@ import type {
   TestExecution,
   TestPlan,
   TestRun,
+  XrayStepStatus,
   XrayTestRunStatus,
 } from "@/types";
 
@@ -54,6 +55,15 @@ export const updateTestRunComment = (testRunId: string, comment: string): Promis
 
 export const getXrayStatuses = (projectId: string): Promise<XrayTestRunStatus[]> =>
   invoke("get_xray_statuses", { projectId });
+
+export const getStepStatuses = (projectId: string): Promise<XrayStepStatus[]> =>
+  invoke("get_step_statuses", { projectId });
+
+export const updateTestRunStepStatus = (
+  testRunId: string,
+  stepId: string,
+  status: string,
+): Promise<void> => invoke("update_test_run_step_status", { testRunId, stepId, status });
 
 export const createTestExecution = (
   projectId: string,

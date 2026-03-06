@@ -5,7 +5,7 @@ use crate::{
     commands::config::load_config,
     models::xray::{
         CreateTestExecutionInput, CreateTestExecutionResult, TestExecution, TestPlan, TestRun,
-        UpdateTestRunStatusInput, XrayTestRunStatus,
+        UpdateTestRunStatusInput, XrayStepStatus, XrayTestRunStatus,
     },
 };
 
@@ -123,6 +123,32 @@ pub async fn create_test_execution(
             test_plan_id,
             description,
         })
+        .await
+        .map_err(format_err)
+}
+
+#[tauri::command]
+pub async fn get_step_statuses(
+    app: AppHandle,
+    project_id: Option<String>,
+) -> Result<Vec<XrayStepStatus>, String> {
+    let client = make_xray_client(&app)?;
+    client
+        .get_step_statuses(project_id.as_deref())
+        .await
+        .map_err(format_err)
+}
+
+#[tauri::command]
+pub async fn update_test_run_step_status(
+    app: AppHandle,
+    test_run_id: String,
+    step_id: String,
+    status: String,
+) -> Result<(), String> {
+    let client = make_xray_client(&app)?;
+    client
+        .update_test_run_step_status(&test_run_id, &step_id, &status)
         .await
         .map_err(format_err)
 }
