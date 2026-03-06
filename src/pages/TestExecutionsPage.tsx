@@ -6,7 +6,7 @@ import {
   useGetTests,
   useGetTestSets,
 } from "@/services/queries";
-import { useProjectKey } from "@/hooks/useProjectKey";
+import { useContentProjectKey, useExecutionProjectKey } from "@/hooks/useProjectKey";
 import { Spinner } from "@/components/ui/spinner";
 import { Badge, statusVariant } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -26,7 +26,8 @@ function isDoneStatus(name: string) {
 }
 
 export function TestExecutionsPage() {
-  const projectKey = useProjectKey();
+  const executionProjectKey = useExecutionProjectKey();
+  const contentProjectKey = useContentProjectKey();
   const {
     data: executions,
     isLoading,
@@ -34,14 +35,14 @@ export function TestExecutionsPage() {
     error,
     refetch,
     isFetching,
-  } = useTestExecutions(projectKey);
+  } = useTestExecutions(executionProjectKey);
   const [selected, setSelected] = useState<TestExecution | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [showDone, setShowDone] = useState(false);
 
-  if (!projectKey) {
-    return <EmptyState message="Set a Project Key in Settings to view test executions." />;
+  if (!executionProjectKey) {
+    return <EmptyState message="Set an Execution Project Key in Settings to view test executions." />;
   }
 
   if (isLoading) {
@@ -92,7 +93,7 @@ export function TestExecutionsPage() {
         <h1 className="text-xl font-semibold">
           Test Executions
           <span className="ml-2 text-sm font-normal text-slate-500">
-            {projectKey} · {filtered.length}
+            {executionProjectKey} · {filtered.length}
             {filtered.length !== (executions?.length ?? 0) && (
               <span> / {executions?.length ?? 0}</span>
             )}
@@ -139,7 +140,7 @@ export function TestExecutionsPage() {
           message={
             q || !showDone
               ? "No executions match the current filters."
-              : `No test executions found in ${projectKey}.`
+              : `No test executions found in ${executionProjectKey}.`
           }
         />
       ) : (
@@ -182,7 +183,8 @@ export function TestExecutionsPage() {
       <CreateExecutionDialog
         open={createOpen}
         onOpenChange={setCreateOpen}
-        projectKey={projectKey}
+        executionProjectKey={executionProjectKey}
+        contentProjectKey={contentProjectKey}
       />
     </div>
   );
@@ -191,13 +193,17 @@ export function TestExecutionsPage() {
 interface CreateExecutionDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  projectKey: string | null;
+  /** Project key under which the new execution will be created */
+  executionProjectKey: string | null;
+  /** Project key used to load Test Plans, Test Sets, and Tests */
+  contentProjectKey: string | null;
 }
 
 function CreateExecutionDialog({
   open,
   onOpenChange,
-  projectKey,
+  executionProjectKey,
+  contentProjectKey,
 }: CreateExecutionDialogProps) {
   const [summary, setSummary] = useState("");
   const [description, setDescription] = useState("");
@@ -209,9 +215,9 @@ function CreateExecutionDialog({
   const [addingSetId, setAddingSetId] = useState<string | null>(null);
 
   const createExecution = useCreateTestExecution();
-  const { data: testPlans, isLoading: plansLoading } = useTestPlans(projectKey ?? null);
-  const { data: tests, isLoading: testsLoading } = useGetTests(projectKey ?? undefined);
-  const { data: testSets, isLoading: testSetsLoading } = useGetTestSets(projectKey ?? undefined);
+  const { data: testPlans, isLoading: plansLoading } = useTestPlans(contentProjectKey ?? null);
+  const { data: tests, isLoading: testsLoading } = useGetTests(contentProjectKey ?? undefined);
+  const { data: testSets, isLoading: testSetsLoading } = useGetTestSets(contentProjectKey ?? undefined);
 
   const filteredTests = (tests ?? []).filter((t) => {
     const q = testSearch.toLowerCase();
@@ -272,10 +278,10 @@ function CreateExecutionDialog({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!summary.trim() || !projectKey) return;
+    if (!summary.trim() || !executionProjectKey) return;
     createExecution.mutate(
       {
-        projectKey,
+        projectKey: executionProjectKey,
         summary,
         description: description || undefined,
         ...(testPlanId ? { testPlanId } : {}),
@@ -492,7 +498,7 @@ function CreateExecutionDialog({
                 </Dialog.Close>
                 <Button
                   type="submit"
-                  disabled={createExecution.isPending || !summary.trim() || !projectKey}
+                  disabled={createExecution.isPending || !summary.trim() || !executionProjectKey}
                 >
                   {createExecution.isPending ? <Spinner size="sm" /> : "Create"}
                 </Button>

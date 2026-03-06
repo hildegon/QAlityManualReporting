@@ -15,7 +15,8 @@ const EMPTY_CONFIG: AppConfig = {
   jira_api_token: "",
   xray_client_id: "",
   xray_client_secret: "",
-  project_key: "",
+  content_project_key: "",
+  execution_project_key: "",
 };
 
 type ValidationState = "idle" | "loading" | "success" | "error";
@@ -156,11 +157,18 @@ export function SettingsPage() {
               placeholder="••••••••"
             />
           </Field>
-          <Field label="Project Key" hint="Jira project key to scope Xray queries (e.g. PROJ)">
+          <Field label="Content Project Key" hint="Project for Test Plans, Test Sets, and Tests (e.g. PROJ)">
             <Input
-              value={form.project_key}
-              onChange={handleChange("project_key")}
+              value={form.content_project_key}
+              onChange={handleChange("content_project_key")}
               placeholder="PROJ"
+            />
+          </Field>
+          <Field label="Execution Project Key" hint="Project for Test Executions — leave blank to use the same as above">
+            <Input
+              value={form.execution_project_key}
+              onChange={handleChange("execution_project_key")}
+              placeholder="EXEC (or leave blank)"
             />
           </Field>
         </div>

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useTestPlans, useGetTestPlanTests } from "@/services/queries";
-import { useProjectKey } from "@/hooks/useProjectKey";
+import { useContentProjectKey } from "@/hooks/useProjectKey";
 import { Spinner } from "@/components/ui/spinner";
 import { Badge, statusVariant } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -10,7 +10,7 @@ import { cn } from "@/components/ui/utils";
 import type { TestPlan } from "@/types";
 
 export function TestPlansPage() {
-  const projectKey = useProjectKey();
+  const projectKey = useContentProjectKey();
   const {
     data: plans,
     isLoading,

@@ -14,7 +14,15 @@ const navItems = [
 export function AppShell() {
   const { data: config } = useConfig();
   const isJiraConfigured = !!config?.jira_url && !!config.jira_email && !!config.jira_api_token;
-  const projectKeyFromConfig = config?.project_key || null;
+  const contentKey = config?.content_project_key || null;
+  const executionKey = config?.execution_project_key || null;
+  // Show a compact label when Jira is not configured (no project selector available)
+  const projectLabel = (() => {
+    if (!contentKey && !executionKey) return null;
+    if (contentKey && executionKey && contentKey !== executionKey)
+      return `${contentKey} / ${executionKey}`;
+    return contentKey || executionKey;
+  })();
 
   return (
     <div className="flex h-screen flex-col bg-slate-50 text-slate-900">
@@ -24,9 +32,9 @@ export function AppShell() {
           <span className="text-sm font-semibold tracking-tight text-slate-800">QAlity</span>
           {isJiraConfigured ? (
             <ProjectSelector />
-          ) : projectKeyFromConfig ? (
+          ) : projectLabel ? (
             <span className="rounded-md border border-slate-200 px-3 py-1.5 text-sm text-slate-600">
-              {projectKeyFromConfig}
+              {projectLabel}
             </span>
           ) : null}
         </div>
