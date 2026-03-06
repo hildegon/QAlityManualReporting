@@ -1,5 +1,5 @@
 import { Outlet, NavLink } from "react-router-dom";
-import { Settings, ListChecks, BookOpen, Layers } from "lucide-react";
+import { Settings, ListChecks, BookOpen, Layers, FilePlus2 } from "lucide-react";
 import { ProjectSelector } from "./ProjectSelector";
 import { useConfig } from "@/services/queries";
 import { cn } from "@/components/ui/utils";
@@ -8,6 +8,7 @@ const navItems = [
   { to: "/executions", label: "Executions", icon: ListChecks },
   { to: "/test-plans", label: "Test Plans", icon: BookOpen },
   { to: "/test-sets", label: "Test Sets", icon: Layers },
+  { to: "/create-test", label: "Create Test", icon: FilePlus2 },
   { to: "/settings", label: "Settings", icon: Settings },
 ];
 

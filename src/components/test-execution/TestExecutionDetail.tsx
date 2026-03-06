@@ -8,6 +8,7 @@ import {
   useUpdateTestRunStep,
   useXrayStatuses,
   useStepStatuses,
+  useTestSetMembership,
 } from "@/services/queries";
 import { Spinner } from "@/components/ui/spinner";
 import { Button } from "@/components/ui/button";
@@ -19,6 +20,7 @@ import {
   ChevronDown,
   ChevronRight,
   ClipboardList,
+  Layers,
   Loader2,
   MessageSquare,
   Pencil,
@@ -34,6 +36,8 @@ import type {
 interface TestExecutionDetailProps {
   execution: TestExecution;
   onBack: () => void;
+  /** Project key used to fetch test sets for the filter (content project key). */
+  contentProjectKey?: string | null;
 }
 
 /** Returns an inline style object for a status button given an optional hex color. */
@@ -59,7 +63,16 @@ const FALLBACK_STEP_STATUSES: XrayStepStatus[] = [
   { name: "FAIL" },
 ];
 
-export function TestExecutionDetail({ execution, onBack }: TestExecutionDetailProps) {
+/** Sentinel value meaning "show all runs regardless of test set". */
+const FILTER_ALL = "__all__";
+/** Sentinel value meaning "show only runs whose test is in no test set". */
+const FILTER_NONE = "__none__";
+
+export function TestExecutionDetail({
+  execution,
+  onBack,
+  contentProjectKey,
+}: TestExecutionDetailProps) {
   const { data, isLoading, isError, error, fetchNextPage, hasNextPage, isFetchingNextPage } =
     useTestRuns(execution.issue_id);
   const { data: xrayStatuses } = useXrayStatuses(execution.project_id);
@@ -69,13 +82,28 @@ export function TestExecutionDetail({ execution, onBack }: TestExecutionDetailPr
   const updateStepStatus = useUpdateTestRunStepStatus();
   const updateStep = useUpdateTestRunStep();
 
+  // Test-set membership data for the filter
+  const { testSets, membership } = useTestSetMembership(contentProjectKey ?? null);
+
   const [activeComment, setActiveComment] = useState<string | null>(null);
   const [commentValue, setCommentValue] = useState("");
   const [expandedRuns, setExpandedRuns] = useState<Set<string>>(new Set());
+  const [testSetFilter, setTestSetFilter] = useState<string>(FILTER_ALL);
   const parentRef = useRef<HTMLDivElement>(null);
 
   // Flatten all pages into a single runs array
   const runs = useMemo(() => data?.pages.flatMap((page) => page.results) ?? [], [data]);
+
+  // Apply test-set filter
+  const filteredRuns = useMemo(() => {
+    if (testSetFilter === FILTER_ALL) return runs;
+    if (testSetFilter === FILTER_NONE)
+      return runs.filter((r) => !membership.has(r.test.issue_id));
+    return runs.filter((r) => {
+      const sets = membership.get(r.test.issue_id);
+      return sets?.some((s) => s.issueId === testSetFilter) ?? false;
+    });
+  }, [runs, testSetFilter, membership]);
 
   // Total count from the server (available from the first page)
   const totalFromServer = data?.pages[0]?.total ?? 0;
@@ -99,7 +127,7 @@ export function TestExecutionDetail({ execution, onBack }: TestExecutionDetailPr
   };
 
   const virtualizer = useVirtualizer({
-    count: runs.length,
+    count: filteredRuns.length,
     getScrollElement: () => parentRef.current,
     estimateSize: () => 56,
     overscan: 10,
@@ -159,7 +187,8 @@ export function TestExecutionDetail({ execution, onBack }: TestExecutionDetailPr
   // ── Bulk operations ─────────────────────────────────────────────────────────
 
   const handleBulkRunStatus = (newStatus: string) => {
-    for (const run of runs) {
+    // Bulk operates only on the currently visible (filtered) runs.
+    for (const run of filteredRuns) {
       if (run.status.name.toUpperCase() !== newStatus.toUpperCase()) {
         updateStatus.mutate({
           testRunId: run.id,
@@ -184,9 +213,9 @@ export function TestExecutionDetail({ execution, onBack }: TestExecutionDetailPr
     }
   };
 
-  // ── Progress summary ────────────────────────────────────────────────────────
-  const total = runs.length;
-  const counts = runs.reduce<Record<string, number>>((acc, run) => {
+  // ── Progress summary (over filtered runs) ──────────────────────────────────
+  const total = filteredRuns.length;
+  const counts = filteredRuns.reduce<Record<string, number>>((acc, run) => {
     const name = run.status.name.toUpperCase();
     acc[name] = (acc[name] ?? 0) + 1;
     return acc;
@@ -240,6 +269,42 @@ export function TestExecutionDetail({ execution, onBack }: TestExecutionDetailPr
 
       {runs.length > 0 && (
         <>
+          {/* Test Set filter */}
+          {testSets.length > 0 && (
+            <div className="mb-3 flex items-center gap-2">
+              <Layers className="h-4 w-4 shrink-0 text-slate-400" />
+              <span className="text-xs font-medium text-slate-500">Filter by Test Set:</span>
+              <select
+                value={testSetFilter}
+                onChange={(e) => setTestSetFilter(e.target.value)}
+                className="rounded-md border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-slate-400"
+              >
+                <option value={FILTER_ALL}>All tests ({runs.length})</option>
+                <option value={FILTER_NONE}>
+                  No test set ({runs.filter((r) => !membership.has(r.test.issue_id)).length})
+                </option>
+                {testSets.map((ts) => {
+                  const count = runs.filter((r) =>
+                    membership.get(r.test.issue_id)?.some((s) => s.issueId === ts.issue_id),
+                  ).length;
+                  return (
+                    <option key={ts.issue_id} value={ts.issue_id}>
+                      {ts.jira.key} — {ts.jira.summary} ({count})
+                    </option>
+                  );
+                })}
+              </select>
+              {testSetFilter !== FILTER_ALL && (
+                <button
+                  onClick={() => setTestSetFilter(FILTER_ALL)}
+                  className="text-xs text-slate-400 hover:text-slate-600 underline"
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+          )}
+
           {/* Progress summary */}
           <div className="mb-4 rounded-lg border border-slate-200 bg-white px-4 py-3 shadow-sm">
             <div className="mb-2 flex items-center justify-between text-xs text-slate-500">
@@ -304,11 +369,11 @@ export function TestExecutionDetail({ execution, onBack }: TestExecutionDetailPr
             <div
               ref={parentRef}
               className="overflow-auto"
-              style={{ height: Math.min(runs.length * 56, 600) }}
+              style={{ height: Math.min(filteredRuns.length * 56, 600) }}
             >
               <div style={{ height: virtualizer.getTotalSize(), position: "relative" }}>
                 {virtualItems.map((virtualRow) => {
-                  const run = runs[virtualRow.index];
+                  const run = filteredRuns[virtualRow.index];
                   if (!run) return null;
 
                   const hasSteps = run.steps && run.steps.length > 0;
@@ -470,9 +535,13 @@ export function TestExecutionDetail({ execution, onBack }: TestExecutionDetailPr
             {/* Footer with count + load more */}
             <div className="flex items-center justify-between border-t border-slate-100 px-4 py-2 text-xs text-slate-400">
               <span>
-                {runs.length}
-                {totalFromServer > runs.length ? ` of ${totalFromServer}` : ""} test
-                {totalFromServer !== 1 ? "s" : ""}
+                {testSetFilter !== FILTER_ALL
+                  ? `${filteredRuns.length} of ${runs.length}`
+                  : runs.length}
+                {testSetFilter === FILTER_ALL && totalFromServer > runs.length
+                  ? ` of ${totalFromServer}`
+                  : ""}{" "}
+                test{totalFromServer !== 1 ? "s" : ""}
               </span>
               {hasNextPage && (
                 <button

@@ -81,3 +81,10 @@ pub struct JiraPriority {
 pub struct JiraIssueType {
     pub name: String,
 }
+
+/// A Jira project component returned by `GET /rest/api/3/project/{key}/components`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct JiraComponent {
+    pub id: String,
+    pub name: String,
+}

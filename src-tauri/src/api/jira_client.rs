@@ -2,7 +2,7 @@
 use anyhow::{Context, Result};
 use reqwest::Client;
 
-use crate::models::jira::{JiraIssue, JiraProject, JiraProjectsResponse};
+use crate::models::jira::{JiraComponent, JiraIssue, JiraProject, JiraProjectsResponse};
 
 pub struct JiraClient {
     client: Client,
@@ -101,6 +101,33 @@ impl JiraClient {
             .json()
             .await
             .context("Failed to parse Jira issue response")
+    }
+
+    /// Fetch all components for a given Jira project key or numeric ID.
+    pub async fn get_project_components(&self, project_key: &str) -> Result<Vec<JiraComponent>> {
+        let url = format!(
+            "{}/rest/api/3/project/{}/components",
+            self.base_url,
+            project_key.trim(),
+        );
+
+        self.client
+            .get(&url)
+            .header("Authorization", &self.auth_header)
+            .header("Accept", "application/json")
+            .send()
+            .await
+            .context("Failed to send Jira project components request")?
+            .error_for_status()
+            .with_context(|| {
+                format!(
+                    "Jira project components request failed for '{}'",
+                    project_key
+                )
+            })?
+            .json()
+            .await
+            .context("Failed to parse Jira project components response")
     }
 
     /// Validate the credentials by fetching the current user.

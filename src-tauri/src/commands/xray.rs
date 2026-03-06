@@ -1,13 +1,15 @@
-use tauri::AppHandle;
+use tauri::{AppHandle, State};
 
 use crate::{
     api::xray_client::XrayClient,
     commands::config::load_config,
     models::xray::{
-        CreateTestExecutionInput, CreateTestExecutionResult, TestExecution, TestPlan, TestRunsPage,
+        CreateTestExecutionInput, CreateTestExecutionResult, CreateTestResult, CreateTestSetResult,
+        CreateTestStepInput, CreateXrayTestInput, TestExecution, TestPlan, TestRunsPage,
         UpdateTestRunStatusInput, UpdateTestRunStepData, XrayStepStatus, XrayTest,
         XrayTestRunStatus, XrayTestSet,
     },
+    state::XrayClientState,
 };
 
 /// Format an anyhow error with its full cause chain for debugging.
@@ -15,26 +17,38 @@ fn format_err(e: anyhow::Error) -> String {
     format!("{e:#}")
 }
 
-fn make_xray_client(app: &AppHandle) -> Result<XrayClient, String> {
-    let config = load_config(app).map_err(format_err)?;
-    if !config.is_xray_configured() {
-        return Err(
-            "Xray is not configured. Please set Client ID and Client Secret in Settings.".into(),
-        );
+/// Return a clone of the shared `XrayClient`, constructing it from config on
+/// first use.  Cloning is cheap — the bearer-token cache is shared via `Arc`.
+async fn get_xray_client(
+    app: &AppHandle,
+    state: &State<'_, XrayClientState>,
+) -> Result<XrayClient, String> {
+    let mut guard = state.0.lock().await;
+    if guard.is_none() {
+        let config = load_config(app).map_err(format_err)?;
+        if !config.is_xray_configured() {
+            return Err(
+                "Xray is not configured. Please set Client ID and Client Secret in Settings."
+                    .into(),
+            );
+        }
+        *guard = Some(XrayClient::new(
+            config.xray_client_id,
+            config.xray_client_secret,
+        ));
     }
-    Ok(XrayClient::new(
-        config.xray_client_id,
-        config.xray_client_secret,
-    ))
+    // Unwrap is safe: we just ensured it is Some.
+    Ok(guard.as_ref().unwrap().clone())
 }
 
 #[tauri::command]
 pub async fn get_test_plans(
     app: AppHandle,
+    state: State<'_, XrayClientState>,
     project_key: String,
     limit: Option<u32>,
 ) -> Result<Vec<TestPlan>, String> {
-    let client = make_xray_client(&app)?;
+    let client = get_xray_client(&app, &state).await?;
     let result = client
         .get_test_plans(&project_key, limit.unwrap_or(50))
         .await
@@ -45,10 +59,11 @@ pub async fn get_test_plans(
 #[tauri::command]
 pub async fn get_test_executions(
     app: AppHandle,
+    state: State<'_, XrayClientState>,
     project_key: String,
     limit: Option<u32>,
 ) -> Result<Vec<TestExecution>, String> {
-    let client = make_xray_client(&app)?;
+    let client = get_xray_client(&app, &state).await?;
     let result = client
         .get_test_executions(&project_key, limit.unwrap_or(50))
         .await
@@ -59,11 +74,12 @@ pub async fn get_test_executions(
 #[tauri::command]
 pub async fn get_test_runs(
     app: AppHandle,
+    state: State<'_, XrayClientState>,
     test_execution_issue_id: String,
     limit: Option<u32>,
     start: Option<u32>,
 ) -> Result<TestRunsPage, String> {
-    let client = make_xray_client(&app)?;
+    let client = get_xray_client(&app, &state).await?;
     let result = client
         .get_test_runs(
             &test_execution_issue_id,
@@ -78,10 +94,11 @@ pub async fn get_test_runs(
 #[tauri::command]
 pub async fn update_test_run_status(
     app: AppHandle,
+    state: State<'_, XrayClientState>,
     test_run_id: String,
     status: String,
 ) -> Result<(), String> {
-    let client = make_xray_client(&app)?;
+    let client = get_xray_client(&app, &state).await?;
     client
         .update_test_run_status(&test_run_id, UpdateTestRunStatusInput { status })
         .await
@@ -91,10 +108,11 @@ pub async fn update_test_run_status(
 #[tauri::command]
 pub async fn update_test_run_comment(
     app: AppHandle,
+    state: State<'_, XrayClientState>,
     test_run_id: String,
     comment: String,
 ) -> Result<(), String> {
-    let client = make_xray_client(&app)?;
+    let client = get_xray_client(&app, &state).await?;
     client
         .update_test_run_comment(&test_run_id, &comment)
         .await
@@ -104,9 +122,10 @@ pub async fn update_test_run_comment(
 #[tauri::command]
 pub async fn get_xray_statuses(
     app: AppHandle,
+    state: State<'_, XrayClientState>,
     project_id: Option<String>,
 ) -> Result<Vec<XrayTestRunStatus>, String> {
-    let client = make_xray_client(&app)?;
+    let client = get_xray_client(&app, &state).await?;
     client
         .get_statuses(project_id.as_deref())
         .await
@@ -116,13 +135,14 @@ pub async fn get_xray_statuses(
 #[tauri::command]
 pub async fn create_test_execution(
     app: AppHandle,
+    state: State<'_, XrayClientState>,
     project_key: String,
     summary: String,
     test_plan_id: Option<String>,
     test_issue_ids: Option<Vec<String>>,
     description: Option<String>,
 ) -> Result<CreateTestExecutionResult, String> {
-    let client = make_xray_client(&app)?;
+    let client = get_xray_client(&app, &state).await?;
     let result = client
         .create_test_execution(CreateTestExecutionInput {
             project_key,
@@ -152,9 +172,10 @@ pub async fn create_test_execution(
 #[tauri::command]
 pub async fn get_step_statuses(
     app: AppHandle,
+    state: State<'_, XrayClientState>,
     project_id: Option<String>,
 ) -> Result<Vec<XrayStepStatus>, String> {
-    let client = make_xray_client(&app)?;
+    let client = get_xray_client(&app, &state).await?;
     client
         .get_step_statuses(project_id.as_deref())
         .await
@@ -164,11 +185,12 @@ pub async fn get_step_statuses(
 #[tauri::command]
 pub async fn update_test_run_step_status(
     app: AppHandle,
+    state: State<'_, XrayClientState>,
     test_run_id: String,
     step_id: String,
     status: String,
 ) -> Result<(), String> {
-    let client = make_xray_client(&app)?;
+    let client = get_xray_client(&app, &state).await?;
     client
         .update_test_run_step_status(&test_run_id, &step_id, &status)
         .await
@@ -178,13 +200,14 @@ pub async fn update_test_run_step_status(
 #[tauri::command]
 pub async fn update_test_run_step(
     app: AppHandle,
+    state: State<'_, XrayClientState>,
     test_run_id: String,
     step_id: String,
     comment: Option<String>,
     actual_result: Option<String>,
     status: Option<String>,
 ) -> Result<(), String> {
-    let client = make_xray_client(&app)?;
+    let client = get_xray_client(&app, &state).await?;
     let data = UpdateTestRunStepData {
         comment,
         actual_result,
@@ -196,19 +219,85 @@ pub async fn update_test_run_step(
         .map_err(format_err)
 }
 
+/// A step as received from the frontend for `create_test`.
+#[derive(Debug, serde::Deserialize)]
+pub struct StepPayload {
+    pub action: String,
+    pub data: Option<String>,
+    pub result: Option<String>,
+}
+
 #[tauri::command]
-pub async fn authenticate_xray(app: AppHandle) -> Result<(), String> {
-    let client = make_xray_client(&app)?;
+pub async fn create_test(
+    app: AppHandle,
+    state: State<'_, XrayClientState>,
+    project_key: String,
+    summary: String,
+    steps: Vec<StepPayload>,
+    component: Option<String>,
+) -> Result<CreateTestResult, String> {
+    let client = get_xray_client(&app, &state).await?;
+    let input = CreateXrayTestInput {
+        project_key,
+        summary,
+        component,
+        steps: steps
+            .into_iter()
+            .map(|s| CreateTestStepInput {
+                action: s.action,
+                data: s.data,
+                result: s.result,
+            })
+            .collect(),
+    };
+    client.create_test(input).await.map_err(format_err)
+}
+
+#[tauri::command]
+pub async fn create_test_set(
+    app: AppHandle,
+    state: State<'_, XrayClientState>,
+    project_key: String,
+    summary: String,
+) -> Result<CreateTestSetResult, String> {
+    let client = get_xray_client(&app, &state).await?;
+    client
+        .create_test_set(&project_key, &summary, None)
+        .await
+        .map_err(format_err)
+}
+
+#[tauri::command]
+pub async fn add_tests_to_test_set(
+    app: AppHandle,
+    state: State<'_, XrayClientState>,
+    test_set_issue_id: String,
+    test_issue_ids: Vec<String>,
+) -> Result<(), String> {
+    let client = get_xray_client(&app, &state).await?;
+    client
+        .add_tests_to_test_set(&test_set_issue_id, &test_issue_ids)
+        .await
+        .map_err(format_err)
+}
+
+#[tauri::command]
+pub async fn authenticate_xray(
+    app: AppHandle,
+    state: State<'_, XrayClientState>,
+) -> Result<(), String> {
+    let client = get_xray_client(&app, &state).await?;
     client.authenticate().await.map_err(format_err)
 }
 
 #[tauri::command]
 pub async fn get_tests(
     app: AppHandle,
+    state: State<'_, XrayClientState>,
     project_key: String,
     limit: Option<u32>,
 ) -> Result<Vec<XrayTest>, String> {
-    let client = make_xray_client(&app)?;
+    let client = get_xray_client(&app, &state).await?;
     client
         .get_tests(&project_key, limit.unwrap_or(100))
         .await
@@ -218,10 +307,11 @@ pub async fn get_tests(
 #[tauri::command]
 pub async fn get_test_sets(
     app: AppHandle,
+    state: State<'_, XrayClientState>,
     project_key: String,
     limit: Option<u32>,
 ) -> Result<Vec<XrayTestSet>, String> {
-    let client = make_xray_client(&app)?;
+    let client = get_xray_client(&app, &state).await?;
     client
         .get_test_sets(&project_key, limit.unwrap_or(100))
         .await
@@ -229,8 +319,12 @@ pub async fn get_test_sets(
 }
 
 #[tauri::command]
-pub async fn get_test_set_tests(app: AppHandle, issue_id: String) -> Result<Vec<XrayTest>, String> {
-    let client = make_xray_client(&app)?;
+pub async fn get_test_set_tests(
+    app: AppHandle,
+    state: State<'_, XrayClientState>,
+    issue_id: String,
+) -> Result<Vec<XrayTest>, String> {
+    let client = get_xray_client(&app, &state).await?;
     client
         .get_test_set_tests(&issue_id)
         .await
@@ -240,9 +334,10 @@ pub async fn get_test_set_tests(app: AppHandle, issue_id: String) -> Result<Vec<
 #[tauri::command]
 pub async fn get_test_plan_tests(
     app: AppHandle,
+    state: State<'_, XrayClientState>,
     issue_id: String,
 ) -> Result<Vec<XrayTest>, String> {
-    let client = make_xray_client(&app)?;
+    let client = get_xray_client(&app, &state).await?;
     client
         .get_test_plan_tests(&issue_id)
         .await
