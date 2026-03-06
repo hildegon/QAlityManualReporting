@@ -1,7 +1,9 @@
 use tauri::AppHandle;
 
 use crate::{
-    api::jira_client::JiraClient, commands::config::load_config, models::jira::JiraProject,
+    api::jira_client::JiraClient,
+    commands::config::load_config,
+    models::jira::{JiraComponent, JiraProject},
 };
 
 /// Format an anyhow error with its full cause chain for debugging.
@@ -33,4 +35,16 @@ pub async fn get_jira_projects(app: AppHandle) -> Result<Vec<JiraProject>, Strin
 pub async fn validate_jira_credentials(app: AppHandle) -> Result<String, String> {
     let client = make_jira_client(&app)?;
     client.validate_credentials().await.map_err(format_err)
+}
+
+#[tauri::command]
+pub async fn get_project_components(
+    app: AppHandle,
+    project_key: String,
+) -> Result<Vec<JiraComponent>, String> {
+    let client = make_jira_client(&app)?;
+    client
+        .get_project_components(&project_key)
+        .await
+        .map_err(format_err)
 }

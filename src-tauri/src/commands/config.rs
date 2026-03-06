@@ -7,9 +7,12 @@ use aes_gcm::{
 use anyhow::{Context, Result};
 use base64::{engine::general_purpose::STANDARD, Engine};
 use serde_json;
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Manager, State};
 
-use crate::models::config::{AppConfig, EncryptedConfig};
+use crate::{
+    models::config::{AppConfig, EncryptedConfig},
+    state::XrayClientState,
+};
 
 /// Derive the config file path using Tauri's app config directory.
 fn config_path(app: &AppHandle) -> Result<PathBuf> {
@@ -106,15 +109,28 @@ pub async fn get_config(app: AppHandle) -> Result<AppConfig, String> {
 }
 
 #[tauri::command]
-pub async fn save_config_cmd(app: AppHandle, config: AppConfig) -> Result<(), String> {
-    save_config(&app, &config).map_err(|e| e.to_string())
+pub async fn save_config_cmd(
+    app: AppHandle,
+    xray_state: State<'_, XrayClientState>,
+    config: AppConfig,
+) -> Result<(), String> {
+    save_config(&app, &config).map_err(|e| e.to_string())?;
+    // Credentials may have changed — drop the cached Xray client so the next
+    // command rebuilds it with the new client_id / client_secret.
+    xray_state.invalidate().await;
+    Ok(())
 }
 
 #[tauri::command]
-pub async fn clear_config(app: AppHandle) -> Result<(), String> {
+pub async fn clear_config(
+    app: AppHandle,
+    xray_state: State<'_, XrayClientState>,
+) -> Result<(), String> {
     let path = config_path(&app).map_err(|e| e.to_string())?;
     if path.exists() {
         std::fs::remove_file(path).map_err(|e| e.to_string())?;
     }
+    // Config cleared — drop the cached Xray client.
+    xray_state.invalidate().await;
     Ok(())
 }

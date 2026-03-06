@@ -6,6 +6,7 @@ import { SettingsPage } from "@/pages/SettingsPage";
 import { TestExecutionsPage } from "@/pages/TestExecutionsPage";
 import { TestPlansPage } from "@/pages/TestPlansPage";
 import { TestSetsPage } from "@/pages/TestSetsPage";
+import { CreateTestPage } from "@/pages/CreateTestPage";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -27,6 +28,7 @@ export default function App() {
               <Route path="/executions" element={<TestExecutionsPage />} />
               <Route path="/test-plans" element={<TestPlansPage />} />
               <Route path="/test-sets" element={<TestSetsPage />} />
+              <Route path="/create-test" element={<CreateTestPage />} />
               <Route path="/settings" element={<SettingsPage />} />
             </Route>
           </Routes>

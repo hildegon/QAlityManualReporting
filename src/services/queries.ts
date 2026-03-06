@@ -2,9 +2,11 @@
  * TanStack Query hooks for all data-fetching operations.
  * Mutations use optimistic updates for instant UI feedback.
  */
+import { useMemo } from "react";
 import {
   useInfiniteQuery,
   useMutation,
+  useQueries,
   useQuery,
   useQueryClient,
   type InfiniteData,
@@ -13,6 +15,10 @@ import {
 import type {
   AppConfig,
   CreateTestExecutionResult,
+  CreateTestResult,
+  CreateTestSetResult,
+  CreateTestStepInput,
+  JiraComponent,
   JiraProject,
   TestExecution,
   TestPlan,
@@ -35,6 +41,7 @@ const TEST_RUNS_PAGE_SIZE = 50;
 export const queryKeys = {
   config: ["config"] as const,
   jiraProjects: ["jira", "projects"] as const,
+  projectComponents: (projectKey: string) => ["jira", "components", projectKey] as const,
   testPlans: (projectKey: string) => ["xray", "test-plans", projectKey] as const,
   testExecutions: (projectKey: string) => ["xray", "test-executions", projectKey] as const,
   testRuns: (executionIssueId: string) => ["xray", "test-runs", executionIssueId] as const,
@@ -73,6 +80,21 @@ export function useJiraProjects() {
     queryKey: queryKeys.jiraProjects,
     queryFn: api.getJiraProjects,
     staleTime: 5 * 60 * 1000, // 5 minutes
+  });
+}
+
+/**
+ * Fetch all components for a Jira project.
+ * Only runs when Jira is configured (i.e. the command won't error).
+ * Callers should check `isError` and fall back to free-text input if needed.
+ */
+export function useProjectComponents(projectKey: string | null | undefined) {
+  return useQuery<JiraComponent[]>({
+    queryKey: queryKeys.projectComponents(projectKey ?? ""),
+    queryFn: () => api.getProjectComponents(projectKey!),
+    enabled: !!projectKey,
+    staleTime: 10 * 60 * 1000, // components rarely change
+    retry: false, // don't retry on auth errors (Jira may not be configured)
   });
 }
 
@@ -428,4 +450,103 @@ export function useGetTestPlanTests(issueId: string | null) {
     enabled: !!issueId,
     staleTime: 5 * 60 * 1_000,
   });
+}
+
+// ── Create Test Set ───────────────────────────────────────────────────────────
+
+export function useCreateTestSet() {
+  const queryClient = useQueryClient();
+  return useMutation<CreateTestSetResult, Error, { projectKey: string; summary: string }>({
+    mutationFn: ({ projectKey, summary }) => api.createTestSet(projectKey, summary),
+    onSuccess: (_data, { projectKey }) => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.testSets(projectKey) });
+    },
+  });
+}
+
+// ── Add Tests to Test Set ─────────────────────────────────────────────────────
+
+export function useAddTestsToTestSet() {
+  const queryClient = useQueryClient();
+  return useMutation<void, Error, { testSetIssueId: string; testIssueIds: string[] }>({
+    mutationFn: ({ testSetIssueId, testIssueIds }) =>
+      api.addTestsToTestSet(testSetIssueId, testIssueIds),
+    onSuccess: (_data, { testSetIssueId }) => {
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.testSetTests(testSetIssueId),
+      });
+    },
+  });
+}
+
+// ── Create Test ───────────────────────────────────────────────────────────────
+
+interface CreateTestVars {
+  projectKey: string;
+  summary: string;
+  steps: CreateTestStepInput[];
+  component?: string | undefined;
+}
+
+export function useCreateTest() {
+  const queryClient = useQueryClient();
+  return useMutation<CreateTestResult, Error, CreateTestVars>({
+    mutationFn: ({ projectKey, summary, steps, component }) =>
+      api.createTest(projectKey, summary, steps, component),
+    onSuccess: (_data, { projectKey }) => {
+      // Invalidate the tests list so the new test appears if the Tests page is visited.
+      void queryClient.invalidateQueries({ queryKey: queryKeys.tests(projectKey) });
+    },
+  });
+}
+
+// ── Test set membership (for filtering test runs by test set) ─────────────────
+
+export interface TestSetInfo {
+  issueId: string;
+  key: string;
+  summary: string;
+}
+
+/**
+ * Fetches all test sets for a project and the tests belonging to each set.
+ * Returns:
+ *   - `testSets` — list of test sets (for rendering filter options)
+ *   - `membership` — Map<testIssueId, TestSetInfo[]> for looking up which sets a test belongs to
+ *   - `isLoading` — true while the initial test-sets list is loading
+ */
+export function useTestSetMembership(projectKey: string | null) {
+  // Step 1: fetch test sets list (re-uses the cached result from the Test Sets page).
+  const { data: testSets, isLoading: setsLoading } = useGetTestSets(projectKey ?? undefined);
+
+  // Step 2: for each test set, fetch its member test issue IDs in parallel.
+  const setTestsResults = useQueries({
+    queries: (testSets ?? []).map((ts) => ({
+      queryKey: queryKeys.testSetTests(ts.issue_id),
+      queryFn: () => api.getTestSetTests(ts.issue_id),
+      staleTime: 5 * 60 * 1_000,
+      enabled: !!projectKey && (testSets?.length ?? 0) > 0,
+    })),
+  });
+
+  // Step 3: build the lookup map once all (or some) results are available.
+  const membership = useMemo(() => {
+    const map = new Map<string, TestSetInfo[]>();
+    (testSets ?? []).forEach((ts, idx) => {
+      const result = setTestsResults[idx];
+      const tests = result?.data ?? [];
+      for (const t of tests) {
+        const existing = map.get(t.issue_id) ?? [];
+        existing.push({ issueId: ts.issue_id, key: ts.jira.key, summary: ts.jira.summary });
+        map.set(t.issue_id, existing);
+      }
+    });
+    return map;
+  }, [testSets, setTestsResults]);
+
+  return {
+    testSets: testSets ?? [],
+    membership,
+    isLoading: setsLoading,
+  };
 }

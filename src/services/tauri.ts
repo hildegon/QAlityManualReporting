@@ -6,6 +6,10 @@ import { invoke } from "@tauri-apps/api/core";
 import type {
   AppConfig,
   CreateTestExecutionResult,
+  CreateTestResult,
+  CreateTestSetResult,
+  CreateTestStepInput,
+  JiraComponent,
   JiraProject,
   TestExecution,
   TestPlan,
@@ -30,6 +34,9 @@ export const clearConfig = (): Promise<void> => invoke("clear_config");
 export const getJiraProjects = (): Promise<JiraProject[]> => invoke("get_jira_projects");
 
 export const validateJiraCredentials = (): Promise<string> => invoke("validate_jira_credentials");
+
+export const getProjectComponents = (projectKey: string): Promise<JiraComponent[]> =>
+  invoke("get_project_components", { projectKey });
 
 // ── Xray ──────────────────────────────────────────────────────────────────────
 
@@ -94,3 +101,20 @@ export const getTestSetTests = (issueId: string): Promise<XrayTest[]> =>
 
 export const getTestPlanTests = (issueId: string): Promise<XrayTest[]> =>
   invoke("get_test_plan_tests", { issueId });
+
+export const createTest = (
+  projectKey: string,
+  summary: string,
+  steps: CreateTestStepInput[],
+  component?: string,
+): Promise<CreateTestResult> => invoke("create_test", { projectKey, summary, steps, component });
+
+export const addTestsToTestSet = (
+  testSetIssueId: string,
+  testIssueIds: string[],
+): Promise<void> => invoke("add_tests_to_test_set", { testSetIssueId, testIssueIds });
+
+export const createTestSet = (
+  projectKey: string,
+  summary: string,
+): Promise<CreateTestSetResult> => invoke("create_test_set", { projectKey, summary });

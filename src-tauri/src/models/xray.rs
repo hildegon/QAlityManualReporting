@@ -313,6 +313,91 @@ pub struct TestPlanTestsPage {
     pub results: Vec<XrayTest>,
 }
 
+// ── Create Test Set ───────────────────────────────────────────────────────────
+
+/// The test set object returned inside `CreateTestSetResult`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreatedTestSet {
+    #[serde(rename(deserialize = "issueId"))]
+    pub issue_id: String,
+    #[serde(deserialize_with = "deserialize_jira_json")]
+    pub jira: XrayTestSetJira,
+}
+
+/// `data.createTestSet` from the Xray GraphQL response.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateTestSetResult {
+    #[serde(rename(deserialize = "testSet"))]
+    pub test_set: Option<CreatedTestSet>,
+    pub warnings: Option<Vec<String>>,
+}
+
+/// Outer wrapper matching the `data.createTestSet` key.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateTestSetResponse {
+    #[serde(rename(deserialize = "createTestSet"))]
+    pub create_test_set: CreateTestSetResult,
+}
+
+// ── Create Test ───────────────────────────────────────────────────────────────
+
+/// A single manual step passed to `createTest`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateTestStepInput {
+    /// The action/instruction for this step.
+    pub action: String,
+    /// Optional test data for this step.
+    pub data: Option<String>,
+    /// Optional expected result for this step.
+    pub result: Option<String>,
+}
+
+/// Input for the `createTest` Tauri command.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CreateXrayTestInput {
+    /// Jira project key or numeric ID (e.g. "PROJ" or "10428").
+    pub project_key: String,
+    /// Jira issue summary (title).
+    pub summary: String,
+    /// Steps for a Manual test (empty for Generic/Unstructured).
+    pub steps: Vec<CreateTestStepInput>,
+    /// Optional Jira component name to assign to the created test issue.
+    pub component: Option<String>,
+}
+
+/// The `Step` object returned by `createTest { test { steps { ... } } }`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreatedTestStep {
+    pub id: Option<String>,
+    pub action: Option<String>,
+    pub data: Option<String>,
+    pub result: Option<String>,
+}
+
+/// The `Test` object nested inside `CreateTestResult`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreatedTestInner {
+    #[serde(rename(deserialize = "issueId"))]
+    pub issue_id: String,
+    #[serde(deserialize_with = "deserialize_jira_json")]
+    pub jira: XrayTestJira,
+    pub steps: Option<Vec<CreatedTestStep>>,
+}
+
+/// `data.createTest` from Xray GraphQL response.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateTestResult {
+    pub test: Option<CreatedTestInner>,
+    pub warnings: Option<Vec<String>>,
+}
+
+/// Outer wrapper matching the `data.createTest` key.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateTestResponse {
+    #[serde(rename(deserialize = "createTest"))]
+    pub create_test: CreateTestResult,
+}
+
 // ── GraphQL helpers ───────────────────────────────────────────────────────────
 
 #[derive(Debug, Serialize)]

@@ -5,16 +5,19 @@ use tokio::sync::Mutex;
 
 use crate::models::xray::{
     AddTestExecutionsToTestPlanInput, CreateTestExecutionInput, CreateTestExecutionResponse,
-    CreateTestExecutionResult, GraphQLRequest, GraphQLResponse, StatusesResult, StepStatusesResult,
-    TestExecutionsResult, TestPlanResult, TestPlansResult, TestRunsResult, TestSetResult,
-    TestSetsResult, TestsResult, UpdateTestRunStatusInput, XrayAuthRequest, XrayStepStatus,
-    XrayTest, XrayTestRunStatus, XrayTestSet,
+    CreateTestExecutionResult, CreateTestResponse, CreateTestResult, CreateTestSetResponse,
+    CreateTestSetResult, CreateXrayTestInput, GraphQLRequest, GraphQLResponse, StatusesResult,
+    StepStatusesResult, TestExecutionsResult, TestPlanResult, TestPlansResult, TestRunsResult,
+    TestSetResult, TestSetsResult, TestsResult, UpdateTestRunStatusInput, XrayAuthRequest,
+    XrayStepStatus, XrayTest, XrayTestRunStatus, XrayTestSet,
 };
 
 const XRAY_AUTH_URL: &str = "https://xray.cloud.getxray.app/api/v2/authenticate";
 const XRAY_GRAPHQL_URL: &str = "https://xray.cloud.getxray.app/api/v2/graphql";
 
 /// Thread-safe Xray Cloud client with token caching.
+/// Cloning is cheap — the token cache is shared via `Arc`.
+#[derive(Clone)]
 pub struct XrayClient {
     client: Client,
     client_id: String,
@@ -547,6 +550,157 @@ impl XrayClient {
             )
             .await?;
         Ok(())
+    }
+
+    // ── Add Tests to Test Set ─────────────────────────────────────────────────
+
+    /// Associate one or more tests with an existing test set.
+    pub async fn add_tests_to_test_set(
+        &self,
+        test_set_issue_id: &str,
+        test_issue_ids: &[String],
+    ) -> Result<()> {
+        let query = r#"
+            mutation AddTestsToTestSet($issueId: String!, $testIssueIds: [String]!) {
+                addTestsToTestSet(issueId: $issueId, testIssueIds: $testIssueIds) {
+                    addedTests
+                    warning
+                }
+            }
+        "#;
+        let _: serde_json::Value = self
+            .graphql(
+                query,
+                serde_json::json!({
+                    "issueId": test_set_issue_id,
+                    "testIssueIds": test_issue_ids,
+                }),
+            )
+            .await?;
+        Ok(())
+    }
+
+    // ── Create Test Set ───────────────────────────────────────────────────────
+
+    /// Create a new Test Set in Xray. Optionally link existing tests at creation time.
+    pub async fn create_test_set(
+        &self,
+        project_key: &str,
+        summary: &str,
+        test_issue_ids: Option<&[String]>,
+    ) -> Result<CreateTestSetResult> {
+        let query = r#"
+            mutation CreateTestSet($testIssueIds: [String], $jira: JSON!) {
+                createTestSet(testIssueIds: $testIssueIds, jira: $jira) {
+                    testSet {
+                        issueId
+                        jira(fields: ["key", "summary"])
+                    }
+                    warnings
+                }
+            }
+        "#;
+
+        let pk = project_key.trim();
+        let project_value = if pk.chars().all(|c| c.is_ascii_digit()) {
+            serde_json::json!({ "id": pk })
+        } else {
+            serde_json::json!({ "key": pk })
+        };
+        let jira = serde_json::json!({
+            "fields": {
+                "summary": summary.trim(),
+                "project": project_value,
+            }
+        });
+
+        let variables = serde_json::json!({
+            "testIssueIds": test_issue_ids,
+            "jira": jira,
+        });
+
+        let resp: CreateTestSetResponse = self.graphql(query, variables).await?;
+        Ok(resp.create_test_set)
+    }
+
+    // ── Create Test ───────────────────────────────────────────────────────────
+
+    /// Create a new Manual test in Xray with optional manual steps.
+    pub async fn create_test(&self, input: CreateXrayTestInput) -> Result<CreateTestResult> {
+        let query = r#"
+            mutation CreateTest(
+                $testType: UpdateTestTypeInput,
+                $steps: [CreateStepInput],
+                $jira: JSON!
+            ) {
+                createTest(
+                    testType: $testType,
+                    steps: $steps,
+                    jira: $jira
+                ) {
+                    test {
+                        issueId
+                        jira(fields: ["key", "summary"])
+                        steps {
+                            id
+                            action
+                            data
+                            result
+                        }
+                    }
+                    warnings
+                }
+            }
+        "#;
+
+        // Build the Jira fields object (same numeric-vs-key logic as createTestExecution).
+        let pk = input.project_key.trim();
+        let project_value = if pk.chars().all(|c| c.is_ascii_digit()) {
+            serde_json::json!({ "id": pk })
+        } else {
+            serde_json::json!({ "key": pk })
+        };
+        let mut fields = serde_json::Map::new();
+        fields.insert(
+            "summary".to_owned(),
+            serde_json::json!(input.summary.trim()),
+        );
+        fields.insert("project".to_owned(), project_value);
+        if let Some(ref component_name) = input.component {
+            if !component_name.trim().is_empty() {
+                fields.insert(
+                    "components".to_owned(),
+                    serde_json::json!([{ "name": component_name.trim() }]),
+                );
+            }
+        }
+        let jira = serde_json::json!({ "fields": fields });
+
+        // Map steps to the GraphQL CreateStepInput shape.
+        let steps: Vec<serde_json::Value> = input
+            .steps
+            .into_iter()
+            .map(|s| {
+                let mut m = serde_json::Map::new();
+                m.insert("action".to_owned(), serde_json::json!(s.action));
+                if let Some(ref data) = s.data {
+                    m.insert("data".to_owned(), serde_json::json!(data));
+                }
+                if let Some(ref result) = s.result {
+                    m.insert("result".to_owned(), serde_json::json!(result));
+                }
+                serde_json::Value::Object(m)
+            })
+            .collect();
+
+        let variables = serde_json::json!({
+            "testType": { "name": "Manual" },
+            "steps": steps,
+            "jira": jira,
+        });
+
+        let resp: CreateTestResponse = self.graphql(query, variables).await?;
+        Ok(resp.create_test)
     }
 
     /// Update the status of a single step within a test run.

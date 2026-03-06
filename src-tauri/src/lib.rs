@@ -1,22 +1,26 @@
 mod api;
 mod commands;
 mod models;
+mod state;
 
 use commands::{
     config::{clear_config, get_config, save_config_cmd},
-    jira::{get_jira_projects, validate_jira_credentials},
+    jira::{get_jira_projects, get_project_components, validate_jira_credentials},
     xray::{
-        authenticate_xray, create_test_execution, get_step_statuses, get_test_executions,
-        get_test_plan_tests, get_test_plans, get_test_runs, get_test_set_tests, get_test_sets,
-        get_tests, get_xray_statuses, update_test_run_comment, update_test_run_status,
-        update_test_run_step, update_test_run_step_status,
+        add_tests_to_test_set, authenticate_xray, create_test, create_test_execution,
+        create_test_set, get_step_statuses, get_test_executions, get_test_plan_tests,
+        get_test_plans, get_test_runs, get_test_set_tests, get_test_sets, get_tests,
+        get_xray_statuses, update_test_run_comment, update_test_run_status, update_test_run_step,
+        update_test_run_step_status,
     },
 };
+use state::XrayClientState;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .manage(XrayClientState::new())
         .invoke_handler(tauri::generate_handler![
             // Config
             get_config,
@@ -25,6 +29,7 @@ pub fn run() {
             // Jira
             get_jira_projects,
             validate_jira_credentials,
+            get_project_components,
             // Xray
             authenticate_xray,
             get_test_plans,
@@ -41,6 +46,9 @@ pub fn run() {
             get_test_sets,
             get_test_set_tests,
             get_test_plan_tests,
+            create_test,
+            add_tests_to_test_set,
+            create_test_set,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

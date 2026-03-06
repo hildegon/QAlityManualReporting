@@ -25,6 +25,12 @@ export interface JiraProject {
   project_type_key?: string;
 }
 
+/** A Jira project component returned by `get_project_components`. */
+export interface JiraComponent {
+  id: string;
+  name: string;
+}
+
 // ── Xray ──────────────────────────────────────────────────────────────────────
 
 export interface TestPlan {
@@ -134,6 +140,47 @@ export interface TestRunsPage {
   start?: number;
   limit?: number;
   results: TestRun[];
+}
+
+// ── Create Test Set ───────────────────────────────────────────────────────────
+
+/** Full response from the `create_test_set` Tauri command. */
+export interface CreateTestSetResult {
+  test_set?: {
+    issue_id: string;
+    jira: { key: string; summary: string };
+  };
+  warnings?: string[];
+}
+
+// ── Create Test ───────────────────────────────────────────────────────────────
+
+/** One manual step sent to `create_test`. */
+export interface CreateTestStepInput {
+  action: string;
+  data?: string;
+  result?: string;
+}
+
+/** A step as returned inside the created test object. */
+export interface CreatedTestStep {
+  id?: string;
+  action?: string;
+  data?: string;
+  result?: string;
+}
+
+/** The test object returned by the `create_test` command. */
+export interface CreatedTest {
+  issue_id: string;
+  jira: { key: string; summary: string };
+  steps?: CreatedTestStep[];
+}
+
+/** Full response from the `create_test` Tauri command. */
+export interface CreateTestResult {
+  test?: CreatedTest;
+  warnings?: string[];
 }
 
 // ── UI helpers ────────────────────────────────────────────────────────────────

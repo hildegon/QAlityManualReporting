@@ -70,7 +70,13 @@ export function TestExecutionsPage() {
   }
 
   if (selected) {
-    return <TestExecutionDetail execution={selected} onBack={() => setSelected(null)} />;
+    return (
+      <TestExecutionDetail
+        execution={selected}
+        onBack={() => setSelected(null)}
+        contentProjectKey={contentProjectKey}
+      />
+    );
   }
 
   const q = search.trim().toLowerCase();
