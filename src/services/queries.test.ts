@@ -34,7 +34,8 @@ describe("tauri service wrappers", () => {
       jira_api_token: "token",
       xray_client_id: "id",
       xray_client_secret: "secret",
-      project_key: "PROJ",
+      content_project_key: "PROJ",
+      execution_project_key: "EXEC",
     };
 
     await saveConfig(config);

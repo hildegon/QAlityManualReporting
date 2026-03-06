@@ -13,9 +13,12 @@ pub struct AppConfig {
     pub xray_client_id: String,
     /// Xray Cloud Client Secret
     pub xray_client_secret: String,
-    /// Jira/Xray project key used to scope queries (e.g. "PROJ")
+    /// Jira/Xray project key used for Test Plans, Test Sets, and Tests (e.g. "PROJ")
     #[serde(default)]
-    pub project_key: String,
+    pub content_project_key: String,
+    /// Jira/Xray project key used for Test Executions (may differ from content_project_key)
+    #[serde(default)]
+    pub execution_project_key: String,
 }
 
 impl AppConfig {

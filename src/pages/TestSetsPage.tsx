@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useGetTestSets, useGetTestSetTests } from "@/services/queries";
-import { useProjectKey } from "@/hooks/useProjectKey";
+import { useContentProjectKey } from "@/hooks/useProjectKey";
 import { Spinner } from "@/components/ui/spinner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -9,7 +9,7 @@ import { cn } from "@/components/ui/utils";
 import type { XrayTestSet } from "@/types";
 
 export function TestSetsPage() {
-  const projectKey = useProjectKey();
+  const projectKey = useContentProjectKey();
   const {
     data: testSets,
     isLoading,

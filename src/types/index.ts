@@ -6,7 +6,10 @@ export interface AppConfig {
   jira_api_token: string;
   xray_client_id: string;
   xray_client_secret: string;
-  project_key: string;
+  /** Project key for Test Plans, Test Sets, and Tests */
+  content_project_key: string;
+  /** Project key for Test Executions (may differ from content_project_key) */
+  execution_project_key: string;
 }
 
 // ── Jira ──────────────────────────────────────────────────────────────────────
