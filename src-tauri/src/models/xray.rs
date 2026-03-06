@@ -166,16 +166,65 @@ pub struct UpdateTestRunStepData {
     pub status: Option<String>,
 }
 
+// ── Tests ─────────────────────────────────────────────────────────────────────
+
+/// A single Xray test returned by `getTests`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct XrayTest {
+    #[serde(rename(deserialize = "issueId"))]
+    pub issue_id: String,
+    #[serde(deserialize_with = "deserialize_jira_json")]
+    pub jira: XrayTestJira,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct XrayTestJira {
+    pub key: String,
+    pub summary: String,
+}
+
+/// Paginated result from `getTests`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TestsResult {
+    #[serde(rename(deserialize = "getTests"))]
+    pub get_tests: TestsPage,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TestsPage {
+    pub total: u32,
+    pub start: Option<u32>,
+    pub limit: Option<u32>,
+    pub results: Vec<XrayTest>,
+}
+
 // ── Create Test Execution ─────────────────────────────────────────────────────
 
 #[derive(Debug, Serialize)]
 pub struct CreateTestExecutionInput {
-    #[serde(rename = "testPlanId")]
-    pub test_plan_id: Option<String>,
-    #[serde(rename = "projectId")]
-    pub project_id: String,
+    /// Jira project key (e.g. "PROJ").
+    pub project_key: String,
     pub summary: String,
     pub description: Option<String>,
+    /// Xray test issue IDs to add to the execution at creation time.
+    #[serde(rename = "testIssueIds")]
+    pub test_issue_ids: Option<Vec<String>>,
+}
+
+/// Used to link an execution to a test plan after creation.
+#[derive(Debug, Serialize)]
+pub struct AddTestExecutionsToTestPlanInput {
+    /// The Xray issue ID of the test plan.
+    pub test_plan_issue_id: String,
+    /// The Xray issue IDs of the test executions to link.
+    pub test_exec_issue_ids: Vec<String>,
+}
+
+/// Outer wrapper matching the `data.createTestExecution` key in the GraphQL response.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateTestExecutionResponse {
+    #[serde(rename(deserialize = "createTestExecution"))]
+    pub create_test_execution: CreateTestExecutionResult,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

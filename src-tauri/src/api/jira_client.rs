@@ -59,6 +59,29 @@ impl JiraClient {
         Ok(all_projects)
     }
 
+    /// Fetch a single project by its key (e.g. "PROJ") and return it.
+    /// Uses the direct project endpoint which is faster than paginating all projects.
+    pub async fn get_project(&self, project_key: &str) -> Result<JiraProject> {
+        let url = format!(
+            "{}/rest/api/3/project/{}",
+            self.base_url,
+            project_key.trim(),
+        );
+
+        self.client
+            .get(&url)
+            .header("Authorization", &self.auth_header)
+            .header("Accept", "application/json")
+            .send()
+            .await
+            .context("Failed to send Jira project request")?
+            .error_for_status()
+            .with_context(|| format!("Jira project '{}' not found or not accessible", project_key))?
+            .json()
+            .await
+            .context("Failed to parse Jira project response")
+    }
+
     /// Fetch a single Jira issue by key (e.g. "PROJ-123").
     pub async fn get_issue(&self, issue_key: &str) -> Result<JiraIssue> {
         let url = format!(

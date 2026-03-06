@@ -19,6 +19,7 @@ import type {
   TestRun,
   TestRunsPage,
   XrayStepStatus,
+  XrayTest,
   XrayTestRunStatus,
 } from "@/types";
 import * as api from "./tauri";
@@ -36,6 +37,7 @@ export const queryKeys = {
   testPlans: (projectKey: string) => ["xray", "test-plans", projectKey] as const,
   testExecutions: (projectKey: string) => ["xray", "test-executions", projectKey] as const,
   testRuns: (executionIssueId: string) => ["xray", "test-runs", executionIssueId] as const,
+  tests: (projectKey: string) => ["xray", "tests", projectKey] as const,
   xrayStatuses: (projectId: string) => ["xray", "statuses", projectId] as const,
   stepStatuses: (projectId: string) => ["xray", "step-statuses", projectId] as const,
 };
@@ -362,20 +364,31 @@ export function useUpdateTestRunStep() {
 // ── Create test execution ─────────────────────────────────────────────────────
 
 interface CreateExecutionVars {
-  projectId: string;
   projectKey: string;
   summary: string;
   testPlanId?: string | undefined;
+  testIssueIds?: string[] | undefined;
   description?: string | undefined;
 }
 
 export function useCreateTestExecution() {
   const queryClient = useQueryClient();
   return useMutation<CreateTestExecutionResult, Error, CreateExecutionVars>({
-    mutationFn: ({ projectId, summary, testPlanId, description }) =>
-      api.createTestExecution(projectId, summary, testPlanId, description),
+    mutationFn: ({ projectKey, summary, testPlanId, testIssueIds, description }) =>
+      api.createTestExecution(projectKey, summary, testPlanId, testIssueIds, description),
     onSuccess: (_data, { projectKey }) => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.testExecutions(projectKey) });
     },
+  });
+}
+
+// ── Get Tests ─────────────────────────────────────────────────────────────────
+
+export function useGetTests(projectKey: string | undefined) {
+  return useQuery<XrayTest[]>({
+    queryKey: queryKeys.tests(projectKey ?? ""),
+    queryFn: () => api.getTests(projectKey!),
+    enabled: !!projectKey,
+    staleTime: 5 * 60 * 1_000,
   });
 }

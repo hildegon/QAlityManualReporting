@@ -147,17 +147,18 @@ describe("tauri service wrappers", () => {
     });
   });
 
-  it("createTestExecution passes projectId and summary", async () => {
+  it("createTestExecution passes projectKey and summary", async () => {
     const { createTestExecution } = await import("./tauri");
     mockInvoke.mockResolvedValueOnce({
       test_execution: { issue_id: "12345", jira: { key: "PROJ-1", summary: "Test" } },
     });
 
-    const result = await createTestExecution("10001", "My Test Execution");
+    const result = await createTestExecution("PROJ", "My Test Execution");
     expect(mockInvoke).toHaveBeenCalledWith("create_test_execution", {
-      projectId: "10001",
+      projectKey: "PROJ",
       summary: "My Test Execution",
       testPlanId: undefined,
+      testIssueIds: undefined,
       description: undefined,
     });
     expect(result.test_execution.jira.key).toBe("PROJ-1");

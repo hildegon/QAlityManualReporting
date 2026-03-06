@@ -107,6 +107,15 @@ export interface CreateTestExecutionResult {
   };
 }
 
+/** A single Xray test returned by `get_tests`. */
+export interface XrayTest {
+  issue_id: string;
+  jira: {
+    key: string;
+    summary: string;
+  };
+}
+
 /** Paginated response from `get_test_runs` Tauri command. */
 export interface TestRunsPage {
   total: number;
