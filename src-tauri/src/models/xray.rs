@@ -241,6 +241,78 @@ pub struct CreatedTestExecution {
     pub jira: TestExecutionJira,
 }
 
+// ── Test Sets ─────────────────────────────────────────────────────────────────
+
+/// A single Xray test set returned by `getTestSets`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct XrayTestSet {
+    #[serde(rename(deserialize = "issueId"))]
+    pub issue_id: String,
+    #[serde(deserialize_with = "deserialize_jira_json")]
+    pub jira: XrayTestSetJira,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct XrayTestSetJira {
+    pub key: String,
+    pub summary: String,
+}
+
+/// Paginated result from `getTestSets`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TestSetsResult {
+    #[serde(rename(deserialize = "getTestSets"))]
+    pub get_test_sets: TestSetsPage,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TestSetsPage {
+    pub total: u32,
+    pub start: Option<u32>,
+    pub limit: Option<u32>,
+    pub results: Vec<XrayTestSet>,
+}
+
+/// Wrapper for the `getTestSet(issueId)` query (singular).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TestSetResult {
+    #[serde(rename(deserialize = "getTestSet"))]
+    pub get_test_set: TestSetDetail,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TestSetDetail {
+    #[serde(rename(deserialize = "issueId"))]
+    pub issue_id: String,
+    pub tests: TestSetTestsPage,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TestSetTestsPage {
+    pub results: Vec<XrayTest>,
+}
+
+// ── Test Plan detail (singular) ───────────────────────────────────────────────
+
+/// Wrapper for the `getTestPlan(issueId)` query (singular).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TestPlanResult {
+    #[serde(rename(deserialize = "getTestPlan"))]
+    pub get_test_plan: TestPlanDetail,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TestPlanDetail {
+    #[serde(rename(deserialize = "issueId"))]
+    pub issue_id: String,
+    pub tests: TestPlanTestsPage,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TestPlanTestsPage {
+    pub results: Vec<XrayTest>,
+}
+
 // ── GraphQL helpers ───────────────────────────────────────────────────────────
 
 #[derive(Debug, Serialize)]

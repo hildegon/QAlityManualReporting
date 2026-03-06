@@ -13,6 +13,7 @@ import type {
   XrayStepStatus,
   XrayTest,
   XrayTestRunStatus,
+  XrayTestSet,
 } from "@/types";
 
 // ── Config ────────────────────────────────────────────────────────────────────
@@ -84,3 +85,12 @@ export const createTestExecution = (
 
 export const getTests = (projectKey: string, limit?: number): Promise<XrayTest[]> =>
   invoke("get_tests", { projectKey, limit });
+
+export const getTestSets = (projectKey: string, limit?: number): Promise<XrayTestSet[]> =>
+  invoke("get_test_sets", { projectKey, limit });
+
+export const getTestSetTests = (issueId: string): Promise<XrayTest[]> =>
+  invoke("get_test_set_tests", { issueId });
+
+export const getTestPlanTests = (issueId: string): Promise<XrayTest[]> =>
+  invoke("get_test_plan_tests", { issueId });
