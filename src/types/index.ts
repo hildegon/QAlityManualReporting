@@ -116,6 +116,15 @@ export interface XrayTest {
   };
 }
 
+/** A single Xray test set returned by `get_test_sets`. */
+export interface XrayTestSet {
+  issue_id: string;
+  jira: {
+    key: string;
+    summary: string;
+  };
+}
+
 /** Paginated response from `get_test_runs` Tauri command. */
 export interface TestRunsPage {
   total: number;

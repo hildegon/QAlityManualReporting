@@ -6,7 +6,7 @@ use crate::{
     models::xray::{
         CreateTestExecutionInput, CreateTestExecutionResult, TestExecution, TestPlan, TestRunsPage,
         UpdateTestRunStatusInput, UpdateTestRunStepData, XrayStepStatus, XrayTest,
-        XrayTestRunStatus,
+        XrayTestRunStatus, XrayTestSet,
     },
 };
 
@@ -211,6 +211,40 @@ pub async fn get_tests(
     let client = make_xray_client(&app)?;
     client
         .get_tests(&project_key, limit.unwrap_or(100))
+        .await
+        .map_err(format_err)
+}
+
+#[tauri::command]
+pub async fn get_test_sets(
+    app: AppHandle,
+    project_key: String,
+    limit: Option<u32>,
+) -> Result<Vec<XrayTestSet>, String> {
+    let client = make_xray_client(&app)?;
+    client
+        .get_test_sets(&project_key, limit.unwrap_or(100))
+        .await
+        .map_err(format_err)
+}
+
+#[tauri::command]
+pub async fn get_test_set_tests(app: AppHandle, issue_id: String) -> Result<Vec<XrayTest>, String> {
+    let client = make_xray_client(&app)?;
+    client
+        .get_test_set_tests(&issue_id)
+        .await
+        .map_err(format_err)
+}
+
+#[tauri::command]
+pub async fn get_test_plan_tests(
+    app: AppHandle,
+    issue_id: String,
+) -> Result<Vec<XrayTest>, String> {
+    let client = make_xray_client(&app)?;
+    client
+        .get_test_plan_tests(&issue_id)
         .await
         .map_err(format_err)
 }

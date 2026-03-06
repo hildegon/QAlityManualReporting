@@ -21,6 +21,7 @@ import type {
   XrayStepStatus,
   XrayTest,
   XrayTestRunStatus,
+  XrayTestSet,
 } from "@/types";
 import * as api from "./tauri";
 
@@ -38,6 +39,9 @@ export const queryKeys = {
   testExecutions: (projectKey: string) => ["xray", "test-executions", projectKey] as const,
   testRuns: (executionIssueId: string) => ["xray", "test-runs", executionIssueId] as const,
   tests: (projectKey: string) => ["xray", "tests", projectKey] as const,
+  testSets: (projectKey: string) => ["xray", "test-sets", projectKey] as const,
+  testSetTests: (issueId: string) => ["xray", "test-set-tests", issueId] as const,
+  testPlanTests: (issueId: string) => ["xray", "test-plan-tests", issueId] as const,
   xrayStatuses: (projectId: string) => ["xray", "statuses", projectId] as const,
   stepStatuses: (projectId: string) => ["xray", "step-statuses", projectId] as const,
 };
@@ -389,6 +393,39 @@ export function useGetTests(projectKey: string | undefined) {
     queryKey: queryKeys.tests(projectKey ?? ""),
     queryFn: () => api.getTests(projectKey!),
     enabled: !!projectKey,
+    staleTime: 5 * 60 * 1_000,
+  });
+}
+
+// ── Get Test Sets ─────────────────────────────────────────────────────────────
+
+export function useGetTestSets(projectKey: string | undefined) {
+  return useQuery<XrayTestSet[]>({
+    queryKey: queryKeys.testSets(projectKey ?? ""),
+    queryFn: () => api.getTestSets(projectKey!),
+    enabled: !!projectKey,
+    staleTime: 5 * 60 * 1_000,
+  });
+}
+
+// ── Get Test Set Tests ────────────────────────────────────────────────────────
+
+export function useGetTestSetTests(issueId: string | null) {
+  return useQuery<XrayTest[]>({
+    queryKey: queryKeys.testSetTests(issueId ?? ""),
+    queryFn: () => api.getTestSetTests(issueId!),
+    enabled: !!issueId,
+    staleTime: 5 * 60 * 1_000,
+  });
+}
+
+// ── Get Test Plan Tests ───────────────────────────────────────────────────────
+
+export function useGetTestPlanTests(issueId: string | null) {
+  return useQuery<XrayTest[]>({
+    queryKey: queryKeys.testPlanTests(issueId ?? ""),
+    queryFn: () => api.getTestPlanTests(issueId!),
+    enabled: !!issueId,
     staleTime: 5 * 60 * 1_000,
   });
 }

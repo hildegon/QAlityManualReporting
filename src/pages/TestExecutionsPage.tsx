@@ -1,9 +1,10 @@
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import {
   useTestExecutions,
   useCreateTestExecution,
   useTestPlans,
   useGetTests,
+  useGetTestSets,
 } from "@/services/queries";
 import { useProjectKey } from "@/hooks/useProjectKey";
 import { Spinner } from "@/components/ui/spinner";
@@ -15,6 +16,14 @@ import { ListChecks, Plus, RefreshCw, X } from "lucide-react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { TestExecutionDetail } from "@/components/test-execution/TestExecutionDetail";
 import type { TestExecution } from "@/types";
+import * as api from "@/services/tauri";
+
+/** Status names considered "closed" — hidden by default. */
+const DONE_STATUSES = new Set(["done", "won't do", "wont do", "closed", "resolved"]);
+
+function isDoneStatus(name: string) {
+  return DONE_STATUSES.has(name.toLowerCase());
+}
 
 export function TestExecutionsPage() {
   const projectKey = useProjectKey();
@@ -28,6 +37,8 @@ export function TestExecutionsPage() {
   } = useTestExecutions(projectKey);
   const [selected, setSelected] = useState<TestExecution | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const [showDone, setShowDone] = useState(false);
 
   if (!projectKey) {
     return <EmptyState message="Set a Project Key in Settings to view test executions." />;
@@ -61,13 +72,30 @@ export function TestExecutionsPage() {
     return <TestExecutionDetail execution={selected} onBack={() => setSelected(null)} />;
   }
 
+  const q = search.trim().toLowerCase();
+  const filtered = (executions ?? []).filter((exec) => {
+    if (!showDone && exec.jira.status && isDoneStatus(exec.jira.status.name)) return false;
+    if (!q) return true;
+    return (
+      exec.jira.key.toLowerCase().includes(q) ||
+      exec.jira.summary.toLowerCase().includes(q)
+    );
+  });
+
+  const hiddenDoneCount = (executions ?? []).filter(
+    (exec) => exec.jira.status && isDoneStatus(exec.jira.status.name),
+  ).length;
+
   return (
     <div>
       <div className="mb-4 flex items-center justify-between">
         <h1 className="text-xl font-semibold">
           Test Executions
           <span className="ml-2 text-sm font-normal text-slate-500">
-            {projectKey} · {executions?.length ?? 0}
+            {projectKey} · {filtered.length}
+            {filtered.length !== (executions?.length ?? 0) && (
+              <span> / {executions?.length ?? 0}</span>
+            )}
           </span>
         </h1>
         <div className="flex items-center gap-2">
@@ -82,8 +110,38 @@ export function TestExecutionsPage() {
         </div>
       </div>
 
-      {!executions?.length ? (
-        <EmptyState message={`No test executions found in ${projectKey}.`} />
+      {/* Filters row */}
+      <div className="mb-3 flex items-center gap-3">
+        <Input
+          className="max-w-xs"
+          placeholder="Filter by key or name…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+        <label className="flex cursor-pointer select-none items-center gap-2 text-sm text-slate-600">
+          <input
+            type="checkbox"
+            className="h-4 w-4 accent-blue-600"
+            checked={showDone}
+            onChange={(e) => setShowDone(e.target.checked)}
+          />
+          Show done
+          {!showDone && hiddenDoneCount > 0 && (
+            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-500">
+              {hiddenDoneCount} hidden
+            </span>
+          )}
+        </label>
+      </div>
+
+      {!filtered.length ? (
+        <EmptyState
+          message={
+            q || !showDone
+              ? "No executions match the current filters."
+              : `No test executions found in ${projectKey}.`
+          }
+        />
       ) : (
         <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
           <table className="w-full text-sm">
@@ -96,7 +154,7 @@ export function TestExecutionsPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {executions.map((exec) => (
+              {filtered.map((exec) => (
                 <tr
                   key={exec.issue_id}
                   className="cursor-pointer hover:bg-slate-50"
@@ -146,14 +204,27 @@ function CreateExecutionDialog({
   const [testPlanId, setTestPlanId] = useState<string>("");
   const [selectedTestIds, setSelectedTestIds] = useState<Set<string>>(new Set());
   const [testSearch, setTestSearch] = useState("");
+  const [testSetSearch, setTestSetSearch] = useState("");
+  // issueId → loading state for per-row "Add" buttons
+  const [addingSetId, setAddingSetId] = useState<string | null>(null);
 
   const createExecution = useCreateTestExecution();
   const { data: testPlans, isLoading: plansLoading } = useTestPlans(projectKey ?? null);
   const { data: tests, isLoading: testsLoading } = useGetTests(projectKey ?? undefined);
+  const { data: testSets, isLoading: testSetsLoading } = useGetTestSets(projectKey ?? undefined);
 
   const filteredTests = (tests ?? []).filter((t) => {
     const q = testSearch.toLowerCase();
     return !q || t.jira.key.toLowerCase().includes(q) || t.jira.summary.toLowerCase().includes(q);
+  });
+
+  const filteredTestSets = (testSets ?? []).filter((ts) => {
+    const q = testSetSearch.toLowerCase();
+    return (
+      !q ||
+      ts.jira.key.toLowerCase().includes(q) ||
+      ts.jira.summary.toLowerCase().includes(q)
+    );
   });
 
   const toggleTest = (issueId: string) => {
@@ -168,12 +239,35 @@ function CreateExecutionDialog({
     });
   };
 
+  const handleAddFromSet = useCallback(
+    async (issueId: string) => {
+      setAddingSetId(issueId);
+      try {
+        const tests = await api.getTestSetTests(issueId);
+        setSelectedTestIds((prev) => {
+          const next = new Set(prev);
+          for (const t of tests) {
+            next.add(t.issue_id);
+          }
+          return next;
+        });
+      } catch {
+        // silently ignore — the button will just re-enable
+      } finally {
+        setAddingSetId(null);
+      }
+    },
+    [],
+  );
+
   const resetForm = () => {
     setSummary("");
     setDescription("");
     setTestPlanId("");
     setSelectedTestIds(new Set());
     setTestSearch("");
+    setTestSetSearch("");
+    setAddingSetId(null);
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -217,114 +311,167 @@ function CreateExecutionDialog({
             </Dialog.Close>
           </div>
 
-          {/* Form wraps scrollable body + footer so the submit button is a native form child */}
+          {/* Form wraps scrollable body + footer */}
           <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
-            {/* Scrollable body */}
             <div className="flex-1 overflow-y-auto px-6 py-4">
               <div className="space-y-5">
-              {/* Summary */}
-              <div className="space-y-1.5">
-                <Label htmlFor="exec-summary">Summary *</Label>
-                <Input
-                  id="exec-summary"
-                  value={summary}
-                  onChange={(e) => setSummary(e.target.value)}
-                  placeholder="Regression suite — Sprint 42"
-                  required
-                />
-              </div>
 
-              {/* Description */}
-              <div className="space-y-1.5">
-                <Label htmlFor="exec-desc">Description</Label>
-                <Input
-                  id="exec-desc"
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  placeholder="Optional description"
-                />
-              </div>
+                {/* Summary */}
+                <div className="space-y-1.5">
+                  <Label htmlFor="exec-summary">Summary *</Label>
+                  <Input
+                    id="exec-summary"
+                    value={summary}
+                    onChange={(e) => setSummary(e.target.value)}
+                    placeholder="Regression suite — Sprint 42"
+                    required
+                  />
+                </div>
 
-              {/* Test Plan */}
-              <div className="space-y-1.5">
-                <Label htmlFor="exec-plan">Test Plan</Label>
-                {plansLoading ? (
-                  <div className="flex items-center gap-2 text-sm text-slate-400">
-                    <Spinner size="sm" /> Loading test plans…
-                  </div>
-                ) : (
-                  <select
-                    id="exec-plan"
-                    className="w-full rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    value={testPlanId}
-                    onChange={(e) => setTestPlanId(e.target.value)}
-                  >
-                    <option value="">— None —</option>
-                    {(testPlans ?? []).map((plan) => (
-                      <option key={plan.issue_id} value={plan.issue_id}>
-                        {plan.jira.key} — {plan.jira.summary}
-                      </option>
-                    ))}
-                  </select>
-                )}
-              </div>
+                {/* Description */}
+                <div className="space-y-1.5">
+                  <Label htmlFor="exec-desc">Description</Label>
+                  <Input
+                    id="exec-desc"
+                    value={description}
+                    onChange={(e) => setDescription(e.target.value)}
+                    placeholder="Optional description"
+                  />
+                </div>
 
-              {/* Tests */}
-              <div className="space-y-1.5">
-                <Label>
-                  Tests
-                  {selectedTestIds.size > 0 && (
-                    <span className="ml-1.5 rounded-full bg-blue-100 px-2 py-0.5 text-xs font-normal text-blue-700">
-                      {selectedTestIds.size} selected
-                    </span>
+                {/* Test Plan */}
+                <div className="space-y-1.5">
+                  <Label htmlFor="exec-plan">Test Plan</Label>
+                  {plansLoading ? (
+                    <div className="flex items-center gap-2 text-sm text-slate-400">
+                      <Spinner size="sm" /> Loading test plans…
+                    </div>
+                  ) : (
+                    <select
+                      id="exec-plan"
+                      className="w-full rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      value={testPlanId}
+                      onChange={(e) => setTestPlanId(e.target.value)}
+                    >
+                      <option value="">— None —</option>
+                      {(testPlans ?? []).map((plan) => (
+                        <option key={plan.issue_id} value={plan.issue_id}>
+                          {plan.jira.key} — {plan.jira.summary}
+                        </option>
+                      ))}
+                    </select>
                   )}
-                </Label>
-                <Input
-                  placeholder="Search by key or summary…"
-                  value={testSearch}
-                  onChange={(e) => setTestSearch(e.target.value)}
-                />
-                {testsLoading ? (
-                  <div className="flex items-center gap-2 py-2 text-sm text-slate-400">
-                    <Spinner size="sm" /> Loading tests…
-                  </div>
-                ) : (
-                  <div className="max-h-48 overflow-y-auto rounded-md border border-slate-200">
-                    {filteredTests.length === 0 ? (
-                      <p className="px-3 py-4 text-center text-sm text-slate-400">
-                        {testSearch ? "No tests match your search." : "No tests found."}
-                      </p>
-                    ) : (
-                      <ul className="divide-y divide-slate-100">
-                        {filteredTests.map((test) => {
-                          const checked = selectedTestIds.has(test.issue_id);
-                          return (
-                            <li key={test.issue_id}>
-                              <label className="flex cursor-pointer items-start gap-3 px-3 py-2 hover:bg-slate-50">
-                                <input
-                                  type="checkbox"
-                                  className="mt-0.5 h-4 w-4 shrink-0 accent-blue-600"
-                                  checked={checked}
-                                  onChange={() => toggleTest(test.issue_id)}
-                                />
-                                <div className="min-w-0">
-                                  <span className="mr-1.5 font-mono text-xs text-slate-500">
-                                    {test.jira.key}
-                                  </span>
-                                  <span className="text-sm text-slate-800">
-                                    {test.jira.summary}
-                                  </span>
-                                </div>
-                              </label>
-                            </li>
-                          );
-                        })}
-                      </ul>
+                </div>
+
+                {/* Test Sets — filterable list, add per row */}
+                <div className="space-y-1.5">
+                  <Label>Test Sets</Label>
+                  {testSetsLoading ? (
+                    <div className="flex items-center gap-2 text-sm text-slate-400">
+                      <Spinner size="sm" /> Loading test sets…
+                    </div>
+                  ) : (
+                    <>
+                      <Input
+                        placeholder="Filter by key or name…"
+                        value={testSetSearch}
+                        onChange={(e) => setTestSetSearch(e.target.value)}
+                      />
+                      <div className="max-h-40 overflow-y-auto rounded-md border border-slate-200">
+                        {filteredTestSets.length === 0 ? (
+                          <p className="px-3 py-4 text-center text-sm text-slate-400">
+                            {testSetSearch ? "No test sets match your filter." : "No test sets found."}
+                          </p>
+                        ) : (
+                          <ul className="divide-y divide-slate-100">
+                            {filteredTestSets.map((ts) => {
+                              const isAdding = addingSetId === ts.issue_id;
+                              return (
+                                <li
+                                  key={ts.issue_id}
+                                  className="flex items-center justify-between gap-3 px-3 py-2"
+                                >
+                                  <div className="min-w-0">
+                                    <span className="mr-1.5 font-mono text-xs text-slate-500">
+                                      {ts.jira.key}
+                                    </span>
+                                    <span className="text-sm text-slate-800">{ts.jira.summary}</span>
+                                  </div>
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    className="shrink-0"
+                                    disabled={isAdding || addingSetId !== null}
+                                    onClick={() => void handleAddFromSet(ts.issue_id)}
+                                  >
+                                    {isAdding ? <Spinner size="sm" /> : "Add"}
+                                  </Button>
+                                </li>
+                              );
+                            })}
+                          </ul>
+                        )}
+                      </div>
+                    </>
+                  )}
+                </div>
+
+                {/* Individual tests */}
+                <div className="space-y-1.5">
+                  <Label>
+                    Tests
+                    {selectedTestIds.size > 0 && (
+                      <span className="ml-1.5 rounded-full bg-blue-100 px-2 py-0.5 text-xs font-normal text-blue-700">
+                        {selectedTestIds.size} selected
+                      </span>
                     )}
-                  </div>
-                )}
+                  </Label>
+                  <Input
+                    placeholder="Search by key or summary…"
+                    value={testSearch}
+                    onChange={(e) => setTestSearch(e.target.value)}
+                  />
+                  {testsLoading ? (
+                    <div className="flex items-center gap-2 py-2 text-sm text-slate-400">
+                      <Spinner size="sm" /> Loading tests…
+                    </div>
+                  ) : (
+                    <div className="max-h-48 overflow-y-auto rounded-md border border-slate-200">
+                      {filteredTests.length === 0 ? (
+                        <p className="px-3 py-4 text-center text-sm text-slate-400">
+                          {testSearch ? "No tests match your search." : "No tests found."}
+                        </p>
+                      ) : (
+                        <ul className="divide-y divide-slate-100">
+                          {filteredTests.map((test) => {
+                            const checked = selectedTestIds.has(test.issue_id);
+                            return (
+                              <li key={test.issue_id}>
+                                <label className="flex cursor-pointer items-start gap-3 px-3 py-2 hover:bg-slate-50">
+                                  <input
+                                    type="checkbox"
+                                    className="mt-0.5 h-4 w-4 shrink-0 accent-blue-600"
+                                    checked={checked}
+                                    onChange={() => toggleTest(test.issue_id)}
+                                  />
+                                  <div className="min-w-0">
+                                    <span className="mr-1.5 font-mono text-xs text-slate-500">
+                                      {test.jira.key}
+                                    </span>
+                                    <span className="text-sm text-slate-800">{test.jira.summary}</span>
+                                  </div>
+                                </label>
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      )}
+                    </div>
+                  )}
+                </div>
+
               </div>
-            </div>
             </div>
 
             {/* Footer */}

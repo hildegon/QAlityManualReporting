@@ -6,8 +6,9 @@ use tokio::sync::Mutex;
 use crate::models::xray::{
     AddTestExecutionsToTestPlanInput, CreateTestExecutionInput, CreateTestExecutionResponse,
     CreateTestExecutionResult, GraphQLRequest, GraphQLResponse, StatusesResult, StepStatusesResult,
-    TestExecutionsResult, TestPlansResult, TestRunsResult, TestsResult, UpdateTestRunStatusInput,
-    XrayAuthRequest, XrayStepStatus, XrayTest, XrayTestRunStatus,
+    TestExecutionsResult, TestPlanResult, TestPlansResult, TestRunsResult, TestSetResult,
+    TestSetsResult, TestsResult, UpdateTestRunStatusInput, XrayAuthRequest, XrayStepStatus,
+    XrayTest, XrayTestRunStatus, XrayTestSet,
 };
 
 const XRAY_AUTH_URL: &str = "https://xray.cloud.getxray.app/api/v2/authenticate";
@@ -280,8 +281,79 @@ impl XrayClient {
         Ok(result.get_tests.results)
     }
 
-    // ── Create Test Execution ─────────────────────────────────────────────────
+    // ── Test Sets ─────────────────────────────────────────────────────────────
 
+    /// Fetch test sets for a project using JQL.
+    pub async fn get_test_sets(&self, project_key: &str, limit: u32) -> Result<Vec<XrayTestSet>> {
+        let jql = format!("project = '{project_key}'");
+        let query = r#"
+            query GetTestSets($jql: String!, $limit: Int!) {
+                getTestSets(jql: $jql, limit: $limit) {
+                    total
+                    start
+                    limit
+                    results {
+                        issueId
+                        jira(fields: ["key", "summary"])
+                    }
+                }
+            }
+        "#;
+        let result: TestSetsResult = self
+            .graphql(query, serde_json::json!({ "jql": jql, "limit": limit }))
+            .await?;
+        Ok(result.get_test_sets.results)
+    }
+
+    /// Fetch all tests belonging to a specific test set.
+    pub async fn get_test_set_tests(&self, issue_id: &str) -> Result<Vec<XrayTest>> {
+        let query = r#"
+            query GetTestSet($issueId: String!, $limit: Int!) {
+                getTestSet(issueId: $issueId) {
+                    issueId
+                    tests(limit: $limit) {
+                        results {
+                            issueId
+                            jira(fields: ["key", "summary"])
+                        }
+                    }
+                }
+            }
+        "#;
+        let result: TestSetResult = self
+            .graphql(
+                query,
+                serde_json::json!({ "issueId": issue_id, "limit": 500 }),
+            )
+            .await?;
+        Ok(result.get_test_set.tests.results)
+    }
+
+    /// Fetch all tests belonging to a specific test plan.
+    pub async fn get_test_plan_tests(&self, issue_id: &str) -> Result<Vec<XrayTest>> {
+        let query = r#"
+            query GetTestPlan($issueId: String!, $limit: Int!) {
+                getTestPlan(issueId: $issueId) {
+                    issueId
+                    tests(limit: $limit) {
+                        results {
+                            issueId
+                            jira(fields: ["key", "summary"])
+                        }
+                    }
+                }
+            }
+        "#;
+        let result: TestPlanResult = self
+            .graphql(
+                query,
+                serde_json::json!({ "issueId": issue_id, "limit": 500 }),
+            )
+            .await?;
+        Ok(result.get_test_plan.tests.results)
+    }
+
+    // ── Create Test Execution ─────────────────────────────────────────────────
     pub async fn create_test_execution(
         &self,
         input: CreateTestExecutionInput,

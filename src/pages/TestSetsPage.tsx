@@ -1,30 +1,29 @@
 import { useState } from "react";
-import { useTestPlans, useGetTestPlanTests } from "@/services/queries";
+import { useGetTestSets, useGetTestSetTests } from "@/services/queries";
 import { useProjectKey } from "@/hooks/useProjectKey";
 import { Spinner } from "@/components/ui/spinner";
-import { Badge, statusVariant } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { BookOpen, ChevronDown, ChevronRight, RefreshCw } from "lucide-react";
+import { ChevronDown, ChevronRight, Layers, RefreshCw } from "lucide-react";
 import { cn } from "@/components/ui/utils";
-import type { TestPlan } from "@/types";
+import type { XrayTestSet } from "@/types";
 
-export function TestPlansPage() {
+export function TestSetsPage() {
   const projectKey = useProjectKey();
   const {
-    data: plans,
+    data: testSets,
     isLoading,
     isError,
     error,
     refetch,
     isFetching,
-  } = useTestPlans(projectKey);
+  } = useGetTestSets(projectKey ?? undefined);
 
   const [search, setSearch] = useState("");
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
   if (!projectKey) {
-    return <EmptyState message="Set a Project Key in Settings to view test plans." />;
+    return <EmptyState message="Set a Project Key in Settings to view test sets." />;
   }
 
   if (isLoading) {
@@ -40,7 +39,7 @@ export function TestPlansPage() {
     return (
       <div className="space-y-3">
         <div className="rounded-md bg-red-50 px-4 py-3 text-sm text-red-700">
-          <p className="mb-1 font-medium">Failed to load test plans</p>
+          <p className="mb-1 font-medium">Failed to load test sets</p>
           <pre className="whitespace-pre-wrap break-words font-mono text-xs">{errorMessage}</pre>
         </div>
         <Button variant="outline" size="sm" onClick={() => void refetch()}>
@@ -52,9 +51,9 @@ export function TestPlansPage() {
   }
 
   const q = search.trim().toLowerCase();
-  const filtered = (plans ?? []).filter(
-    (p) =>
-      !q || p.jira.key.toLowerCase().includes(q) || p.jira.summary.toLowerCase().includes(q),
+  const filtered = (testSets ?? []).filter(
+    (ts) =>
+      !q || ts.jira.key.toLowerCase().includes(q) || ts.jira.summary.toLowerCase().includes(q),
   );
 
   const toggle = (id: string) => setExpandedId((prev) => (prev === id ? null : id));
@@ -63,11 +62,11 @@ export function TestPlansPage() {
     <div>
       <div className="mb-4 flex items-center justify-between">
         <h1 className="text-xl font-semibold">
-          Test Plans
+          Test Sets
           <span className="ml-2 text-sm font-normal text-slate-500">
             {projectKey} · {filtered.length}
-            {filtered.length !== (plans?.length ?? 0) && (
-              <span> / {plans?.length ?? 0}</span>
+            {filtered.length !== (testSets?.length ?? 0) && (
+              <span> / {testSets?.length ?? 0}</span>
             )}
           </span>
         </h1>
@@ -90,20 +89,20 @@ export function TestPlansPage() {
       {!filtered.length ? (
         <EmptyState
           message={
-            q ? "No test plans match the current filter." : `No test plans found in ${projectKey}.`
+            q ? "No test sets match the current filter." : `No test sets found in ${projectKey}.`
           }
         />
       ) : (
         <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
-          {filtered.map((plan, idx) => {
-            const isExpanded = expandedId === plan.issue_id;
+          {filtered.map((ts, idx) => {
+            const isExpanded = expandedId === ts.issue_id;
             const isLast = idx === filtered.length - 1;
             return (
-              <div key={plan.issue_id} className={cn(!isLast && "border-b border-slate-100")}>
+              <div key={ts.issue_id} className={cn(!isLast && "border-b border-slate-100")}>
                 {/* Row header — click to toggle */}
                 <button
                   className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-slate-50"
-                  onClick={() => toggle(plan.issue_id)}
+                  onClick={() => toggle(ts.issue_id)}
                   aria-expanded={isExpanded}
                 >
                   {isExpanded ? (
@@ -112,18 +111,13 @@ export function TestPlansPage() {
                     <ChevronRight className="h-4 w-4 shrink-0 text-slate-400" />
                   )}
                   <span className="w-28 shrink-0 font-mono text-xs text-slate-500">
-                    {plan.jira.key}
+                    {ts.jira.key}
                   </span>
-                  <span className="flex-1 text-sm text-slate-800">{plan.jira.summary}</span>
-                  {plan.jira.status && (
-                    <Badge variant={statusVariant(plan.jira.status.name)} className="shrink-0">
-                      {plan.jira.status.name}
-                    </Badge>
-                  )}
+                  <span className="flex-1 text-sm text-slate-800">{ts.jira.summary}</span>
                 </button>
 
                 {/* Expandable tests panel */}
-                {isExpanded && <TestPlanPanel testPlan={plan} />}
+                {isExpanded && <TestSetPanel testSet={ts} />}
               </div>
             );
           })}
@@ -135,12 +129,12 @@ export function TestPlansPage() {
 
 // ── Expanded tests panel ──────────────────────────────────────────────────────
 
-interface TestPlanPanelProps {
-  testPlan: TestPlan;
+interface TestSetPanelProps {
+  testSet: XrayTestSet;
 }
 
-function TestPlanPanel({ testPlan }: TestPlanPanelProps) {
-  const { data: tests, isLoading, isError, error } = useGetTestPlanTests(testPlan.issue_id);
+function TestSetPanel({ testSet }: TestSetPanelProps) {
+  const { data: tests, isLoading, isError, error } = useGetTestSetTests(testSet.issue_id);
   const [search, setSearch] = useState("");
 
   const q = search.trim().toLowerCase();
@@ -181,7 +175,7 @@ function TestPlanPanel({ testPlan }: TestPlanPanelProps) {
 
           {filtered.length === 0 ? (
             <p className="py-2 text-sm text-slate-400 italic">
-              {q ? "No tests match the filter." : "This test plan contains no tests."}
+              {q ? "No tests match the filter." : "This test set contains no tests."}
             </p>
           ) : (
             <div className="overflow-hidden rounded-md border border-slate-200 bg-white">
@@ -216,7 +210,7 @@ function TestPlanPanel({ testPlan }: TestPlanPanelProps) {
 function EmptyState({ message }: { message: string }) {
   return (
     <div className="flex h-48 flex-col items-center justify-center gap-3 text-slate-400">
-      <BookOpen className="h-10 w-10 opacity-40" />
+      <Layers className="h-10 w-10 opacity-40" />
       <p className="text-sm">{message}</p>
     </div>
   );
