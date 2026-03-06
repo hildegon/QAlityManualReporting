@@ -36,10 +36,9 @@ export function SettingsPage() {
     if (savedConfig) setForm(savedConfig);
   }, [savedConfig]);
 
-  const handleChange =
-    (key: keyof AppConfig) => (e: React.ChangeEvent<HTMLInputElement>) => {
-      setForm((prev) => ({ ...prev, [key]: e.target.value }));
-    };
+  const handleChange = (key: keyof AppConfig) => (e: React.ChangeEvent<HTMLInputElement>) => {
+    setForm((prev) => ({ ...prev, [key]: e.target.value }));
+  };
 
   const handleSave = () => {
     saveConfig.mutate(form, {
@@ -187,9 +186,7 @@ export function SettingsPage() {
         {saveConfig.isPending ? <Spinner size="sm" /> : "Save settings"}
       </Button>
 
-      {saveConfig.isSuccess && (
-        <p className="mt-3 text-sm text-emerald-600">Settings saved.</p>
-      )}
+      {saveConfig.isSuccess && <p className="mt-3 text-sm text-emerald-600">Settings saved.</p>}
     </div>
   );
 }

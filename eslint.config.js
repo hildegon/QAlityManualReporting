@@ -4,6 +4,7 @@ import tsParser from "@typescript-eslint/parser";
 import reactHooks from "eslint-plugin-react-hooks";
 import reactRefresh from "eslint-plugin-react-refresh";
 import prettierConfig from "eslint-config-prettier";
+import globals from "globals";
 
 export default [
   { ignores: ["dist", "src-tauri/target"] },
@@ -16,6 +17,10 @@ export default [
         ecmaVersion: "latest",
         sourceType: "module",
         ecmaFeatures: { jsx: true },
+      },
+      globals: {
+        ...globals.browser,
+        React: "readonly",
       },
     },
     plugins: {

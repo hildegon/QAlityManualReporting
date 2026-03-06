@@ -158,6 +158,14 @@ pub struct UpdateTestRunInput {
     pub comment: Option<String>,
 }
 
+/// Data for the full `updateTestRunStep` mutation (comment, actualResult, status).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateTestRunStepData {
+    pub comment: Option<String>,
+    pub actual_result: Option<String>,
+    pub status: Option<String>,
+}
+
 // ── Create Test Execution ─────────────────────────────────────────────────────
 
 #[derive(Debug, Serialize)]
@@ -283,6 +291,8 @@ pub struct TestRunsResult {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TestRunsPage {
     pub total: u32,
+    pub start: Option<u32>,
+    pub limit: Option<u32>,
     pub results: Vec<TestRun>,
 }
 

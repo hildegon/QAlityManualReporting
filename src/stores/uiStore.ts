@@ -16,10 +16,7 @@ export const useUiStore = create<UiState>((set) => ({
   toasts: [],
   addToast: (message, type = "info") =>
     set((state) => ({
-      toasts: [
-        ...state.toasts,
-        { id: `${Date.now()}-${Math.random()}`, message, type },
-      ],
+      toasts: [...state.toasts, { id: `${Date.now()}-${Math.random()}`, message, type }],
     })),
   removeToast: (id) =>
     set((state) => ({

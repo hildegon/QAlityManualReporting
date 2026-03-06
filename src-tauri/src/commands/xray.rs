@@ -4,8 +4,8 @@ use crate::{
     api::xray_client::XrayClient,
     commands::config::load_config,
     models::xray::{
-        CreateTestExecutionInput, CreateTestExecutionResult, TestExecution, TestPlan, TestRun,
-        UpdateTestRunStatusInput, XrayStepStatus, XrayTestRunStatus,
+        CreateTestExecutionInput, CreateTestExecutionResult, TestExecution, TestPlan, TestRunsPage,
+        UpdateTestRunStatusInput, UpdateTestRunStepData, XrayStepStatus, XrayTestRunStatus,
     },
 };
 
@@ -60,13 +60,18 @@ pub async fn get_test_runs(
     app: AppHandle,
     test_execution_issue_id: String,
     limit: Option<u32>,
-) -> Result<Vec<TestRun>, String> {
+    start: Option<u32>,
+) -> Result<TestRunsPage, String> {
     let client = make_xray_client(&app)?;
     let result = client
-        .get_test_runs(&test_execution_issue_id, limit.unwrap_or(100))
+        .get_test_runs(
+            &test_execution_issue_id,
+            limit.unwrap_or(50),
+            start.unwrap_or(0),
+        )
         .await
         .map_err(format_err)?;
-    Ok(result.test_runs.results)
+    Ok(result.test_runs)
 }
 
 #[tauri::command]
@@ -149,6 +154,27 @@ pub async fn update_test_run_step_status(
     let client = make_xray_client(&app)?;
     client
         .update_test_run_step_status(&test_run_id, &step_id, &status)
+        .await
+        .map_err(format_err)
+}
+
+#[tauri::command]
+pub async fn update_test_run_step(
+    app: AppHandle,
+    test_run_id: String,
+    step_id: String,
+    comment: Option<String>,
+    actual_result: Option<String>,
+    status: Option<String>,
+) -> Result<(), String> {
+    let client = make_xray_client(&app)?;
+    let data = UpdateTestRunStepData {
+        comment,
+        actual_result,
+        status,
+    };
+    client
+        .update_test_run_step(&test_run_id, &step_id, &data)
         .await
         .map_err(format_err)
 }

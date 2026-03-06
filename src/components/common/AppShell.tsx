@@ -12,8 +12,7 @@ const navItems = [
 
 export function AppShell() {
   const { data: config } = useConfig();
-  const isJiraConfigured =
-    !!config?.jira_url && !!config.jira_email && !!config.jira_api_token;
+  const isJiraConfigured = !!config?.jira_url && !!config.jira_email && !!config.jira_api_token;
   const projectKeyFromConfig = config?.project_key || null;
 
   return (
@@ -21,9 +20,7 @@ export function AppShell() {
       {/* Top navigation bar */}
       <header className="flex h-12 shrink-0 items-center justify-between border-b border-slate-200 bg-white px-4 shadow-sm">
         <div className="flex items-center gap-4">
-          <span className="text-sm font-semibold tracking-tight text-slate-800">
-            QAlity
-          </span>
+          <span className="text-sm font-semibold tracking-tight text-slate-800">QAlity</span>
           {isJiraConfigured ? (
             <ProjectSelector />
           ) : projectKeyFromConfig ? (

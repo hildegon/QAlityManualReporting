@@ -74,6 +74,39 @@ describe("tauri service wrappers", () => {
     });
   });
 
+  it("getTestRuns passes testExecutionIssueId, limit, and start", async () => {
+    const { getTestRuns } = await import("./tauri");
+    const mockPage = {
+      total: 120,
+      start: 50,
+      limit: 50,
+      results: [],
+    };
+    mockInvoke.mockResolvedValueOnce(mockPage);
+
+    const result = await getTestRuns("exec-123", 50, 50);
+    expect(mockInvoke).toHaveBeenCalledWith("get_test_runs", {
+      testExecutionIssueId: "exec-123",
+      limit: 50,
+      start: 50,
+    });
+    expect(result.total).toBe(120);
+    expect(result.start).toBe(50);
+    expect(result.results).toEqual([]);
+  });
+
+  it("getTestRuns defaults start to undefined when omitted", async () => {
+    const { getTestRuns } = await import("./tauri");
+    mockInvoke.mockResolvedValueOnce({ total: 5, results: [] });
+
+    await getTestRuns("exec-456");
+    expect(mockInvoke).toHaveBeenCalledWith("get_test_runs", {
+      testExecutionIssueId: "exec-456",
+      limit: undefined,
+      start: undefined,
+    });
+  });
+
   it("updateTestRunStepStatus passes testRunId, stepId, and status", async () => {
     const { updateTestRunStepStatus } = await import("./tauri");
     mockInvoke.mockResolvedValueOnce(undefined);
@@ -84,5 +117,49 @@ describe("tauri service wrappers", () => {
       stepId: "step-456",
       status: "FAILED",
     });
+  });
+
+  it("updateTestRunStep passes all optional fields", async () => {
+    const { updateTestRunStep } = await import("./tauri");
+    mockInvoke.mockResolvedValueOnce(undefined);
+
+    await updateTestRunStep("run-123", "step-456", "a comment", "actual result", "PASS");
+    expect(mockInvoke).toHaveBeenCalledWith("update_test_run_step", {
+      testRunId: "run-123",
+      stepId: "step-456",
+      comment: "a comment",
+      actualResult: "actual result",
+      status: "PASS",
+    });
+  });
+
+  it("updateTestRunStep passes undefined for omitted fields", async () => {
+    const { updateTestRunStep } = await import("./tauri");
+    mockInvoke.mockResolvedValueOnce(undefined);
+
+    await updateTestRunStep("run-123", "step-456", "only comment");
+    expect(mockInvoke).toHaveBeenCalledWith("update_test_run_step", {
+      testRunId: "run-123",
+      stepId: "step-456",
+      comment: "only comment",
+      actualResult: undefined,
+      status: undefined,
+    });
+  });
+
+  it("createTestExecution passes projectId and summary", async () => {
+    const { createTestExecution } = await import("./tauri");
+    mockInvoke.mockResolvedValueOnce({
+      test_execution: { issue_id: "12345", jira: { key: "PROJ-1", summary: "Test" } },
+    });
+
+    const result = await createTestExecution("10001", "My Test Execution");
+    expect(mockInvoke).toHaveBeenCalledWith("create_test_execution", {
+      projectId: "10001",
+      summary: "My Test Execution",
+      testPlanId: undefined,
+      description: undefined,
+    });
+    expect(result.test_execution.jira.key).toBe("PROJ-1");
   });
 });

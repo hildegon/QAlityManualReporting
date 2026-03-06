@@ -3,13 +3,30 @@
  * Mutations use optimistic updates for instant UI feedback.
  */
 import {
+  useInfiniteQuery,
   useMutation,
   useQuery,
   useQueryClient,
+  type InfiniteData,
   type UseMutationResult,
 } from "@tanstack/react-query";
-import type { AppConfig, CreateTestExecutionResult, JiraProject, TestExecution, TestPlan, TestRun, XrayStepStatus, XrayTestRunStatus } from "@/types";
+import type {
+  AppConfig,
+  CreateTestExecutionResult,
+  JiraProject,
+  TestExecution,
+  TestPlan,
+  TestRun,
+  TestRunsPage,
+  XrayStepStatus,
+  XrayTestRunStatus,
+} from "@/types";
 import * as api from "./tauri";
+
+// ── Constants ─────────────────────────────────────────────────────────────────
+
+/** Number of test runs fetched per page. */
+const TEST_RUNS_PAGE_SIZE = 50;
 
 // ── Query keys ────────────────────────────────────────────────────────────────
 
@@ -75,12 +92,27 @@ export function useTestExecutions(projectKey: string | null) {
   });
 }
 
-// ── Test Runs ─────────────────────────────────────────────────────────────────
+// ── Test Runs (infinite/paginated) ────────────────────────────────────────────
 
 export function useTestRuns(executionIssueId: string | null) {
-  return useQuery<TestRun[]>({
+  return useInfiniteQuery<
+    TestRunsPage,
+    Error,
+    InfiniteData<TestRunsPage>,
+    readonly string[],
+    number
+  >({
     queryKey: queryKeys.testRuns(executionIssueId ?? ""),
-    queryFn: () => api.getTestRuns(executionIssueId!),
+    queryFn: ({ pageParam }) => api.getTestRuns(executionIssueId!, TEST_RUNS_PAGE_SIZE, pageParam),
+    initialPageParam: 0,
+    getNextPageParam: (lastPage) => {
+      const start = lastPage.start ?? 0;
+      const fetched = lastPage.results.length;
+      const nextStart = start + fetched;
+      // No more pages if we've fetched everything
+      if (nextStart >= lastPage.total) return undefined;
+      return nextStart;
+    },
     enabled: !!executionIssueId,
     staleTime: 30 * 1000,
   });
@@ -108,6 +140,25 @@ export function useStepStatuses(projectId: string | null) {
   });
 }
 
+// ── Infinite data helpers ─────────────────────────────────────────────────────
+
+type TestRunsInfiniteData = InfiniteData<TestRunsPage>;
+
+/** Map over every test run across all pages in an InfiniteData structure. */
+function mapRunsAcrossPages(
+  old: TestRunsInfiniteData | undefined,
+  mapper: (run: TestRun) => TestRun,
+): TestRunsInfiniteData | undefined {
+  if (!old) return undefined;
+  return {
+    ...old,
+    pages: old.pages.map((page) => ({
+      ...page,
+      results: page.results.map(mapper),
+    })),
+  };
+}
+
 // ── Update test run status (optimistic) ──────────────────────────────────────
 
 interface UpdateStatusVars {
@@ -126,9 +177,9 @@ export function useUpdateTestRunStatus() {
       const key = queryKeys.testRuns(executionIssueId);
       await queryClient.cancelQueries({ queryKey: key });
 
-      const previous = queryClient.getQueryData<TestRun[]>(key);
-      queryClient.setQueryData<TestRun[]>(key, (old) =>
-        old?.map((run) =>
+      const previous = queryClient.getQueryData<TestRunsInfiniteData>(key);
+      queryClient.setQueryData<TestRunsInfiniteData>(key, (old) =>
+        mapRunsAcrossPages(old, (run) =>
           run.id === testRunId ? { ...run, status: { ...run.status, name: status } } : run,
         ),
       );
@@ -137,7 +188,7 @@ export function useUpdateTestRunStatus() {
 
     // Roll back on failure
     onError: (_err, { executionIssueId }, context) => {
-      const ctx = context as { previous?: TestRun[] } | undefined;
+      const ctx = context as { previous?: TestRunsInfiniteData } | undefined;
       if (ctx?.previous) {
         queryClient.setQueryData(queryKeys.testRuns(executionIssueId), ctx.previous);
       }
@@ -167,15 +218,15 @@ export function useUpdateTestRunComment() {
     onMutate: async ({ testRunId, comment, executionIssueId }) => {
       const key = queryKeys.testRuns(executionIssueId);
       await queryClient.cancelQueries({ queryKey: key });
-      const previous = queryClient.getQueryData<TestRun[]>(key);
-      queryClient.setQueryData<TestRun[]>(key, (old) =>
-        old?.map((run) => (run.id === testRunId ? { ...run, comment } : run)),
+      const previous = queryClient.getQueryData<TestRunsInfiniteData>(key);
+      queryClient.setQueryData<TestRunsInfiniteData>(key, (old) =>
+        mapRunsAcrossPages(old, (run) => (run.id === testRunId ? { ...run, comment } : run)),
       );
       return { previous };
     },
 
     onError: (_err, { executionIssueId }, context) => {
-      const ctx = context as { previous?: TestRun[] } | undefined;
+      const ctx = context as { previous?: TestRunsInfiniteData } | undefined;
       if (ctx?.previous) {
         queryClient.setQueryData(queryKeys.testRuns(executionIssueId), ctx.previous);
       }
@@ -207,9 +258,9 @@ export function useUpdateTestRunStepStatus() {
       const key = queryKeys.testRuns(executionIssueId);
       await queryClient.cancelQueries({ queryKey: key });
 
-      const previous = queryClient.getQueryData<TestRun[]>(key);
-      queryClient.setQueryData<TestRun[]>(key, (old) =>
-        old?.map((run) =>
+      const previous = queryClient.getQueryData<TestRunsInfiniteData>(key);
+      queryClient.setQueryData<TestRunsInfiniteData>(key, (old) =>
+        mapRunsAcrossPages(old, (run) =>
           run.id === testRunId
             ? {
                 ...run,
@@ -230,7 +281,73 @@ export function useUpdateTestRunStepStatus() {
     },
 
     onError: (_err, { executionIssueId }, context) => {
-      const ctx = context as { previous?: TestRun[] } | undefined;
+      const ctx = context as { previous?: TestRunsInfiniteData } | undefined;
+      if (ctx?.previous) {
+        queryClient.setQueryData(queryKeys.testRuns(executionIssueId), ctx.previous);
+      }
+    },
+
+    onSettled: (_data, _err, { executionIssueId }) => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.testRuns(executionIssueId) });
+    },
+  });
+}
+
+// ── Update test run step (full: comment + actualResult + status) ─────────────
+
+interface UpdateStepVars {
+  testRunId: string;
+  stepId: string;
+  comment?: string;
+  actualResult?: string;
+  status?: string;
+  executionIssueId: string;
+}
+
+export function useUpdateTestRunStep() {
+  const queryClient = useQueryClient();
+  return useMutation<void, Error, UpdateStepVars>({
+    mutationFn: ({ testRunId, stepId, comment, actualResult, status }) =>
+      api.updateTestRunStep(testRunId, stepId, comment, actualResult, status),
+
+    // Optimistic update: apply changes in cache immediately
+    onMutate: async ({ testRunId, stepId, comment, actualResult, status, executionIssueId }) => {
+      const key = queryKeys.testRuns(executionIssueId);
+      await queryClient.cancelQueries({ queryKey: key });
+
+      const previous = queryClient.getQueryData<TestRunsInfiniteData>(key);
+      queryClient.setQueryData<TestRunsInfiniteData>(key, (old) =>
+        mapRunsAcrossPages(old, (run) =>
+          run.id === testRunId
+            ? {
+                ...run,
+                ...(run.steps
+                  ? {
+                      steps: run.steps.map((step) =>
+                        step.id === stepId
+                          ? {
+                              ...step,
+                              ...(comment !== undefined ? { comment } : {}),
+                              ...(actualResult !== undefined
+                                ? { actual_result: actualResult }
+                                : {}),
+                              ...(status !== undefined
+                                ? { status: { ...step.status, name: status } }
+                                : {}),
+                            }
+                          : step,
+                      ),
+                    }
+                  : {}),
+              }
+            : run,
+        ),
+      );
+      return { previous };
+    },
+
+    onError: (_err, { executionIssueId }, context) => {
+      const ctx = context as { previous?: TestRunsInfiniteData } | undefined;
       if (ctx?.previous) {
         queryClient.setQueryData(queryKeys.testRuns(executionIssueId), ctx.previous);
       }
