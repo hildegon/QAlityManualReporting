@@ -6,6 +6,7 @@ import { SettingsPage } from "@/pages/SettingsPage";
 import { TestExecutionsPage } from "@/pages/TestExecutionsPage";
 import { TestPlansPage } from "@/pages/TestPlansPage";
 import { TestSetsPage } from "@/pages/TestSetsPage";
+import { TestsPage } from "@/pages/TestsPage";
 import { CreateTestPage } from "@/pages/CreateTestPage";
 import { VersionsPage } from "@/pages/VersionsPage";
 import { useUiStore, parseRateLimitError } from "@/stores/uiStore";
@@ -85,6 +86,7 @@ export default function App() {
               <Route path="/executions" element={<TestExecutionsPage />} />
               <Route path="/test-plans" element={<TestPlansPage />} />
               <Route path="/test-sets" element={<TestSetsPage />} />
+              <Route path="/tests" element={<TestsPage />} />
               <Route path="/versions" element={<VersionsPage />} />
               <Route path="/create-test" element={<CreateTestPage />} />
               <Route path="/settings" element={<SettingsPage />} />
