@@ -9,6 +9,7 @@ import {
 import type { TestSetInfo } from "@/services/queries";
 import { useContentProjectKey } from "@/hooks/useProjectKey";
 import { Spinner } from "@/components/ui/spinner";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
 import {
   FlaskConical,
@@ -208,8 +209,18 @@ function TestsPanel({
 
   if (isLoading) {
     return (
-      <div className="flex h-48 items-center justify-center">
-        <Spinner />
+      <div className="flex h-full flex-col gap-3">
+        <Skeleton className="h-8 w-full" />
+        {Array.from({ length: 8 }).map((_, i) => (
+          <div
+            key={i}
+            className="flex items-center gap-3 rounded border border-slate-100 px-3 py-2"
+          >
+            <Skeleton className="h-4 w-4 shrink-0 rounded" />
+            <Skeleton className="h-4 w-20 shrink-0" />
+            <Skeleton className="h-4 flex-1" />
+          </div>
+        ))}
       </div>
     );
   }
@@ -456,8 +467,18 @@ function TestSetsPanel({
 
   if (isLoading) {
     return (
-      <div className="flex h-48 items-center justify-center">
-        <Spinner />
+      <div className="flex h-full flex-col gap-3">
+        <Skeleton className="h-8 w-full" />
+        {Array.from({ length: 5 }).map((_, i) => (
+          <div
+            key={i}
+            className="flex items-center gap-3 rounded border border-slate-100 px-3 py-2"
+          >
+            <Skeleton className="h-4 w-20 shrink-0" />
+            <Skeleton className="h-4 flex-1" />
+            <Skeleton className="h-5 w-12 rounded-full" />
+          </div>
+        ))}
       </div>
     );
   }
@@ -661,9 +682,10 @@ export function TestsPage() {
   }
 
   function handleDropTests(testSetIssueId: string, testIssueIds: string[]) {
+    if (!projectKey) return;
     setPendingSetId(testSetIssueId);
     addTestsToTestSet.mutate(
-      { testSetIssueId, testIssueIds },
+      { testSetIssueId, testIssueIds, projectKey },
       {
         onSuccess: () => {
           setPendingSetId(null);

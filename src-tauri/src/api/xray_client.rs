@@ -1,5 +1,6 @@
 use anyhow::{bail, Context, Result};
 use reqwest::Client;
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::Mutex;
@@ -9,8 +10,9 @@ use crate::models::xray::{
     CreateTestExecutionResult, CreateTestResponse, CreateTestResult, CreateTestSetResponse,
     CreateTestSetResult, CreateXrayTestInput, GraphQLRequest, GraphQLResponse, StatusesResult,
     StepStatusesResult, TestExecutionsResult, TestPlanResult, TestPlansResult, TestRunsResult,
-    TestSetResult, TestSetsResult, TestsResult, UpdateTestRunStatusInput, XrayAuthRequest,
-    XrayStepStatus, XrayTest, XrayTestRunStatus, XrayTestSet,
+    TestSetMemberInfo, TestSetMembershipsResponse, TestSetResult, TestSetsResult, TestsResult,
+    UpdateTestRunStatusInput, XrayAuthRequest, XrayStepStatus, XrayTest, XrayTestRunStatus,
+    XrayTestSet,
 };
 
 const XRAY_AUTH_URL: &str = "https://xray.cloud.getxray.app/api/v2/authenticate";
@@ -410,6 +412,61 @@ impl XrayClient {
         Ok(result.get_test_set.tests.results)
     }
 
+    /// Fetch all test sets for a project and their member tests in one backend
+    /// call, building a membership map keyed by test issue ID.
+    ///
+    /// This avoids the N+1 problem where the frontend would fire one query per
+    /// test set.  Requests are issued sequentially with a small delay to stay
+    /// within Xray rate limits.
+    pub async fn get_all_test_set_memberships(
+        &self,
+        project_key: &str,
+        limit: u32,
+    ) -> Result<TestSetMembershipsResponse> {
+        // 1. Fetch all test sets in the project.
+        let test_sets = self.get_test_sets(project_key, limit).await?;
+
+        // 2. For each test set, fetch its member tests sequentially.
+        let mut memberships: HashMap<String, Vec<TestSetMemberInfo>> = HashMap::new();
+
+        for ts in &test_sets {
+            let info = TestSetMemberInfo {
+                issue_id: ts.issue_id.clone(),
+                key: ts.jira.key.clone(),
+                summary: ts.jira.summary.clone(),
+            };
+
+            match self.get_test_set_tests(&ts.issue_id).await {
+                Ok(tests) => {
+                    for t in tests {
+                        memberships
+                            .entry(t.issue_id)
+                            .or_default()
+                            .push(info.clone());
+                    }
+                }
+                Err(e) => {
+                    // If one test set fails (e.g. rate limit), propagate the
+                    // error so the frontend can handle it uniformly.
+                    return Err(e).with_context(|| {
+                        format!(
+                            "Failed to fetch tests for test set {} ({})",
+                            ts.jira.key, ts.issue_id
+                        )
+                    });
+                }
+            }
+
+            // Small delay between requests to avoid hammering the API.
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
+
+        Ok(TestSetMembershipsResponse {
+            memberships,
+            test_sets,
+        })
+    }
+
     /// Fetch all tests belonging to a specific test plan.
     pub async fn get_test_plan_tests(&self, issue_id: &str) -> Result<Vec<XrayTest>> {
         let query = r#"
@@ -665,6 +722,7 @@ impl XrayClient {
         &self,
         project_key: &str,
         summary: &str,
+        component: Option<&str>,
         test_issue_ids: Option<&[String]>,
     ) -> Result<CreateTestSetResult> {
         let query = r#"
@@ -685,13 +743,20 @@ impl XrayClient {
         } else {
             serde_json::json!({ "key": pk })
         };
-        let jira = serde_json::json!({
-            "fields": {
-                "summary": summary.trim(),
-                "project": project_value,
-            }
-        });
 
+        let mut fields = serde_json::Map::new();
+        fields.insert("summary".to_owned(), serde_json::json!(summary.trim()));
+        fields.insert("project".to_owned(), project_value);
+        if let Some(name) = component {
+            if !name.trim().is_empty() {
+                fields.insert(
+                    "components".to_owned(),
+                    serde_json::json!([{ "name": name.trim() }]),
+                );
+            }
+        }
+
+        let jira = serde_json::json!({ "fields": fields });
         let variables = serde_json::json!({
             "testIssueIds": test_issue_ids,
             "jira": jira,

@@ -278,6 +278,26 @@ pub struct CreatedTestExecution {
     pub jira: TestExecutionJira,
 }
 
+// ── Test Set Membership (batch) ───────────────────────────────────────────────
+
+/// Lightweight info about a test set, used in membership maps.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TestSetMemberInfo {
+    pub issue_id: String,
+    pub key: String,
+    pub summary: String,
+}
+
+/// Response from `get_all_test_set_memberships`.
+/// Maps `test_issue_id → Vec<TestSetMemberInfo>` (which test sets each test belongs to).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TestSetMembershipsResponse {
+    /// Map from test issue ID to the list of test sets it belongs to.
+    pub memberships: std::collections::HashMap<String, Vec<TestSetMemberInfo>>,
+    /// The full list of test sets in the project.
+    pub test_sets: Vec<XrayTestSet>,
+}
+
 // ── Test Sets ─────────────────────────────────────────────────────────────────
 
 /// A single Xray test set returned by `getTestSets`.

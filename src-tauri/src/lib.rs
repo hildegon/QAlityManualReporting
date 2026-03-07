@@ -12,10 +12,10 @@ use commands::{
     },
     xray::{
         add_tests_to_test_set, authenticate_xray, create_test, create_test_execution,
-        create_test_set, get_step_statuses, get_test_executions, get_test_executions_by_version,
-        get_test_plan_tests, get_test_plans, get_test_runs, get_test_set_tests, get_test_sets,
-        get_tests, get_xray_statuses, update_test_run_comment, update_test_run_status,
-        update_test_run_step, update_test_run_step_status,
+        create_test_set, get_all_test_set_memberships, get_step_statuses, get_test_executions,
+        get_test_executions_by_version, get_test_plan_tests, get_test_plans, get_test_runs,
+        get_test_set_tests, get_test_sets, get_tests, get_xray_statuses, update_test_run_comment,
+        update_test_run_status, update_test_run_step, update_test_run_step_status,
     },
 };
 use state::XrayClientState;
@@ -56,6 +56,7 @@ pub fn run() {
             get_tests,
             get_test_sets,
             get_test_set_tests,
+            get_all_test_set_memberships,
             get_test_plan_tests,
             create_test,
             add_tests_to_test_set,

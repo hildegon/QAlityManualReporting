@@ -212,6 +212,19 @@ export interface XrayTestSet {
   };
 }
 
+/** Lightweight info about a test set, used in membership maps. */
+export interface TestSetMemberInfo {
+  issue_id: string;
+  key: string;
+  summary: string;
+}
+
+/** Response from `get_all_test_set_memberships` — maps test issue IDs to their test sets. */
+export interface TestSetMembershipsResponse {
+  memberships: Record<string, TestSetMemberInfo[]>;
+  test_sets: XrayTestSet[];
+}
+
 /** Paginated response from `get_test_runs` Tauri command. */
 export interface TestRunsPage {
   total: number;

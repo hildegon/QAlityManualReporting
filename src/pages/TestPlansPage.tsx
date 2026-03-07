@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useTestPlans, useGetTestPlanTests } from "@/services/queries";
 import { useContentProjectKey } from "@/hooks/useProjectKey";
 import { Spinner } from "@/components/ui/spinner";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Badge, statusVariant } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,14 +12,7 @@ import type { TestPlan } from "@/types";
 
 export function TestPlansPage() {
   const projectKey = useContentProjectKey();
-  const {
-    data: plans,
-    isLoading,
-    isError,
-    error,
-    refetch,
-    isFetching,
-  } = useTestPlans(projectKey);
+  const { data: plans, isLoading, isError, error, refetch, isFetching } = useTestPlans(projectKey);
 
   const [search, setSearch] = useState("");
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -29,8 +23,21 @@ export function TestPlansPage() {
 
   if (isLoading) {
     return (
-      <div className="flex h-48 items-center justify-center">
-        <Spinner />
+      <div className="space-y-2">
+        <div className="mb-4 flex items-center justify-between">
+          <Skeleton className="h-7 w-36" />
+          <Skeleton className="h-8 w-20" />
+        </div>
+        {Array.from({ length: 5 }).map((_, i) => (
+          <div
+            key={i}
+            className="flex items-center gap-3 rounded-md border border-slate-100 px-3 py-2.5"
+          >
+            <Skeleton className="h-4 w-20 shrink-0" />
+            <Skeleton className="h-4 flex-1" />
+            <Skeleton className="h-5 w-16 rounded-full" />
+          </div>
+        ))}
       </div>
     );
   }
@@ -53,8 +60,7 @@ export function TestPlansPage() {
 
   const q = search.trim().toLowerCase();
   const filtered = (plans ?? []).filter(
-    (p) =>
-      !q || p.jira.key.toLowerCase().includes(q) || p.jira.summary.toLowerCase().includes(q),
+    (p) => !q || p.jira.key.toLowerCase().includes(q) || p.jira.summary.toLowerCase().includes(q),
   );
 
   const toggle = (id: string) => setExpandedId((prev) => (prev === id ? null : id));
@@ -66,9 +72,7 @@ export function TestPlansPage() {
           Test Plans
           <span className="ml-2 text-sm font-normal text-slate-500">
             {projectKey} · {filtered.length}
-            {filtered.length !== (plans?.length ?? 0) && (
-              <span> / {plans?.length ?? 0}</span>
-            )}
+            {filtered.length !== (plans?.length ?? 0) && <span> / {plans?.length ?? 0}</span>}
           </span>
         </h1>
         <Button variant="outline" size="sm" onClick={() => void refetch()} disabled={isFetching}>
@@ -145,8 +149,7 @@ function TestPlanPanel({ testPlan }: TestPlanPanelProps) {
 
   const q = search.trim().toLowerCase();
   const filtered = (tests ?? []).filter(
-    (t) =>
-      !q || t.jira.key.toLowerCase().includes(q) || t.jira.summary.toLowerCase().includes(q),
+    (t) => !q || t.jira.key.toLowerCase().includes(q) || t.jira.summary.toLowerCase().includes(q),
   );
 
   return (
@@ -158,9 +161,7 @@ function TestPlanPanel({ testPlan }: TestPlanPanelProps) {
         </div>
       )}
 
-      {isError && (
-        <p className="py-2 text-sm text-red-600">{String(error)}</p>
-      )}
+      {isError && <p className="py-2 text-sm text-red-600">{String(error)}</p>}
 
       {!isLoading && !isError && (
         <>

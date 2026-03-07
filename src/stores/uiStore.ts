@@ -12,6 +12,8 @@ interface UiState {
   removeToast: (id: string) => void;
   /** Epoch-millisecond timestamp at which an active rate-limit block lifts, or null. */
   rateLimitUntil: number | null;
+  /** Epoch-millisecond timestamp at which the current rate-limit block started, or null. */
+  rateLimitStart: number | null;
   setRateLimit: (untilMs: number | null) => void;
 }
 
@@ -26,7 +28,13 @@ export const useUiStore = create<UiState>((set) => ({
       toasts: state.toasts.filter((t) => t.id !== id),
     })),
   rateLimitUntil: null,
-  setRateLimit: (untilMs) => set({ rateLimitUntil: untilMs }),
+  rateLimitStart: null,
+  setRateLimit: (untilMs) =>
+    set((state) => ({
+      rateLimitUntil: untilMs,
+      // Capture start time only when a new limit is set; clear it when dismissed.
+      rateLimitStart: untilMs !== null ? (state.rateLimitStart ?? Date.now()) : null,
+    })),
 }));
 
 /**
