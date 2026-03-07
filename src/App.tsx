@@ -61,13 +61,17 @@ export default function App() {
   // The query/mutation will automatically retry once after the window expires
   // (configured in retryDelay above); we also schedule an invalidation so that
   // any queries that already exhausted their retry budget get a second chance.
+  // Only queries in an error state are invalidated — successful cached queries
+  // are left alone to avoid a thundering herd when the rate limit lifts.
   queryClient.getQueryCache().config.onError = (error) => {
     const until = parseRateLimitError(error);
     if (until !== null) {
       setRateLimit(until);
       const delay = Math.max(0, until - Date.now()) + 500;
       setTimeout(() => {
-        void queryClient.invalidateQueries();
+        void queryClient.invalidateQueries({
+          predicate: (query) => query.state.status === "error",
+        });
       }, delay);
     }
   };

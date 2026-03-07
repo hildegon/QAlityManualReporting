@@ -11,7 +11,7 @@ import {
   useTestSetMembership,
 } from "@/services/queries";
 import { parseRateLimitError } from "@/stores/uiStore";
-import { Spinner } from "@/components/ui/spinner";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Badge, statusVariant } from "@/components/ui/badge";
 import { cn } from "@/components/ui/utils";
@@ -343,9 +343,28 @@ export function TestExecutionDetail({
 
       {/* Loading */}
       {isLoading && (
-        <div className="flex h-48 flex-col items-center justify-center gap-3 text-slate-400">
-          <Spinner />
-          <p className="text-sm">Loading test runs...</p>
+        <div className="flex flex-col gap-2">
+          {/* Filter/toolbar skeleton */}
+          <div className="flex items-center gap-2 pb-1">
+            <Skeleton className="h-8 flex-1" />
+            <Skeleton className="h-8 w-28" />
+          </div>
+          {/* Test run row skeletons: key + summary + status chips */}
+          {Array.from({ length: 8 }).map((_, i) => (
+            <div
+              key={i}
+              className="flex items-center gap-3 rounded border border-slate-100 px-3 py-2.5"
+            >
+              <Skeleton className="h-4 w-4 shrink-0 rounded" />
+              <Skeleton className="h-4 w-20 shrink-0" />
+              <Skeleton className="h-4 flex-1" />
+              <div className="flex gap-1">
+                {Array.from({ length: 4 }).map((__, j) => (
+                  <Skeleton key={j} className="h-6 w-14 rounded-full" />
+                ))}
+              </div>
+            </div>
+          ))}
         </div>
       )}
 

@@ -15,6 +15,7 @@ import { useContentProjectKey, useExecutionProjectKey } from "@/hooks/useProject
 import { useQueryClient } from "@tanstack/react-query";
 import { parseRateLimitError } from "@/stores/uiStore";
 import { Spinner } from "@/components/ui/spinner";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Badge, statusVariant } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -50,13 +51,31 @@ export function TestExecutionsPage() {
   const [showDone, setShowDone] = useState(false);
 
   if (!executionProjectKey) {
-    return <EmptyState message="Set an Execution Project Key in Settings to view test executions." />;
+    return (
+      <EmptyState message="Set an Execution Project Key in Settings to view test executions." />
+    );
   }
 
   if (isLoading) {
     return (
-      <div className="flex h-48 items-center justify-center">
-        <Spinner />
+      <div className="space-y-2">
+        {/* Header skeleton */}
+        <div className="mb-4 flex items-center justify-between">
+          <Skeleton className="h-7 w-48" />
+          <Skeleton className="h-8 w-20" />
+        </div>
+        {/* Row skeletons mimicking key + summary + badge + assignee */}
+        {Array.from({ length: 6 }).map((_, i) => (
+          <div
+            key={i}
+            className="flex items-center gap-3 rounded-md border border-slate-100 px-3 py-2.5"
+          >
+            <Skeleton className="h-4 w-20 shrink-0" />
+            <Skeleton className="h-4 flex-1" />
+            <Skeleton className="h-5 w-16 rounded-full" />
+            <Skeleton className="h-5 w-5 rounded-full" />
+          </div>
+        ))}
       </div>
     );
   }
@@ -102,10 +121,7 @@ export function TestExecutionsPage() {
   const filtered = (executions ?? []).filter((exec) => {
     if (!showDone && exec.jira.status && isDoneStatus(exec.jira.status.name)) return false;
     if (!q) return true;
-    return (
-      exec.jira.key.toLowerCase().includes(q) ||
-      exec.jira.summary.toLowerCase().includes(q)
-    );
+    return exec.jira.key.toLowerCase().includes(q) || exec.jira.summary.toLowerCase().includes(q);
   });
 
   const hiddenDoneCount = (executions ?? []).filter(
@@ -264,9 +280,15 @@ function CreateExecutionDialog({
   const createExecution = useCreateTestExecution();
   // Only fetch these when the dialog is actually open — avoids unnecessary API
   // calls on every page load.
-  const { data: testPlans, isLoading: plansLoading } = useTestPlans(open ? (contentProjectKey ?? null) : null);
-  const { data: tests, isLoading: testsLoading } = useGetTests(open ? (contentProjectKey ?? undefined) : undefined);
-  const { data: testSets, isLoading: testSetsLoading } = useGetTestSets(open ? (contentProjectKey ?? undefined) : undefined);
+  const { data: testPlans, isLoading: plansLoading } = useTestPlans(
+    open ? (contentProjectKey ?? null) : null,
+  );
+  const { data: tests, isLoading: testsLoading } = useGetTests(
+    open ? (contentProjectKey ?? undefined) : undefined,
+  );
+  const { data: testSets, isLoading: testSetsLoading } = useGetTestSets(
+    open ? (contentProjectKey ?? undefined) : undefined,
+  );
 
   const filteredTests = (tests ?? []).filter((t) => {
     const q = testSearch.toLowerCase();
@@ -275,11 +297,7 @@ function CreateExecutionDialog({
 
   const filteredTestSets = (testSets ?? []).filter((ts) => {
     const q = testSetSearch.toLowerCase();
-    return (
-      !q ||
-      ts.jira.key.toLowerCase().includes(q) ||
-      ts.jira.summary.toLowerCase().includes(q)
-    );
+    return !q || ts.jira.key.toLowerCase().includes(q) || ts.jira.summary.toLowerCase().includes(q);
   });
 
   const toggleTest = (issueId: string) => {
@@ -374,7 +392,6 @@ function CreateExecutionDialog({
           <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
             <div className="flex-1 overflow-y-auto px-6 py-4">
               <div className="space-y-5">
-
                 {/* Summary */}
                 <div className="space-y-1.5">
                   <Label htmlFor="exec-summary">Summary *</Label>
@@ -439,7 +456,9 @@ function CreateExecutionDialog({
                       <div className="max-h-40 overflow-y-auto rounded-md border border-slate-200">
                         {filteredTestSets.length === 0 ? (
                           <p className="px-3 py-4 text-center text-sm text-slate-400">
-                            {testSetSearch ? "No test sets match your filter." : "No test sets found."}
+                            {testSetSearch
+                              ? "No test sets match your filter."
+                              : "No test sets found."}
                           </p>
                         ) : (
                           <ul className="divide-y divide-slate-100">
@@ -454,7 +473,9 @@ function CreateExecutionDialog({
                                     <span className="mr-1.5 font-mono text-xs text-slate-500">
                                       {ts.jira.key}
                                     </span>
-                                    <span className="text-sm text-slate-800">{ts.jira.summary}</span>
+                                    <span className="text-sm text-slate-800">
+                                      {ts.jira.summary}
+                                    </span>
                                   </div>
                                   <Button
                                     type="button"
@@ -518,7 +539,9 @@ function CreateExecutionDialog({
                                     <span className="mr-1.5 font-mono text-xs text-slate-500">
                                       {test.jira.key}
                                     </span>
-                                    <span className="text-sm text-slate-800">{test.jira.summary}</span>
+                                    <span className="text-sm text-slate-800">
+                                      {test.jira.summary}
+                                    </span>
                                   </div>
                                 </label>
                               </li>
@@ -529,7 +552,6 @@ function CreateExecutionDialog({
                     </div>
                   )}
                 </div>
-
               </div>
             </div>
 
@@ -658,9 +680,7 @@ function EditExecutionDialog({
           <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
             <div>
               <Dialog.Title className="text-lg font-semibold">Edit Execution</Dialog.Title>
-              {issueKey && (
-                <p className="mt-0.5 font-mono text-xs text-slate-500">{issueKey}</p>
-              )}
+              {issueKey && <p className="mt-0.5 font-mono text-xs text-slate-500">{issueKey}</p>}
             </div>
             <Dialog.Close asChild>
               <button className="rounded p-1 hover:bg-slate-100">
@@ -671,7 +691,6 @@ function EditExecutionDialog({
 
           {/* Body */}
           <div className="flex-1 overflow-y-auto px-6 py-4 space-y-6">
-
             {/* ── Status transitions ── */}
             <div className="space-y-2">
               <h3 className="text-sm font-medium text-slate-700">Transition Status</h3>

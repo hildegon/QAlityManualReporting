@@ -6,8 +6,8 @@ use crate::{
     models::xray::{
         CreateTestExecutionInput, CreateTestExecutionResult, CreateTestResult, CreateTestSetResult,
         CreateTestStepInput, CreateXrayTestInput, TestExecution, TestPlan, TestRunsPage,
-        UpdateTestRunStatusInput, UpdateTestRunStepData, XrayStepStatus, XrayTest,
-        XrayTestRunStatus, XrayTestSet,
+        TestSetMembershipsResponse, UpdateTestRunStatusInput, UpdateTestRunStepData,
+        XrayStepStatus, XrayTest, XrayTestRunStatus, XrayTestSet,
     },
     state::XrayClientState,
 };
@@ -259,10 +259,11 @@ pub async fn create_test_set(
     state: State<'_, XrayClientState>,
     project_key: String,
     summary: String,
+    component: Option<String>,
 ) -> Result<CreateTestSetResult, String> {
     let client = get_xray_client(&app, &state).await?;
     client
-        .create_test_set(&project_key, &summary, None)
+        .create_test_set(&project_key, &summary, component.as_deref(), None)
         .await
         .map_err(format_err)
 }
@@ -327,6 +328,22 @@ pub async fn get_test_set_tests(
     let client = get_xray_client(&app, &state).await?;
     client
         .get_test_set_tests(&issue_id)
+        .await
+        .map_err(format_err)
+}
+
+/// Fetch all test sets for a project and build a membership map
+/// (test_issue_id → list of test sets) in a single backend round-trip.
+#[tauri::command]
+pub async fn get_all_test_set_memberships(
+    app: AppHandle,
+    state: State<'_, XrayClientState>,
+    project_key: String,
+    limit: Option<u32>,
+) -> Result<TestSetMembershipsResponse, String> {
+    let client = get_xray_client(&app, &state).await?;
+    client
+        .get_all_test_set_memberships(&project_key, limit.unwrap_or(100))
         .await
         .map_err(format_err)
 }

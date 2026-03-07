@@ -29,7 +29,7 @@ import {
 import { useQueryClient } from "@tanstack/react-query";
 import { useExecutionProjectKey } from "@/hooks/useProjectKey";
 import { parseRateLimitError } from "@/stores/uiStore";
-import { Spinner } from "@/components/ui/spinner";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Badge, statusVariant } from "@/components/ui/badge";
 import { cn } from "@/components/ui/utils";
 import { TestExecutionDetail } from "@/components/test-execution/TestExecutionDetail";
@@ -710,8 +710,17 @@ function ExecutionListPanel({ projectKey, version, onSelectExecution }: Executio
 
   if (isLoading) {
     return (
-      <div className="flex h-32 items-center justify-center">
-        <Spinner />
+      <div className="space-y-2 p-2">
+        {Array.from({ length: 3 }).map((_, i) => (
+          <div
+            key={i}
+            className="flex items-center gap-3 rounded border border-slate-100 px-3 py-2"
+          >
+            <Skeleton className="h-4 w-20 shrink-0" />
+            <Skeleton className="h-4 flex-1" />
+            <Skeleton className="h-5 w-16 rounded-full" />
+          </div>
+        ))}
       </div>
     );
   }
@@ -1143,8 +1152,20 @@ export function VersionsPage() {
 
   if (versionsLoading) {
     return (
-      <div className="flex h-48 items-center justify-center">
-        <Spinner />
+      <div className="space-y-2">
+        <div className="mb-4 flex items-center justify-between">
+          <Skeleton className="h-7 w-32" />
+          <Skeleton className="h-8 w-20" />
+        </div>
+        {Array.from({ length: 4 }).map((_, i) => (
+          <div key={i} className="rounded-lg border border-slate-100 p-4 space-y-2">
+            <div className="flex items-center gap-3">
+              <Skeleton className="h-5 w-24" />
+              <Skeleton className="h-4 w-16 rounded-full" />
+            </div>
+            <Skeleton className="h-3 w-48" />
+          </div>
+        ))}
       </div>
     );
   }

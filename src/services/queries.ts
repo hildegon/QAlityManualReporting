@@ -28,6 +28,7 @@ import type {
   TestPlan,
   TestRun,
   TestRunsPage,
+  TestSetMemberInfo,
   XrayStepStatus,
   XrayTest,
   XrayTestRunStatus,
@@ -57,6 +58,7 @@ export const queryKeys = {
   tests: (projectKey: string) => ["xray", "tests", projectKey] as const,
   testSets: (projectKey: string) => ["xray", "test-sets", projectKey] as const,
   testSetTests: (issueId: string) => ["xray", "test-set-tests", issueId] as const,
+  testSetMemberships: (projectKey: string) => ["xray", "test-set-memberships", projectKey] as const,
   testPlanTests: (issueId: string) => ["xray", "test-plan-tests", issueId] as const,
   xrayStatuses: (projectId: string) => ["xray", "statuses", projectId] as const,
   stepStatuses: (projectId: string) => ["xray", "step-statuses", projectId] as const,
@@ -266,7 +268,7 @@ export function useTestRuns(executionIssueId: string | null) {
       return nextStart;
     },
     enabled: !!executionIssueId,
-    staleTime: 30 * 1000,
+    staleTime: 2 * 60 * 1_000, // 2 minutes — mutations handle optimistic updates
   });
 }
 
@@ -311,6 +313,33 @@ function mapRunsAcrossPages(
   };
 }
 
+/**
+ * Debounced query invalidation to prevent thundering herd during bulk
+ * operations (e.g. 50 status changes that each call onSettled).
+ * Multiple calls for the same execution within `DEBOUNCE_MS` are collapsed
+ * into a single invalidation.
+ */
+const DEBOUNCE_MS = 500;
+const pendingInvalidations = new Map<string, ReturnType<typeof setTimeout>>();
+
+function debouncedInvalidateTestRuns(
+  queryClient: ReturnType<typeof useQueryClient>,
+  executionIssueId: string,
+) {
+  const existing = pendingInvalidations.get(executionIssueId);
+  if (existing) clearTimeout(existing);
+
+  pendingInvalidations.set(
+    executionIssueId,
+    setTimeout(() => {
+      pendingInvalidations.delete(executionIssueId);
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.testRuns(executionIssueId),
+      });
+    }, DEBOUNCE_MS),
+  );
+}
+
 // ── Update test run status (optimistic) ──────────────────────────────────────
 
 interface UpdateStatusVars {
@@ -346,9 +375,9 @@ export function useUpdateTestRunStatus() {
       }
     },
 
-    // Always refetch to confirm server state
+    // Always refetch to confirm server state (debounced for bulk operations)
     onSettled: (_data, _err, { executionIssueId }) => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.testRuns(executionIssueId) });
+      debouncedInvalidateTestRuns(queryClient, executionIssueId);
     },
   });
 }
@@ -385,7 +414,7 @@ export function useUpdateTestRunComment() {
     },
 
     onSettled: (_data, _err, { executionIssueId }) => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.testRuns(executionIssueId) });
+      debouncedInvalidateTestRuns(queryClient, executionIssueId);
     },
   });
 }
@@ -440,7 +469,7 @@ export function useUpdateTestRunStepStatus() {
     },
 
     onSettled: (_data, _err, { executionIssueId }) => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.testRuns(executionIssueId) });
+      debouncedInvalidateTestRuns(queryClient, executionIssueId);
     },
   });
 }
@@ -506,7 +535,7 @@ export function useUpdateTestRunStep() {
     },
 
     onSettled: (_data, _err, { executionIssueId }) => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.testRuns(executionIssueId) });
+      debouncedInvalidateTestRuns(queryClient, executionIssueId);
     },
   });
 }
@@ -580,8 +609,13 @@ export function useGetTestPlanTests(issueId: string | null) {
 
 export function useCreateTestSet() {
   const queryClient = useQueryClient();
-  return useMutation<CreateTestSetResult, Error, { projectKey: string; summary: string }>({
-    mutationFn: ({ projectKey, summary }) => api.createTestSet(projectKey, summary),
+  return useMutation<
+    CreateTestSetResult,
+    Error,
+    { projectKey: string; summary: string; component?: string }
+  >({
+    mutationFn: ({ projectKey, summary, component }) =>
+      api.createTestSet(projectKey, summary, component),
     onSuccess: (_data, { projectKey }) => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.testSets(projectKey) });
     },
@@ -592,12 +626,21 @@ export function useCreateTestSet() {
 
 export function useAddTestsToTestSet() {
   const queryClient = useQueryClient();
-  return useMutation<void, Error, { testSetIssueId: string; testIssueIds: string[] }>({
+  return useMutation<
+    void,
+    Error,
+    { testSetIssueId: string; testIssueIds: string[]; projectKey: string }
+  >({
     mutationFn: ({ testSetIssueId, testIssueIds }) =>
       api.addTestsToTestSet(testSetIssueId, testIssueIds),
-    onSuccess: (_data, { testSetIssueId }) => {
+    onSuccess: (_data, { testSetIssueId, projectKey }) => {
+      // Refresh the individual test-set member list (right panel).
       void queryClient.invalidateQueries({
         queryKey: queryKeys.testSetTests(testSetIssueId),
+      });
+      // Refresh the membership map so badges in the Tests panel update immediately.
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.testSetMemberships(projectKey),
       });
     },
   });
@@ -723,7 +766,7 @@ export function useVersionRunStats(executions: TestExecution[]): RunStats {
     queries: executions.map((ex) => ({
       queryKey: ["version-run-stats", ex.issue_id, 0] as const,
       queryFn: () => api.getTestRuns(ex.issue_id, PAGE_SIZE, 0),
-      staleTime: 30 * 1_000,
+      staleTime: 5 * 60 * 1_000,
       enabled: executions.length > 0,
     })),
   });
@@ -746,19 +789,19 @@ export function useVersionRunStats(executions: TestExecution[]): RunStats {
     queries: extraPageQueries.map(({ issueId, start }) => ({
       queryKey: ["version-run-stats", issueId, start] as const,
       queryFn: () => api.getTestRuns(issueId, PAGE_SIZE, start),
-      staleTime: 30 * 1_000,
+      staleTime: 5 * 60 * 1_000,
       enabled: extraPageQueries.length > 0,
     })),
   });
 
   // ── Aggregate ────────────────────────────────────────────────────────────────
   return useMemo(() => {
-    const counts: Record<string, number> = {};
-    let total = 0;
     let pagesLoaded = 0;
     const pagesExpected = executions.length + extraPageQueries.length;
 
-    // Map from testIssueId → { meta, history entries indexed by executionIssueId }
+    // Map from testIssueId → { meta, status per execution (all statuses tracked) }
+    // Storing ALL statuses (not just PASS/FAIL) so the donut chart reflects
+    // every unique test, not just the ones that passed or failed.
     const testMap = new Map<
       string,
       { testKey: string; testSummary: string; byExec: Map<string, string> }
@@ -768,24 +811,17 @@ export function useVersionRunStats(executions: TestExecution[]): RunStats {
       if (!page) return;
       pagesLoaded += 1;
       for (const run of page.results) {
-        const statusKey = run.status.name.toUpperCase();
-        counts[statusKey] = (counts[statusKey] ?? 0) + 1;
-        total += 1;
-
-        // Track every run that ever failed/blocked for cross-execution history
-        const statusUpper = statusKey;
-        if (FAIL_STATUSES.has(statusUpper) || PASS_STATUSES.has(statusUpper)) {
-          const tid = run.test.issue_id;
-          if (!testMap.has(tid)) {
-            testMap.set(tid, {
-              testKey: run.test.jira.key,
-              testSummary: run.test.jira.summary,
-              byExec: new Map(),
-            });
-          }
-          // Last write wins if multiple runs for the same test in the same execution
-          testMap.get(tid)!.byExec.set(executionIssueId, run.status.name);
+        const tid = run.test.issue_id;
+        if (!testMap.has(tid)) {
+          testMap.set(tid, {
+            testKey: run.test.jira.key,
+            testSummary: run.test.jira.summary,
+            byExec: new Map(),
+          });
         }
+        // Last write wins if the same test appears on multiple pages of the same
+        // execution (shouldn't happen, but defensive).
+        testMap.get(tid)!.byExec.set(executionIssueId, run.status.name);
       }
     };
 
@@ -796,18 +832,45 @@ export function useVersionRunStats(executions: TestExecution[]): RunStats {
       processPage(phase2[i]?.data, extraPageQueries[i]?.issueId ?? "");
     }
 
-    // Build TestRunHistory only for tests that had at least one failure/block
+    // Sort executions by Jira key (ascending = chronological) so that
+    // "latest execution" means the one with the highest key number.
+    const sortedExecs = [...executions].sort((a, b) =>
+      a.jira.key.localeCompare(b.jira.key, undefined, { numeric: true }),
+    );
+
+    // Derive deduplicated counts: each unique test contributes exactly once,
+    // using the status from the latest execution that ran it.
+    const counts: Record<string, number> = {};
+    let total = 0;
+
+    for (const [, meta] of testMap) {
+      // Pick the status from the latest execution that contains this test.
+      let latestStatus: string | undefined;
+      for (const ex of sortedExecs) {
+        const s = meta.byExec.get(ex.issue_id);
+        if (s !== undefined) latestStatus = s; // later exec overwrites earlier
+      }
+      if (latestStatus === undefined) continue;
+
+      const statusKey = latestStatus.toUpperCase();
+      counts[statusKey] = (counts[statusKey] ?? 0) + 1;
+      total += 1;
+    }
+
+    // Build TestRunHistory only for tests that had at least one failure/block.
+    // The history spans all executions (unchanged behaviour).
     const allLoaded = pagesLoaded >= pagesExpected && pagesExpected > 0;
     const failedTests: TestRunHistory[] = [];
 
     if (allLoaded) {
-      // Sort executions by Jira key for consistent chronological ordering
-      const sortedExecs = [...executions].sort((a, b) =>
-        a.jira.key.localeCompare(b.jira.key, undefined, { numeric: true }),
-      );
-
       for (const [testIssueId, meta] of testMap) {
-        // Only include tests that had at least one failure or block
+        // Only include tests whose byExec map contains a PASS or FAIL status
+        // (same gate as before — TODO/EXECUTING tests are excluded from history).
+        const hasPassOrFail = [...meta.byExec.values()].some(
+          (s) => FAIL_STATUSES.has(s.toUpperCase()) || PASS_STATUSES.has(s.toUpperCase()),
+        );
+        if (!hasPassOrFail) continue;
+
         const hadFailure = [...meta.byExec.values()].some((s) =>
           FAIL_STATUSES.has(s.toUpperCase()),
         );
@@ -845,44 +908,42 @@ export function useVersionRunStats(executions: TestExecution[]): RunStats {
 }
 
 /**
- * Fetches all test sets for a project and the tests belonging to each set.
+ * Fetches all test sets for a project and the tests belonging to each set
+ * using a single backend call (avoids N+1 frontend API calls).
  * Returns:
  *   - `testSets` — list of test sets (for rendering filter options)
  *   - `membership` — Map<testIssueId, TestSetInfo[]> for looking up which sets a test belongs to
- *   - `isLoading` — true while the initial test-sets list is loading
+ *   - `isLoading` — true while data is loading
  */
 export function useTestSetMembership(projectKey: string | null) {
-  // Step 1: fetch test sets list (re-uses the cached result from the Test Sets page).
-  const { data: testSets, isLoading: setsLoading } = useGetTestSets(projectKey ?? undefined);
-
-  // Step 2: for each test set, fetch its member test issue IDs in parallel.
-  const setTestsResults = useQueries({
-    queries: (testSets ?? []).map((ts) => ({
-      queryKey: queryKeys.testSetTests(ts.issue_id),
-      queryFn: () => api.getTestSetTests(ts.issue_id),
-      staleTime: 5 * 60 * 1_000,
-      enabled: !!projectKey && (testSets?.length ?? 0) > 0,
-    })),
+  const { data, isLoading } = useQuery({
+    queryKey: queryKeys.testSetMemberships(projectKey ?? ""),
+    queryFn: () => api.getAllTestSetMemberships(projectKey!),
+    enabled: !!projectKey,
+    staleTime: 5 * 60 * 1_000,
   });
 
-  // Step 3: build the lookup map once all (or some) results are available.
+  // Convert the plain Record from the backend into a Map for the consumers.
   const membership = useMemo(() => {
     const map = new Map<string, TestSetInfo[]>();
-    (testSets ?? []).forEach((ts, idx) => {
-      const result = setTestsResults[idx];
-      const tests = result?.data ?? [];
-      for (const t of tests) {
-        const existing = map.get(t.issue_id) ?? [];
-        existing.push({ issueId: ts.issue_id, key: ts.jira.key, summary: ts.jira.summary });
-        map.set(t.issue_id, existing);
-      }
-    });
+    if (!data) return map;
+
+    for (const [testIssueId, sets] of Object.entries(data.memberships)) {
+      map.set(
+        testIssueId,
+        sets.map((s: TestSetMemberInfo) => ({
+          issueId: s.issue_id,
+          key: s.key,
+          summary: s.summary,
+        })),
+      );
+    }
     return map;
-  }, [testSets, setTestsResults]);
+  }, [data]);
 
   return {
-    testSets: testSets ?? [],
+    testSets: data?.test_sets ?? [],
     membership,
-    isLoading: setsLoading,
+    isLoading,
   };
 }
