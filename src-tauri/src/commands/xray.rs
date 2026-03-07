@@ -343,3 +343,20 @@ pub async fn get_test_plan_tests(
         .await
         .map_err(format_err)
 }
+
+/// Fetch test executions for a project filtered by a Jira fix version name.
+#[tauri::command]
+pub async fn get_test_executions_by_version(
+    app: AppHandle,
+    state: State<'_, XrayClientState>,
+    project_key: String,
+    version_name: String,
+    limit: Option<u32>,
+) -> Result<Vec<TestExecution>, String> {
+    let client = get_xray_client(&app, &state).await?;
+    let result = client
+        .get_test_executions_by_version(&project_key, &version_name, limit.unwrap_or(100))
+        .await
+        .map_err(format_err)?;
+    Ok(result.test_executions.results)
+}

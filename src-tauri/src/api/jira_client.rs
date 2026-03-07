@@ -5,7 +5,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::models::jira::{
     JiraComponent, JiraIssue, JiraProject, JiraProjectsResponse, JiraTransition,
-    JiraTransitionsResponse, JiraUserSearchResult,
+    JiraTransitionsResponse, JiraUserSearchResult, JiraVersion,
 };
 
 /// Check a response for 429 (rate-limited) before consuming it with `error_for_status`.
@@ -308,5 +308,31 @@ impl JiraClient {
         .json()
         .await
         .context("Failed to parse Jira user search response")
+    }
+
+    /// Fetch all versions for a given Jira project key.
+    ///
+    /// Uses `GET /rest/api/3/project/{key}/versions`.
+    pub async fn get_project_versions(&self, project_key: &str) -> Result<Vec<JiraVersion>> {
+        let url = format!(
+            "{}/rest/api/3/project/{}/versions",
+            self.base_url,
+            project_key.trim(),
+        );
+
+        check_rate_limit(
+            self.client
+                .get(&url)
+                .header("Authorization", &self.auth_header)
+                .header("Accept", "application/json")
+                .send()
+                .await
+                .context("Failed to send Jira project versions request")?,
+        )?
+        .error_for_status()
+        .with_context(|| format!("Jira project versions request failed for '{}'", project_key))?
+        .json()
+        .await
+        .context("Failed to parse Jira project versions response")
     }
 }

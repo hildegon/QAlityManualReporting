@@ -121,3 +121,15 @@ pub struct JiraUserSearchResult {
     #[serde(rename(deserialize = "avatarUrls"))]
     pub avatar_urls: Option<AvatarUrls>,
 }
+
+/// A Jira project version returned by `GET /rest/api/3/project/{key}/versions`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct JiraVersion {
+    pub id: String,
+    pub name: String,
+    pub description: Option<String>,
+    pub archived: Option<bool>,
+    pub released: Option<bool>,
+    #[serde(rename(deserialize = "releaseDate"))]
+    pub release_date: Option<String>,
+}

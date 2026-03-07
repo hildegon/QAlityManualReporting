@@ -58,6 +58,16 @@ export interface JiraUser {
   };
 }
 
+/** A Jira project version returned by `get_project_versions`. */
+export interface JiraVersion {
+  id: string;
+  name: string;
+  description?: string;
+  archived?: boolean;
+  released?: boolean;
+  release_date?: string;
+}
+
 // ── Xray ──────────────────────────────────────────────────────────────────────
 
 export interface TestPlan {

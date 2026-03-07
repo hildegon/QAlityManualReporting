@@ -3,7 +3,7 @@ use tauri::AppHandle;
 use crate::{
     api::jira_client::JiraClient,
     commands::config::load_config,
-    models::jira::{JiraComponent, JiraProject, JiraTransition, JiraUserSearchResult},
+    models::jira::{JiraComponent, JiraProject, JiraTransition, JiraUserSearchResult, JiraVersion},
 };
 
 /// Format an anyhow error with its full cause chain for debugging.
@@ -98,4 +98,17 @@ pub async fn search_users(
 ) -> Result<Vec<JiraUserSearchResult>, String> {
     let client = make_jira_client(&app)?;
     client.search_users(&query).await.map_err(format_err)
+}
+
+/// Fetch all versions for a given Jira project key.
+#[tauri::command]
+pub async fn get_project_versions(
+    app: AppHandle,
+    project_key: String,
+) -> Result<Vec<JiraVersion>, String> {
+    let client = make_jira_client(&app)?;
+    client
+        .get_project_versions(&project_key)
+        .await
+        .map_err(format_err)
 }
