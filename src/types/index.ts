@@ -203,6 +203,25 @@ export interface XrayTest {
   };
 }
 
+/** The latest execution status of a test, as returned by Xray's latestStatus field. */
+export interface LatestTestStatus {
+  name: string;
+  color?: string;
+  description?: string;
+  is_final?: boolean;
+}
+
+/** An Xray test enriched with its latest execution status (for the Coverage page). */
+export interface XrayTestWithStatus {
+  issue_id: string;
+  jira: {
+    key: string;
+    summary: string;
+  };
+  /** undefined if the test has never been executed. */
+  latest_status?: LatestTestStatus;
+}
+
 /** A single Xray test set returned by `get_test_sets`. */
 export interface XrayTestSet {
   issue_id: string;

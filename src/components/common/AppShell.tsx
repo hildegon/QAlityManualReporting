@@ -1,5 +1,13 @@
 import { Outlet, NavLink } from "react-router-dom";
-import { Settings, ListChecks, BookOpen, FilePlus2, Tag, FlaskConical } from "lucide-react";
+import {
+  Settings,
+  ListChecks,
+  BookOpen,
+  Activity,
+  FilePlus2,
+  Tag,
+  FlaskConical,
+} from "lucide-react";
 import { ProjectSelector } from "./ProjectSelector";
 import { RateLimitBanner } from "./RateLimitBanner";
 import { useConfig } from "@/services/queries";
@@ -9,6 +17,7 @@ const navItems = [
   { to: "/executions", label: "Executions", icon: ListChecks },
   { to: "/test-plans", label: "Test Plans", icon: BookOpen },
   { to: "/tests", label: "Tests", icon: FlaskConical },
+  { to: "/coverage", label: "Coverage", icon: Activity },
   { to: "/versions", label: "Versions", icon: Tag },
   { to: "/create-test", label: "Create Test", icon: FilePlus2 },
   { to: "/settings", label: "Settings", icon: Settings },

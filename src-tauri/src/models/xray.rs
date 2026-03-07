@@ -235,6 +235,50 @@ pub struct TestsPage {
     pub results: Vec<XrayTest>,
 }
 
+// ── Test with latest status (for Coverage page) ───────────────────────────────
+
+/// An Xray test enriched with its latest execution status.
+/// Returned by `get_test_set_tests_with_status`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct XrayTestWithStatus {
+    #[serde(rename(deserialize = "issueId"))]
+    pub issue_id: String,
+    #[serde(deserialize_with = "deserialize_jira_json")]
+    pub jira: XrayTestJira,
+    /// Most recent test run result, or None if the test has never been executed.
+    #[serde(rename(deserialize = "status"))]
+    pub latest_status: Option<LatestTestStatus>,
+}
+
+/// The `status` object returned by the Xray GraphQL `getTestSet(…).tests` field.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LatestTestStatus {
+    pub name: String,
+    pub color: Option<String>,
+    pub description: Option<String>,
+    #[serde(rename(deserialize = "final"))]
+    pub is_final: Option<bool>,
+}
+
+/// Wrapper for the `getTestSet(issueId)` query when `latestStatus` is requested.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TestSetWithStatusResult {
+    #[serde(rename(deserialize = "getTestSet"))]
+    pub get_test_set: TestSetDetailWithStatus,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TestSetDetailWithStatus {
+    #[serde(rename(deserialize = "issueId"))]
+    pub issue_id: String,
+    pub tests: TestSetTestsWithStatusPage,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TestSetTestsWithStatusPage {
+    pub results: Vec<XrayTestWithStatus>,
+}
+
 // ── Create Test Execution ─────────────────────────────────────────────────────
 
 #[derive(Debug, Serialize)]

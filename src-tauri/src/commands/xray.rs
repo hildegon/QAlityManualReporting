@@ -8,7 +8,7 @@ use crate::{
         CreateTestPlanInput, CreateTestPlanResult, CreateTestResult, CreateTestSetResult,
         CreateTestStepInput, CreateXrayTestInput, TestExecution, TestPlan, TestRunsPage,
         TestSetMembershipsResponse, UpdateTestRunStatusInput, UpdateTestRunStepData,
-        XrayStepStatus, XrayTest, XrayTestRunStatus, XrayTestSet,
+        XrayStepStatus, XrayTest, XrayTestRunStatus, XrayTestSet, XrayTestWithStatus,
     },
     state::XrayClientState,
 };
@@ -329,6 +329,22 @@ pub async fn get_test_set_tests(
     let client = get_xray_client(&app, &state).await?;
     client
         .get_test_set_tests(&issue_id)
+        .await
+        .map_err(format_err)
+}
+
+/// Fetch all tests in a test set, including each test's latest execution status.
+/// Used by the Coverage page to show per-test status without requiring a specific
+/// test execution to be selected.
+#[tauri::command]
+pub async fn get_test_set_tests_with_status(
+    app: AppHandle,
+    state: State<'_, XrayClientState>,
+    issue_id: String,
+) -> Result<Vec<XrayTestWithStatus>, String> {
+    let client = get_xray_client(&app, &state).await?;
+    client
+        .get_test_set_tests_with_status(&issue_id)
         .await
         .map_err(format_err)
 }
