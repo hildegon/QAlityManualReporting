@@ -31,9 +31,7 @@ export function ProjectSelector() {
 
   const q = search.trim().toLowerCase();
   const filtered = q
-    ? projects.filter(
-        (p) => p.name.toLowerCase().includes(q) || p.key.toLowerCase().includes(q),
-      )
+    ? projects.filter((p) => p.name.toLowerCase().includes(q) || p.key.toLowerCase().includes(q))
     : projects;
 
   return (
@@ -47,7 +45,9 @@ export function ProjectSelector() {
       >
         <FolderOpen className="h-4 w-4 text-slate-500" />
         <span>{activeProject?.name ?? activeProject?.key ?? "Select project…"}</span>
-        <ChevronDown className={cn("h-4 w-4 text-slate-400 transition-transform", open && "rotate-180")} />
+        <ChevronDown
+          className={cn("h-4 w-4 text-slate-400 transition-transform", open && "rotate-180")}
+        />
       </DropdownMenu.Trigger>
 
       <DropdownMenu.Portal>
@@ -90,6 +90,7 @@ export function ProjectSelector() {
                 >
                   <span className="flex-1 truncate">{project.name}</span>
                   <span className="shrink-0 font-mono text-xs text-slate-400">{project.key}</span>
+                  <span className="shrink-0 font-mono text-xs text-slate-300">{project.id}</span>
                 </DropdownMenu.Item>
               ))
             )}
