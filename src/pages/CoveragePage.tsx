@@ -9,134 +9,346 @@ import { Input } from "@/components/ui/input";
 import {
   Activity,
   AlertTriangle,
+  CheckCircle2,
   CheckSquare2,
   ChevronDown,
   ChevronRight,
+  Circle,
   Clock,
   Layers,
+  MinusCircle,
   RefreshCw,
   Search,
   Square,
+  XCircle,
 } from "lucide-react";
 import { cn } from "@/components/ui/utils";
 import type { XrayTestSet, XrayTestWithStatus } from "@/types";
 import * as api from "@/services/tauri";
 
-// ── Status helpers ────────────────────────────────────────────────────────────
+// ── Status palette (mirrors VersionsPage) ─────────────────────────────────────
+
+interface StatusSlice {
+  key: string;
+  label: string;
+  color: string;
+  bgClass: string;
+  textClass: string;
+  borderClass: string;
+  lightBg: string;
+  icon: React.ComponentType<{ className?: string }>;
+}
+
+const STATUS_PALETTE: StatusSlice[] = [
+  {
+    key: "PASS",
+    label: "Passed",
+    color: "#10b981",
+    bgClass: "bg-emerald-500",
+    textClass: "text-emerald-600",
+    borderClass: "border-emerald-200",
+    lightBg: "bg-emerald-50",
+    icon: CheckCircle2,
+  },
+  {
+    key: "FAIL",
+    label: "Failed",
+    color: "#ef4444",
+    bgClass: "bg-red-500",
+    textClass: "text-red-600",
+    borderClass: "border-red-200",
+    lightBg: "bg-red-50",
+    icon: XCircle,
+  },
+  {
+    key: "BLOCKED",
+    label: "Blocked",
+    color: "#f59e0b",
+    bgClass: "bg-amber-400",
+    textClass: "text-amber-600",
+    borderClass: "border-amber-200",
+    lightBg: "bg-amber-50",
+    icon: MinusCircle,
+  },
+  {
+    key: "EXECUTING",
+    label: "Executing",
+    color: "#3b82f6",
+    bgClass: "bg-blue-500",
+    textClass: "text-blue-600",
+    borderClass: "border-blue-200",
+    lightBg: "bg-blue-50",
+    icon: Clock,
+  },
+  {
+    key: "TODO",
+    label: "To Do",
+    color: "#94a3b8",
+    bgClass: "bg-slate-300",
+    textClass: "text-slate-500",
+    borderClass: "border-slate-200",
+    lightBg: "bg-slate-50",
+    icon: Circle,
+  },
+];
 
 const STATUS_NOT_RUN = "NOT RUN";
 
-/**
- * Determine a Tailwind background + text class pair for a status name.
- * If Xray provides a hex color we use an inline style instead; this fallback
- * covers the common standard statuses when color is absent.
- */
-function statusClasses(name: string): { bg: string; text: string } {
-  const n = name.toUpperCase();
-  if (n === "PASS" || n === "PASSED") return { bg: "bg-emerald-100", text: "text-emerald-800" };
-  if (n === "FAIL" || n === "FAILED") return { bg: "bg-red-100", text: "text-red-800" };
-  if (n === "TODO" || n === "NOT RUN") return { bg: "bg-slate-100", text: "text-slate-500" };
-  if (n === "EXECUTING") return { bg: "bg-blue-100", text: "text-blue-800" };
-  if (n === "BLOCKED") return { bg: "bg-amber-100", text: "text-amber-800" };
-  if (n === "ABORTED" || n === "CANCELLED") return { bg: "bg-orange-100", text: "text-orange-800" };
-  return { bg: "bg-slate-100", text: "text-slate-600" };
+function findSlice(rawName: string): StatusSlice {
+  const upper = rawName.toUpperCase();
+  const exact = STATUS_PALETTE.find((s) => s.key === upper);
+  if (exact) return exact;
+  if (upper === "NOT RUN" || upper === "TODO") return STATUS_PALETTE.find((s) => s.key === "TODO")!;
+  if (upper.startsWith("PASS")) return STATUS_PALETTE[0]!;
+  if (upper.startsWith("FAIL")) return STATUS_PALETTE[1]!;
+  return {
+    key: upper,
+    label: rawName,
+    color: "#64748b",
+    bgClass: "bg-slate-400",
+    textClass: "text-slate-600",
+    borderClass: "border-slate-200",
+    lightBg: "bg-slate-50",
+    icon: Circle,
+  };
 }
 
-/** Convert a #RRGGBB or rgb(...) hex color to a light background tint. */
-function hexToRgba(hex: string, alpha: number): string {
-  const h = hex.replace("#", "");
-  if (h.length !== 6) return "";
-  const r = parseInt(h.slice(0, 2), 16);
-  const g = parseInt(h.slice(2, 4), 16);
-  const b = parseInt(h.slice(4, 6), 16);
-  return `rgba(${r},${g},${b},${alpha})`;
+interface Slice extends StatusSlice {
+  count: number;
+  pct: number;
 }
 
-// ── Status badge ──────────────────────────────────────────────────────────────
-
-interface StatusBadgeProps {
-  name: string;
-  color?: string;
-}
-
-function StatusBadge({ name, color }: StatusBadgeProps) {
-  const { bg, text } = statusClasses(name);
-  if (color && color.startsWith("#")) {
-    const bgColor = hexToRgba(color, 0.15);
-    return (
-      <span
-        className="inline-block rounded px-2 py-0.5 text-xs font-semibold"
-        style={{ backgroundColor: bgColor, color }}
-      >
-        {name}
-      </span>
-    );
+function buildSlices(tests: XrayTestWithStatus[]): Slice[] {
+  if (tests.length === 0) return [];
+  const merged: Record<string, number> = {};
+  for (const t of tests) {
+    const name = t.latest_status?.name ?? STATUS_NOT_RUN;
+    const sl = findSlice(name);
+    merged[sl.key] = (merged[sl.key] ?? 0) + 1;
   }
+  const total = tests.length;
+  const knownOrder = STATUS_PALETTE.map((s) => s.key);
+  const allKeys = [
+    ...knownOrder.filter((k) => merged[k]),
+    ...Object.keys(merged)
+      .filter((k) => !knownOrder.includes(k) && merged[k])
+      .sort(),
+  ];
+  return allKeys.map((k) => {
+    const count = merged[k] ?? 0;
+    return { ...findSlice(k), count, pct: total > 0 ? count / total : 0 };
+  });
+}
+
+// ── SVG Donut chart ───────────────────────────────────────────────────────────
+
+const DONUT_SIZE = 148;
+const R = 54;
+const HOLE_R = 36;
+const CX = DONUT_SIZE / 2;
+const CY = DONUT_SIZE / 2;
+const CIRCUMFERENCE = 2 * Math.PI * R;
+const GAP = 1.5;
+
+function DonutChart({ slices, total, label }: { slices: Slice[]; total: number; label: string }) {
+  let cumPct = 0;
   return (
-    <span className={cn("inline-block rounded px-2 py-0.5 text-xs font-semibold", bg, text)}>
-      {name}
-    </span>
+    <div className="shrink-0">
+      <svg width={DONUT_SIZE} height={DONUT_SIZE} viewBox={`0 0 ${DONUT_SIZE} ${DONUT_SIZE}`}>
+        <circle cx={CX} cy={CY} r={R} fill="none" stroke="#e2e8f0" strokeWidth={R - HOLE_R} />
+        {slices.map((sl) => {
+          const dashLen = Math.max(0, sl.pct * CIRCUMFERENCE - GAP);
+          const offset = -cumPct * CIRCUMFERENCE;
+          cumPct += sl.pct;
+          return (
+            <circle
+              key={sl.key}
+              cx={CX}
+              cy={CY}
+              r={R}
+              fill="none"
+              stroke={sl.color}
+              strokeWidth={R - HOLE_R}
+              strokeDasharray={`${dashLen} ${CIRCUMFERENCE}`}
+              strokeDashoffset={offset}
+              style={{ transform: "rotate(-90deg)", transformOrigin: `${CX}px ${CY}px` }}
+            >
+              <title>{`${sl.label}: ${sl.count} (${Math.round(sl.pct * 100)}%)`}</title>
+            </circle>
+          );
+        })}
+        <text
+          x={CX}
+          y={CY - 7}
+          textAnchor="middle"
+          style={{ fontSize: 24, fontWeight: 700, fill: "#1e293b" }}
+        >
+          {total}
+        </text>
+        <text
+          x={CX}
+          y={CY + 12}
+          textAnchor="middle"
+          style={{ fontSize: 10, fill: "#94a3b8", fontWeight: 500 }}
+        >
+          {label}
+        </text>
+      </svg>
+    </div>
   );
 }
 
-// ── Summary bar ───────────────────────────────────────────────────────────────
+// ── Stat cards ────────────────────────────────────────────────────────────────
 
-interface SummaryBarProps {
-  tests: XrayTestWithStatus[];
-  compact?: boolean;
+function StatCard({ sl }: { sl: Slice }) {
+  const Icon = sl.icon;
+  return (
+    <div className={cn("rounded-xl border p-3", sl.lightBg, sl.borderClass)}>
+      <div className="mb-1.5 flex items-center justify-between">
+        <span className="text-xs font-medium text-slate-500">{sl.label}</span>
+        <Icon className={cn("h-3.5 w-3.5", sl.textClass)} />
+      </div>
+      <p className={cn("text-2xl font-bold", sl.textClass)}>{sl.count}</p>
+      <p className="mt-0.5 text-xs text-slate-400">{Math.round(sl.pct * 100)}%</p>
+    </div>
+  );
 }
 
-function SummaryBar({ tests, compact }: SummaryBarProps) {
-  const counts = useMemo(() => {
-    const map = new Map<string, { count: number; color?: string }>();
-    for (const t of tests) {
-      const name = t.latest_status?.name ?? STATUS_NOT_RUN;
-      const color = t.latest_status?.color;
-      const existing = map.get(name);
-      if (existing) {
-        existing.count++;
-      } else {
-        map.set(name, { count: 1, ...(color !== undefined ? { color } : {}) });
-      }
-    }
-    return map;
-  }, [tests]);
+// ── Stacked bar ───────────────────────────────────────────────────────────────
 
-  const total = tests.length;
+function StackedBar({ slices }: { slices: Slice[] }) {
+  return (
+    <div className="space-y-2">
+      <div className="flex h-4 w-full overflow-hidden rounded-full bg-slate-100">
+        {slices.map((sl) => (
+          <div
+            key={sl.key}
+            className={cn("transition-all duration-500", sl.bgClass)}
+            style={{ width: `${sl.pct * 100}%` }}
+            title={`${sl.label}: ${sl.count} (${Math.round(sl.pct * 100)}%)`}
+          />
+        ))}
+      </div>
+      <div className="flex flex-wrap gap-x-4 gap-y-1">
+        {slices.map((sl) => (
+          <div key={sl.key} className="flex items-center gap-1.5 text-xs text-slate-500">
+            <span className={cn("h-2 w-2 shrink-0 rounded-full", sl.bgClass)} />
+            {sl.label} — {sl.count} ({Math.round(sl.pct * 100)}%)
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── Mini stacked bar (for section header) ─────────────────────────────────────
+
+function MiniStackedBar({ slices }: { slices: Slice[] }) {
+  return (
+    <div className="flex h-2 w-24 overflow-hidden rounded-full bg-slate-200">
+      {slices.map((sl) => (
+        <div
+          key={sl.key}
+          className={cn(sl.bgClass)}
+          style={{ width: `${sl.pct * 100}%` }}
+          title={`${sl.label}: ${sl.count} (${Math.round(sl.pct * 100)}%)`}
+        />
+      ))}
+    </div>
+  );
+}
+
+// ── Overall dashboard card ────────────────────────────────────────────────────
+
+function OverallDashboard({
+  allTests,
+  selectedCount,
+}: {
+  allTests: XrayTestWithStatus[];
+  selectedCount: number;
+}) {
+  const slices = useMemo(() => buildSlices(allTests), [allTests]);
+  const total = allTests.length;
+  const passedSlice = slices.find((s) => s.key === "PASS");
+  const failedSlice = slices.find((s) => s.key === "FAIL");
+  const passRate = total > 0 && passedSlice ? passedSlice.pct : null;
+
+  const healthLabel =
+    total === 0
+      ? "No data"
+      : passRate === 1
+        ? "All passing"
+        : passRate !== null
+          ? `${Math.round(passRate * 100)}% passing`
+          : "—";
+
+  const healthColor =
+    total === 0
+      ? "text-slate-400 bg-slate-50 border-slate-200"
+      : passRate === 1
+        ? "text-emerald-600 bg-emerald-50 border-emerald-200"
+        : passRate !== null && passRate >= 0.8
+          ? "text-blue-600 bg-blue-50 border-blue-200"
+          : failedSlice && failedSlice.count > 0
+            ? "text-red-600 bg-red-50 border-red-200"
+            : "text-slate-500 bg-slate-50 border-slate-200";
+
   if (total === 0) return null;
 
-  const entries = [...counts.entries()];
-
   return (
-    <div className={cn("flex flex-wrap items-center gap-2", compact ? "text-xs" : "text-sm")}>
-      {!compact && (
-        <span className="font-medium text-slate-600">
-          {total} test{total !== 1 ? "s" : ""}
+    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+      <div className="mb-4 flex items-start justify-between gap-4">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+            Overall coverage
+          </p>
+          <h2 className="mt-0.5 text-lg font-bold text-slate-900">
+            {selectedCount} set{selectedCount !== 1 ? "s" : ""} selected
+          </h2>
+        </div>
+        <span
+          className={cn(
+            "shrink-0 rounded-full border px-3 py-1 text-xs font-semibold",
+            healthColor,
+          )}
+        >
+          {healthLabel}
         </span>
-      )}
-      {entries.map(([name, { count, color }]) => {
-        const { bg, text } = statusClasses(name);
-        const pct = Math.round((count / total) * 100);
-        const style: React.CSSProperties = {};
-        if (color?.startsWith("#")) {
-          style.backgroundColor = hexToRgba(color, 0.15);
-          style.color = color;
-        }
-        return (
-          <span
-            key={name}
-            title={`${count} / ${total} (${pct}%)`}
-            className={cn(
-              "inline-flex items-center gap-1 rounded-full px-2 py-0.5 font-medium",
-              !color?.startsWith("#") && cn(bg, text),
-            )}
-            style={style}
-          >
-            {count} {name}
-            <span className="opacity-60">({pct}%)</span>
+      </div>
+
+      <div className="space-y-5">
+        {total > 0 && (
+          <>
+            <div className="flex flex-wrap items-center gap-5">
+              <DonutChart slices={slices} total={total} label="tests" />
+              <div
+                className="grid flex-1 gap-2"
+                style={{
+                  gridTemplateColumns: `repeat(${Math.min(slices.length, 3)}, minmax(0, 1fr))`,
+                  minWidth: 220,
+                }}
+              >
+                {slices.map((sl) => (
+                  <StatCard key={sl.key} sl={sl} />
+                ))}
+              </div>
+            </div>
+            <div>
+              <p className="mb-2 text-xs font-medium text-slate-400">Status distribution</p>
+              <StackedBar slices={slices} />
+            </div>
+          </>
+        )}
+
+        <div className="flex flex-wrap gap-x-6 gap-y-1 border-t border-slate-100 pt-3 text-xs text-slate-400">
+          <span>
+            Test sets: <span className="font-medium text-slate-600">{selectedCount}</span>
           </span>
-        );
-      })}
+          <span>
+            Total tests: <span className="font-medium text-slate-600">{total}</span>
+          </span>
+        </div>
+      </div>
     </div>
   );
 }
@@ -166,6 +378,8 @@ function TestSetSection({
   const rateLimitUntil = isError ? parseRateLimitError(error) : null;
   const errorMessage = isError ? (error instanceof Error ? error.message : String(error)) : null;
 
+  const slices = useMemo(() => buildSlices(tests ?? []), [tests]);
+
   const filtered = useMemo(() => {
     if (!tests) return [];
     const q = testSearch.trim().toLowerCase();
@@ -176,7 +390,7 @@ function TestSetSection({
   }, [tests, testSearch]);
 
   return (
-    <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+    <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
       {/* Section header */}
       <button
         className="flex w-full items-center gap-3 bg-slate-50 px-4 py-3 text-left hover:bg-slate-100"
@@ -193,69 +407,132 @@ function TestSetSection({
           {testSet.jira.summary}
         </span>
         {isLoading && <Spinner size="sm" />}
-        {!isLoading && !isError && tests && <SummaryBar tests={tests} compact />}
+        {!isLoading && !isError && tests && slices.length > 0 && <MiniStackedBar slices={slices} />}
+        {!isLoading && !isError && tests && (
+          <span className="shrink-0 text-xs text-slate-400">
+            {tests.length} test{tests.length !== 1 ? "s" : ""}
+          </span>
+        )}
       </button>
 
-      {/* Test rows */}
+      {/* Dashboard + test rows */}
       {!collapsed && (
-        <div className="divide-y divide-slate-100">
-          {isLoading && (
-            <div className="flex items-center gap-2 px-4 py-3 text-sm text-slate-400">
-              <Spinner size="sm" />
-              Loading tests…
+        <div>
+          {/* Per-set dashboard strip */}
+          {!isLoading && !isError && tests && tests.length > 0 && (
+            <div className="border-b border-slate-100 px-5 py-4">
+              <div className="flex flex-wrap items-center gap-5">
+                <DonutChart slices={slices} total={tests.length} label="tests" />
+                <div className="flex-1 space-y-3" style={{ minWidth: 200 }}>
+                  <div
+                    className="grid gap-2"
+                    style={{
+                      gridTemplateColumns: `repeat(${Math.min(slices.length, 3)}, minmax(0, 1fr))`,
+                    }}
+                  >
+                    {slices.map((sl) => (
+                      <StatCard key={sl.key} sl={sl} />
+                    ))}
+                  </div>
+                  <StackedBar slices={slices} />
+                </div>
+              </div>
             </div>
           )}
-          {isError && (
-            <div className="flex items-start gap-2 px-4 py-3 text-sm text-red-600">
-              {rateLimitUntil !== null ? (
-                <Clock className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
-              ) : (
-                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-              )}
-              <div className="flex-1">
+
+          <div className="divide-y divide-slate-100">
+            {isLoading && (
+              <div className="flex items-center gap-2 px-4 py-3 text-sm text-slate-400">
+                <Spinner size="sm" />
+                Loading tests…
+              </div>
+            )}
+            {isError && (
+              <div className="flex items-start gap-2 px-4 py-3 text-sm text-red-600">
                 {rateLimitUntil !== null ? (
-                  <span className="text-amber-700">
-                    Rate limited — please wait before retrying.
-                  </span>
+                  <Clock className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
                 ) : (
-                  <span>{errorMessage ?? "Failed to load tests for this set."}</span>
+                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
                 )}
+                <div className="flex-1">
+                  {rateLimitUntil !== null ? (
+                    <span className="text-amber-700">
+                      Rate limited — please wait before retrying.
+                    </span>
+                  ) : (
+                    <span>{errorMessage ?? "Failed to load tests for this set."}</span>
+                  )}
+                </div>
+                <button
+                  className="shrink-0 rounded px-2 py-0.5 text-xs font-medium text-red-600 hover:bg-red-50"
+                  onClick={onRetry}
+                >
+                  Retry
+                </button>
               </div>
-              <button
-                className="shrink-0 rounded px-2 py-0.5 text-xs font-medium text-red-600 hover:bg-red-50"
-                onClick={onRetry}
-              >
-                Retry
-              </button>
-            </div>
-          )}
-          {!isLoading && !isError && filtered.length === 0 && (
-            <p className="px-4 py-3 text-sm italic text-slate-400">
-              {testSearch.trim() ? "No tests match the filter." : "This test set has no tests."}
-            </p>
-          )}
-          {!isLoading &&
-            !isError &&
-            filtered.map((test) => (
-              <div
-                key={test.issue_id}
-                className="flex items-center gap-3 px-4 py-2.5 hover:bg-slate-50"
-              >
-                <span className="w-28 shrink-0 font-mono text-xs text-slate-400">
-                  {test.jira.key}
-                </span>
-                <span className="flex-1 truncate text-sm text-slate-700">{test.jira.summary}</span>
-                <StatusBadge
-                  name={test.latest_status?.name ?? STATUS_NOT_RUN}
-                  {...(test.latest_status?.color !== undefined
-                    ? { color: test.latest_status.color }
-                    : {})}
-                />
-              </div>
-            ))}
+            )}
+            {!isLoading && !isError && filtered.length === 0 && (
+              <p className="px-4 py-3 text-sm italic text-slate-400">
+                {testSearch.trim() ? "No tests match the filter." : "This test set has no tests."}
+              </p>
+            )}
+            {!isLoading &&
+              !isError &&
+              filtered.map((test) => (
+                <div
+                  key={test.issue_id}
+                  className="flex items-center gap-3 px-4 py-2.5 hover:bg-slate-50"
+                >
+                  <span className="w-28 shrink-0 font-mono text-xs text-slate-400">
+                    {test.jira.key}
+                  </span>
+                  <span className="flex-1 truncate text-sm text-slate-700">
+                    {test.jira.summary}
+                  </span>
+                  <StatusBadge
+                    name={test.latest_status?.name ?? STATUS_NOT_RUN}
+                    {...(test.latest_status?.color !== undefined
+                      ? { color: test.latest_status.color }
+                      : {})}
+                  />
+                </div>
+              ))}
+          </div>
         </div>
       )}
     </div>
+  );
+}
+
+// ── Status badge ──────────────────────────────────────────────────────────────
+
+interface StatusBadgeProps {
+  name: string;
+  color?: string;
+}
+
+function StatusBadge({ name, color }: StatusBadgeProps) {
+  const sl = findSlice(name);
+  if (color && color.startsWith("#")) {
+    return (
+      <span
+        className="inline-block rounded px-2 py-0.5 text-xs font-semibold"
+        style={{ backgroundColor: color + "26", color }}
+      >
+        {name}
+      </span>
+    );
+  }
+  return (
+    <span
+      className={cn(
+        "inline-block rounded px-2 py-0.5 text-xs font-semibold",
+        sl.lightBg,
+        sl.textClass,
+      )}
+    >
+      {name}
+    </span>
   );
 }
 
@@ -263,6 +540,7 @@ function TestSetSection({
 
 export function CoveragePage() {
   const projectKey = useContentProjectKey();
+  const queryClient = useQueryClient();
   const {
     data: testSets,
     isLoading: setsLoading,
@@ -301,9 +579,6 @@ export function CoveragePage() {
     })),
   });
 
-  const queryClient = useQueryClient();
-
-  // Build a map issueId → { tests, isLoading, isError, error } for easy lookup.
   const queryBySetId = useMemo(() => {
     const map = new Map<
       string,
@@ -326,7 +601,7 @@ export function CoveragePage() {
     return map;
   }, [selectedSets, testQueries]);
 
-  // Grand total across all loaded sets (for the summary bar at the top).
+  // Grand total across all loaded sets.
   const allTests = useMemo(
     () => [...queryBySetId.values()].flatMap((q) => q.tests ?? []),
     [queryBySetId],
@@ -475,7 +750,7 @@ export function CoveragePage() {
       {/* Divider */}
       <div className="w-px shrink-0 bg-slate-200" />
 
-      {/* ── Right panel: coverage grid ── */}
+      {/* ── Right panel: coverage dashboard ── */}
       <div className="flex min-w-0 flex-1 flex-col gap-4 overflow-hidden">
         {/* Header */}
         <div className="flex items-center justify-between">
@@ -499,17 +774,6 @@ export function CoveragePage() {
           </div>
         </div>
 
-        {/* Grand total summary bar */}
-        {selectedSets.length > 0 && allTests.length > 0 && (
-          <div className="rounded-lg border border-slate-200 bg-white px-4 py-3 shadow-sm">
-            <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-400">
-              Overall — {allTests.length} test{allTests.length !== 1 ? "s" : ""} across{" "}
-              {selectedSets.length} set{selectedSets.length !== 1 ? "s" : ""}
-            </p>
-            <SummaryBar tests={allTests} />
-          </div>
-        )}
-
         {/* Empty state */}
         {selectedSets.length === 0 && (
           <div className="flex flex-1 flex-col items-center justify-center gap-3 text-slate-400">
@@ -518,28 +782,34 @@ export function CoveragePage() {
           </div>
         )}
 
-        {/* Test set sections */}
-        <div className="flex-1 space-y-3 overflow-y-auto pb-4">
-          {selectedSets.map((ts) => {
-            const q = queryBySetId.get(ts.issue_id);
-            return (
-              <TestSetSection
-                key={ts.issue_id}
-                testSet={ts}
-                tests={q?.tests}
-                isLoading={q?.isLoading ?? false}
-                isError={q?.isError ?? false}
-                error={q?.error}
-                onRetry={() =>
-                  void queryClient.refetchQueries({
-                    queryKey: queryKeys.testSetTestsWithStatus(ts.issue_id),
-                  })
-                }
-                testSearch={testSearch}
-              />
-            );
-          })}
-        </div>
+        {/* Dashboard + test set sections */}
+        {selectedSets.length > 0 && (
+          <div className="flex-1 space-y-4 overflow-y-auto pb-4">
+            {/* Overall dashboard */}
+            <OverallDashboard allTests={allTests} selectedCount={selectedSets.length} />
+
+            {/* Per-set sections */}
+            {selectedSets.map((ts) => {
+              const q = queryBySetId.get(ts.issue_id);
+              return (
+                <TestSetSection
+                  key={ts.issue_id}
+                  testSet={ts}
+                  tests={q?.tests}
+                  isLoading={q?.isLoading ?? false}
+                  isError={q?.isError ?? false}
+                  error={q?.error}
+                  onRetry={() =>
+                    void queryClient.refetchQueries({
+                      queryKey: queryKeys.testSetTestsWithStatus(ts.issue_id),
+                    })
+                  }
+                  testSearch={testSearch}
+                />
+              );
+            })}
+          </div>
+        )}
       </div>
     </div>
   );
