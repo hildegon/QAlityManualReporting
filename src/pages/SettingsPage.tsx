@@ -16,7 +16,9 @@ const EMPTY_CONFIG: AppConfig = {
   xray_client_id: "",
   xray_client_secret: "",
   content_project_key: "",
+  content_project_name: "",
   execution_project_key: "",
+  execution_project_name: "",
 };
 
 type ValidationState = "idle" | "loading" | "success" | "error";
@@ -157,20 +159,38 @@ export function SettingsPage() {
               placeholder="••••••••"
             />
           </Field>
-          <Field label="Content Project Key" hint="Project for Test Plans, Test Sets, and Tests (e.g. PROJ)">
-            <Input
-              value={form.content_project_key}
-              onChange={handleChange("content_project_key")}
-              placeholder="PROJ"
-            />
-          </Field>
-          <Field label="Execution Project Key" hint="Project for Test Executions — leave blank to use the same as above">
-            <Input
-              value={form.execution_project_key}
-              onChange={handleChange("execution_project_key")}
-              placeholder="EXEC (or leave blank)"
-            />
-          </Field>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Content Project Key" hint="e.g. PROJ">
+              <Input
+                value={form.content_project_key}
+                onChange={handleChange("content_project_key")}
+                placeholder="PROJ"
+              />
+            </Field>
+            <Field label="Content Project Name" hint="Shown in the app header">
+              <Input
+                value={form.content_project_name}
+                onChange={handleChange("content_project_name")}
+                placeholder="My Project"
+              />
+            </Field>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Execution Project Key" hint="Leave blank to use same as above">
+              <Input
+                value={form.execution_project_key}
+                onChange={handleChange("execution_project_key")}
+                placeholder="EXEC (or leave blank)"
+              />
+            </Field>
+            <Field label="Execution Project Name" hint="Shown in the app header">
+              <Input
+                value={form.execution_project_name}
+                onChange={handleChange("execution_project_name")}
+                placeholder="My Execution Project"
+              />
+            </Field>
+          </div>
         </div>
 
         <div className="mt-4 flex items-center gap-3">

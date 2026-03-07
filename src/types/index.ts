@@ -8,8 +8,12 @@ export interface AppConfig {
   xray_client_secret: string;
   /** Project key for Test Plans, Test Sets, and Tests */
   content_project_key: string;
+  /** Human-readable name for the content project */
+  content_project_name: string;
   /** Project key for Test Executions (may differ from content_project_key) */
   execution_project_key: string;
+  /** Human-readable name for the execution project */
+  execution_project_name: string;
 }
 
 // ── Jira ──────────────────────────────────────────────────────────────────────
@@ -29,6 +33,29 @@ export interface JiraProject {
 export interface JiraComponent {
   id: string;
   name: string;
+}
+
+/** The target status of a Jira workflow transition. */
+export interface JiraTransitionTo {
+  name: string;
+  category?: { key: string; name: string };
+}
+
+/** A single workflow transition available on a Jira issue. */
+export interface JiraTransition {
+  id: string;
+  name: string;
+  to: JiraTransitionTo;
+}
+
+/** A Jira user returned by `search_users`. */
+export interface JiraUser {
+  account_id: string;
+  display_name: string;
+  avatar_urls?: {
+    "48x48"?: string;
+    "16x16"?: string;
+  };
 }
 
 // ── Xray ──────────────────────────────────────────────────────────────────────

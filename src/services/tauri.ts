@@ -11,6 +11,8 @@ import type {
   CreateTestStepInput,
   JiraComponent,
   JiraProject,
+  JiraTransition,
+  JiraUser,
   TestExecution,
   TestPlan,
   TestRunsPage,
@@ -37,6 +39,22 @@ export const validateJiraCredentials = (): Promise<string> => invoke("validate_j
 
 export const getProjectComponents = (projectKey: string): Promise<JiraComponent[]> =>
   invoke("get_project_components", { projectKey });
+
+/** Fetch available workflow transitions for a Jira issue. */
+export const getIssueTransitions = (issueKey: string): Promise<JiraTransition[]> =>
+  invoke("get_issue_transitions", { issueKey });
+
+/** Apply a workflow transition to a Jira issue. */
+export const transitionIssue = (issueKey: string, transitionId: string): Promise<void> =>
+  invoke("transition_issue", { issueKey, transitionId });
+
+/** Update the assignee of a Jira issue. Pass `undefined` to unassign. */
+export const updateAssignee = (issueKey: string, accountId?: string): Promise<void> =>
+  invoke("update_assignee", { issueKey, ...(accountId !== undefined ? { accountId } : {}) });
+
+/** Search Jira users by display name or email. */
+export const searchUsers = (query: string): Promise<JiraUser[]> =>
+  invoke("search_users", { query });
 
 // ── Xray ──────────────────────────────────────────────────────────────────────
 

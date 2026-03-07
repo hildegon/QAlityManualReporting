@@ -1,21 +1,28 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
 import {
   useTestExecutions,
   useCreateTestExecution,
   useTestPlans,
   useGetTests,
   useGetTestSets,
+  useIssueTransitions,
+  useSearchUsers,
+  useTransitionIssue,
+  useUpdateAssignee,
+  queryKeys,
 } from "@/services/queries";
 import { useContentProjectKey, useExecutionProjectKey } from "@/hooks/useProjectKey";
+import { useQueryClient } from "@tanstack/react-query";
+import { parseRateLimitError } from "@/stores/uiStore";
 import { Spinner } from "@/components/ui/spinner";
 import { Badge, statusVariant } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { ListChecks, Plus, RefreshCw, X } from "lucide-react";
+import { ListChecks, Pencil, Plus, RefreshCw, X } from "lucide-react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { TestExecutionDetail } from "@/components/test-execution/TestExecutionDetail";
-import type { TestExecution } from "@/types";
+import type { JiraUser, TestExecution, XrayTest } from "@/types";
 import * as api from "@/services/tauri";
 
 /** Status names considered "closed" — hidden by default. */
@@ -38,6 +45,7 @@ export function TestExecutionsPage() {
   } = useTestExecutions(executionProjectKey);
   const [selected, setSelected] = useState<TestExecution | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
+  const [editTarget, setEditTarget] = useState<TestExecution | null>(null);
   const [search, setSearch] = useState("");
   const [showDone, setShowDone] = useState(false);
 
@@ -54,12 +62,23 @@ export function TestExecutionsPage() {
   }
 
   if (isError) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
+    const rateLimitUntil = parseRateLimitError(error);
+    if (rateLimitUntil !== null) {
+      const seconds = Math.max(0, Math.ceil((rateLimitUntil - Date.now()) / 1_000));
+      return (
+        <div className="rounded-md bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          <p className="font-medium">Rate limited by Xray</p>
+          <p className="mt-0.5 text-xs">
+            Too many requests. Please wait{seconds > 0 ? ` ~${seconds}s` : ""} and try again.
+          </p>
+        </div>
+      );
+    }
     return (
       <div className="space-y-3">
         <div className="rounded-md bg-red-50 px-4 py-3 text-sm text-red-700">
           <p className="mb-1 font-medium">Failed to load test executions</p>
-          <pre className="whitespace-pre-wrap break-words font-mono text-xs">{errorMessage}</pre>
+          <pre className="whitespace-pre-wrap break-words font-mono text-xs">{String(error)}</pre>
         </div>
         <Button variant="outline" size="sm" onClick={() => void refetch()}>
           <RefreshCw className="mr-1.5 h-4 w-4" />
@@ -158,6 +177,7 @@ export function TestExecutionsPage() {
                 <th className="px-4 py-3 text-left">Summary</th>
                 <th className="px-4 py-3 text-left">Status</th>
                 <th className="px-4 py-3 text-left">Assignee</th>
+                <th className="px-4 py-3 text-left">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -179,6 +199,18 @@ export function TestExecutionsPage() {
                   <td className="px-4 py-3 text-slate-500">
                     {exec.jira.assignee?.display_name ?? "\u2014"}
                   </td>
+                  <td className="px-4 py-3">
+                    <button
+                      className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                      title="Edit status / assignee"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setEditTarget(exec);
+                      }}
+                    >
+                      <Pencil className="h-4 w-4" />
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -191,6 +223,14 @@ export function TestExecutionsPage() {
         onOpenChange={setCreateOpen}
         executionProjectKey={executionProjectKey}
         contentProjectKey={contentProjectKey}
+      />
+
+      <EditExecutionDialog
+        execution={editTarget}
+        executionProjectKey={executionProjectKey}
+        onOpenChange={(open) => {
+          if (!open) setEditTarget(null);
+        }}
       />
     </div>
   );
@@ -220,10 +260,13 @@ function CreateExecutionDialog({
   // issueId → loading state for per-row "Add" buttons
   const [addingSetId, setAddingSetId] = useState<string | null>(null);
 
+  const queryClient = useQueryClient();
   const createExecution = useCreateTestExecution();
-  const { data: testPlans, isLoading: plansLoading } = useTestPlans(contentProjectKey ?? null);
-  const { data: tests, isLoading: testsLoading } = useGetTests(contentProjectKey ?? undefined);
-  const { data: testSets, isLoading: testSetsLoading } = useGetTestSets(contentProjectKey ?? undefined);
+  // Only fetch these when the dialog is actually open — avoids unnecessary API
+  // calls on every page load.
+  const { data: testPlans, isLoading: plansLoading } = useTestPlans(open ? (contentProjectKey ?? null) : null);
+  const { data: tests, isLoading: testsLoading } = useGetTests(open ? (contentProjectKey ?? undefined) : undefined);
+  const { data: testSets, isLoading: testSetsLoading } = useGetTestSets(open ? (contentProjectKey ?? undefined) : undefined);
 
   const filteredTests = (tests ?? []).filter((t) => {
     const q = testSearch.toLowerCase();
@@ -255,10 +298,14 @@ function CreateExecutionDialog({
     async (issueId: string) => {
       setAddingSetId(issueId);
       try {
-        const tests = await api.getTestSetTests(issueId);
+        const setTests = await queryClient.fetchQuery<XrayTest[]>({
+          queryKey: queryKeys.testSetTests(issueId),
+          queryFn: () => api.getTestSetTests(issueId),
+          staleTime: 5 * 60 * 1_000,
+        });
         setSelectedTestIds((prev) => {
           const next = new Set(prev);
-          for (const t of tests) {
+          for (const t of setTests) {
             next.add(t.issue_id);
           }
           return next;
@@ -269,7 +316,7 @@ function CreateExecutionDialog({
         setAddingSetId(null);
       }
     },
-    [],
+    [queryClient],
   );
 
   const resetForm = () => {
@@ -523,5 +570,217 @@ function EmptyState({ message }: { message: string }) {
       <ListChecks className="h-10 w-10 opacity-40" />
       <p className="text-sm">{message}</p>
     </div>
+  );
+}
+
+// ── EditExecutionDialog ───────────────────────────────────────────────────────
+
+interface EditExecutionDialogProps {
+  /** The execution to edit, or null when the dialog is closed. */
+  execution: TestExecution | null;
+  /** Execution project key — used to invalidate caches on success. */
+  executionProjectKey: string | null;
+  onOpenChange: (open: boolean) => void;
+}
+
+function EditExecutionDialog({
+  execution,
+  executionProjectKey,
+  onOpenChange,
+}: EditExecutionDialogProps) {
+  const open = !!execution;
+  const issueKey = execution?.jira.key ?? null;
+
+  const [assigneeSearch, setAssigneeSearch] = useState("");
+  const [debouncedQuery, setDebouncedQuery] = useState("");
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const { data: transitions, isLoading: transitionsLoading } = useIssueTransitions(
+    open ? issueKey : null,
+  );
+  const { data: userResults, isFetching: usersLoading } = useSearchUsers(debouncedQuery);
+
+  const transitionIssue = useTransitionIssue();
+  const updateAssignee = useUpdateAssignee();
+
+  const handleAssigneeInput = (value: string) => {
+    setAssigneeSearch(value);
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => setDebouncedQuery(value), 350);
+  };
+
+  const handleTransition = (transitionId: string) => {
+    if (!issueKey || !executionProjectKey) return;
+    transitionIssue.mutate(
+      { issueKey, transitionId, executionProjectKey },
+      { onSuccess: () => onOpenChange(false) },
+    );
+  };
+
+  const handleAssign = (user: JiraUser) => {
+    if (!issueKey || !executionProjectKey) return;
+    updateAssignee.mutate(
+      { issueKey, accountId: user.account_id, executionProjectKey },
+      { onSuccess: () => onOpenChange(false) },
+    );
+  };
+
+  const handleUnassign = () => {
+    if (!issueKey || !executionProjectKey) return;
+    updateAssignee.mutate(
+      { issueKey, executionProjectKey },
+      { onSuccess: () => onOpenChange(false) },
+    );
+  };
+
+  const isMutating = transitionIssue.isPending || updateAssignee.isPending;
+  const mutationError = transitionIssue.error ?? updateAssignee.error;
+
+  const resetLocal = () => {
+    setAssigneeSearch("");
+    setDebouncedQuery("");
+    transitionIssue.reset();
+    updateAssignee.reset();
+  };
+
+  return (
+    <Dialog.Root
+      open={open}
+      onOpenChange={(v) => {
+        if (!v) resetLocal();
+        onOpenChange(v);
+      }}
+    >
+      <Dialog.Portal>
+        <Dialog.Overlay className="fixed inset-0 bg-black/30 backdrop-blur-sm" />
+        <Dialog.Content className="fixed left-1/2 top-1/2 flex max-h-[85vh] w-full max-w-md -translate-x-1/2 -translate-y-1/2 flex-col rounded-xl bg-white shadow-xl">
+          {/* Header */}
+          <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
+            <div>
+              <Dialog.Title className="text-lg font-semibold">Edit Execution</Dialog.Title>
+              {issueKey && (
+                <p className="mt-0.5 font-mono text-xs text-slate-500">{issueKey}</p>
+              )}
+            </div>
+            <Dialog.Close asChild>
+              <button className="rounded p-1 hover:bg-slate-100">
+                <X className="h-4 w-4 text-slate-500" />
+              </button>
+            </Dialog.Close>
+          </div>
+
+          {/* Body */}
+          <div className="flex-1 overflow-y-auto px-6 py-4 space-y-6">
+
+            {/* ── Status transitions ── */}
+            <div className="space-y-2">
+              <h3 className="text-sm font-medium text-slate-700">Transition Status</h3>
+              {transitionsLoading ? (
+                <div className="flex items-center gap-2 text-sm text-slate-400">
+                  <Spinner size="sm" /> Loading transitions…
+                </div>
+              ) : !transitions?.length ? (
+                <p className="text-sm text-slate-400">No transitions available.</p>
+              ) : (
+                <div className="flex flex-wrap gap-2">
+                  {transitions.map((t) => (
+                    <button
+                      key={t.id}
+                      disabled={isMutating}
+                      onClick={() => handleTransition(t.id)}
+                      className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-sm text-slate-700 transition-colors hover:border-blue-400 hover:bg-blue-50 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {t.name}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* ── Assignee ── */}
+            <div className="space-y-2">
+              <h3 className="text-sm font-medium text-slate-700">Assignee</h3>
+              <p className="text-xs text-slate-500">
+                Current:{" "}
+                <span className="font-medium text-slate-700">
+                  {execution?.jira.assignee?.display_name ?? "Unassigned"}
+                </span>
+              </p>
+
+              <Input
+                placeholder="Search by name or email…"
+                value={assigneeSearch}
+                onChange={(e) => handleAssigneeInput(e.target.value)}
+                disabled={isMutating}
+              />
+
+              {debouncedQuery.length >= 2 && (
+                <div className="rounded-md border border-slate-200 bg-white">
+                  {usersLoading ? (
+                    <div className="flex items-center gap-2 px-3 py-3 text-sm text-slate-400">
+                      <Spinner size="sm" /> Searching…
+                    </div>
+                  ) : !userResults?.length ? (
+                    <p className="px-3 py-3 text-sm text-slate-400">No users found.</p>
+                  ) : (
+                    <ul className="divide-y divide-slate-100">
+                      {userResults.map((user) => (
+                        <li key={user.account_id}>
+                          <button
+                            className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-slate-50 disabled:opacity-50"
+                            disabled={isMutating}
+                            onClick={() => handleAssign(user)}
+                          >
+                            {user.avatar_urls?.["16x16"] && (
+                              <img
+                                src={user.avatar_urls["16x16"]}
+                                alt=""
+                                className="h-5 w-5 rounded-full"
+                              />
+                            )}
+                            <span className="text-slate-800">{user.display_name}</span>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              )}
+
+              {execution?.jira.assignee && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={isMutating}
+                  onClick={handleUnassign}
+                >
+                  Unassign
+                </Button>
+              )}
+            </div>
+
+            {/* Error display */}
+            {mutationError && (
+              <div className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
+                <p className="font-medium">Operation failed</p>
+                <pre className="mt-1 whitespace-pre-wrap break-words font-mono text-xs">
+                  {String(mutationError)}
+                </pre>
+              </div>
+            )}
+          </div>
+
+          {/* Footer */}
+          <div className="border-t border-slate-200 px-6 py-3 flex justify-end">
+            <Dialog.Close asChild>
+              <Button type="button" variant="outline" onClick={resetLocal} disabled={isMutating}>
+                {isMutating ? <Spinner size="sm" /> : "Close"}
+              </Button>
+            </Dialog.Close>
+          </div>
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
   );
 }

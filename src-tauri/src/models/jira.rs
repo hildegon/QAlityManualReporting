@@ -88,3 +88,36 @@ pub struct JiraComponent {
     pub id: String,
     pub name: String,
 }
+
+/// The target status of a workflow transition.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct JiraTransitionTo {
+    pub name: String,
+    #[serde(rename(deserialize = "statusCategory"))]
+    pub category: Option<JiraStatusCategory>,
+}
+
+/// A single workflow transition available on a Jira issue.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct JiraTransition {
+    pub id: String,
+    pub name: String,
+    pub to: JiraTransitionTo,
+}
+
+/// Response wrapper for `GET /rest/api/3/issue/{key}/transitions`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct JiraTransitionsResponse {
+    pub transitions: Vec<JiraTransition>,
+}
+
+/// A Jira user returned by `GET /rest/api/3/user/search`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct JiraUserSearchResult {
+    #[serde(rename(deserialize = "accountId"))]
+    pub account_id: String,
+    #[serde(rename(deserialize = "displayName"))]
+    pub display_name: String,
+    #[serde(rename(deserialize = "avatarUrls"))]
+    pub avatar_urls: Option<AvatarUrls>,
+}

@@ -16,9 +16,15 @@ pub struct AppConfig {
     /// Jira/Xray project key used for Test Plans, Test Sets, and Tests (e.g. "PROJ")
     #[serde(default)]
     pub content_project_key: String,
+    /// Human-readable name for the content project (e.g. "My Project")
+    #[serde(default)]
+    pub content_project_name: String,
     /// Jira/Xray project key used for Test Executions (may differ from content_project_key)
     #[serde(default)]
     pub execution_project_key: String,
+    /// Human-readable name for the execution project
+    #[serde(default)]
+    pub execution_project_name: String,
 }
 
 impl AppConfig {

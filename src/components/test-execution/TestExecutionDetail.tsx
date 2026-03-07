@@ -10,6 +10,7 @@ import {
   useStepStatuses,
   useTestSetMembership,
 } from "@/services/queries";
+import { parseRateLimitError } from "@/stores/uiStore";
 import { Spinner } from "@/components/ui/spinner";
 import { Button } from "@/components/ui/button";
 import { Badge, statusVariant } from "@/components/ui/badge";
@@ -24,6 +25,8 @@ import {
   Loader2,
   MessageSquare,
   Pencil,
+  Search,
+  X,
 } from "lucide-react";
 import type {
   TestExecution,
@@ -89,21 +92,49 @@ export function TestExecutionDetail({
   const [commentValue, setCommentValue] = useState("");
   const [expandedRuns, setExpandedRuns] = useState<Set<string>>(new Set());
   const [testSetFilter, setTestSetFilter] = useState<string>(FILTER_ALL);
+  const [testSearch, setTestSearch] = useState("");
   const parentRef = useRef<HTMLDivElement>(null);
 
   // Flatten all pages into a single runs array
   const runs = useMemo(() => data?.pages.flatMap((page) => page.results) ?? [], [data]);
 
-  // Apply test-set filter
+  // Count how many currently-loaded runs belong to each test set.
+  // Used for the count badge on each pill; updates automatically as more pages load.
+  const testSetCounts = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const run of runs) {
+      for (const s of membership.get(run.test.issue_id) ?? []) {
+        map.set(s.issueId, (map.get(s.issueId) ?? 0) + 1);
+      }
+    }
+    return map;
+  }, [runs, membership]);
+
+  // Apply test-set filter, then text search.
   const filteredRuns = useMemo(() => {
-    if (testSetFilter === FILTER_ALL) return runs;
-    if (testSetFilter === FILTER_NONE)
-      return runs.filter((r) => !membership.has(r.test.issue_id));
-    return runs.filter((r) => {
-      const sets = membership.get(r.test.issue_id);
-      return sets?.some((s) => s.issueId === testSetFilter) ?? false;
-    });
-  }, [runs, testSetFilter, membership]);
+    let result = runs;
+
+    // 1. Test-set filter
+    if (testSetFilter === FILTER_NONE) {
+      result = result.filter((r) => !membership.has(r.test.issue_id));
+    } else if (testSetFilter !== FILTER_ALL) {
+      result = result.filter((r) =>
+        membership.get(r.test.issue_id)?.some((s) => s.issueId === testSetFilter),
+      );
+    }
+
+    // 2. Key / name search
+    const q = testSearch.trim().toLowerCase();
+    if (q) {
+      result = result.filter(
+        (r) =>
+          r.test.jira.key.toLowerCase().includes(q) ||
+          r.test.jira.summary.toLowerCase().includes(q),
+      );
+    }
+
+    return result;
+  }, [runs, testSetFilter, membership, testSearch]);
 
   // Total count from the server (available from the first page)
   const totalFromServer = data?.pages[0]?.total ?? 0;
@@ -144,6 +175,15 @@ export function TestExecutionDetail({
       void fetchNextPage();
     }
   }, [virtualItems, hasNextPage, isFetchingNextPage, runs.length, fetchNextPage]);
+
+  // Eagerly fetch all remaining pages in the background so the test-set filter
+  // reflects the full execution (not just the first visible page).
+  // A small delay between requests avoids a burst that can trigger 429s.
+  useEffect(() => {
+    if (!hasNextPage || isFetchingNextPage) return;
+    const timer = setTimeout(() => void fetchNextPage(), 300);
+    return () => clearTimeout(timer);
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
 
   const handleStatusChange = (run: TestRun, newStatus: string) => {
     updateStatus.mutate({
@@ -252,12 +292,26 @@ export function TestExecutionDetail({
       )}
 
       {/* Error */}
-      {isError && (
-        <div className="rounded-md bg-red-50 px-4 py-3 text-sm text-red-700">
-          <p className="mb-1 font-medium">Failed to load test runs</p>
-          <pre className="whitespace-pre-wrap break-words font-mono text-xs">{String(error)}</pre>
-        </div>
-      )}
+      {isError && (() => {
+        const rateLimitUntil = parseRateLimitError(error);
+        if (rateLimitUntil !== null) {
+          const seconds = Math.max(0, Math.ceil((rateLimitUntil - Date.now()) / 1_000));
+          return (
+            <div className="rounded-md bg-amber-50 px-4 py-3 text-sm text-amber-800">
+              <p className="font-medium">Rate limited by Xray</p>
+              <p className="mt-0.5 text-xs">
+                Too many requests. Please wait{seconds > 0 ? ` ~${seconds}s` : ""} and try again.
+              </p>
+            </div>
+          );
+        }
+        return (
+          <div className="rounded-md bg-red-50 px-4 py-3 text-sm text-red-700">
+            <p className="mb-1 font-medium">Failed to load test runs</p>
+            <pre className="whitespace-pre-wrap break-words font-mono text-xs">{String(error)}</pre>
+          </div>
+        );
+      })()}
 
       {/* Empty state */}
       {!isLoading && !isError && runs.length === 0 && (
@@ -269,41 +323,103 @@ export function TestExecutionDetail({
 
       {runs.length > 0 && (
         <>
-          {/* Test Set filter */}
-          {testSets.length > 0 && (
-            <div className="mb-3 flex items-center gap-2">
-              <Layers className="h-4 w-4 shrink-0 text-slate-400" />
-              <span className="text-xs font-medium text-slate-500">Filter by Test Set:</span>
-              <select
-                value={testSetFilter}
-                onChange={(e) => setTestSetFilter(e.target.value)}
-                className="rounded-md border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-slate-400"
-              >
-                <option value={FILTER_ALL}>All tests ({runs.length})</option>
-                <option value={FILTER_NONE}>
-                  No test set ({runs.filter((r) => !membership.has(r.test.issue_id)).length})
-                </option>
-                {testSets.map((ts) => {
-                  const count = runs.filter((r) =>
-                    membership.get(r.test.issue_id)?.some((s) => s.issueId === ts.issue_id),
-                  ).length;
-                  return (
-                    <option key={ts.issue_id} value={ts.issue_id}>
-                      {ts.jira.key} — {ts.jira.summary} ({count})
-                    </option>
-                  );
-                })}
-              </select>
-              {testSetFilter !== FILTER_ALL && (
+          {/* Filters */}
+          <div className="mb-3 space-y-2">
+            {/* Test set filter — pill buttons.
+                Hide the panel entirely once all pages are loaded and no set overlaps
+                with this execution (testSetCounts is empty). */}
+            {testSets.length > 0 &&
+              (hasNextPage || isFetchingNextPage || testSetCounts.size > 0) && (
+              <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 shadow-sm">
+                <div className="mb-1.5 flex items-center gap-1.5">
+                  <Layers className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+                  <span className="text-xs font-medium text-slate-500">Test Set</span>
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {/* "All" pill */}
+                  <button
+                    onClick={() => setTestSetFilter(FILTER_ALL)}
+                    className={cn(
+                      "rounded-full border px-2.5 py-0.5 text-xs font-medium transition-colors",
+                      testSetFilter === FILTER_ALL
+                        ? "border-slate-800 bg-slate-800 text-white"
+                        : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50",
+                    )}
+                  >
+                    All ({runs.length})
+                  </button>
+
+                  {/* "No set" pill — only when some runs have no set */}
+                  {(() => {
+                    const noSetCount = runs.filter((r) => !membership.has(r.test.issue_id)).length;
+                    return noSetCount > 0 ? (
+                      <button
+                        onClick={() => setTestSetFilter(FILTER_NONE)}
+                        className={cn(
+                          "rounded-full border px-2.5 py-0.5 text-xs font-medium transition-colors",
+                          testSetFilter === FILTER_NONE
+                            ? "border-slate-800 bg-slate-800 text-white"
+                            : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50",
+                        )}
+                      >
+                        No set ({noSetCount})
+                      </button>
+                    ) : null;
+                  })()}
+
+                  {/* One pill per test set that has at least one run in this execution.
+                      While pages are still loading we keep every set visible so pills
+                      don't disappear mid-load; once all pages are fetched the count
+                      is definitive and zero-count sets are hidden. */}
+                  {testSets.map((ts) => {
+                    const count = testSetCounts.get(ts.issue_id) ?? 0;
+                    if (count === 0 && !hasNextPage && !isFetchingNextPage) return null;
+                    const isActive = testSetFilter === ts.issue_id;
+                    return (
+                      <button
+                        key={ts.issue_id}
+                        title={`${ts.jira.key} — ${ts.jira.summary}`}
+                        onClick={() =>
+                          setTestSetFilter((prev) =>
+                            prev === ts.issue_id ? FILTER_ALL : ts.issue_id,
+                          )
+                        }
+                        className={cn(
+                          "max-w-[18rem] truncate rounded-full border px-2.5 py-0.5 text-xs font-medium transition-colors",
+                          isActive
+                            ? "border-slate-800 bg-slate-800 text-white"
+                            : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50",
+                        )}
+                      >
+                        {ts.jira.summary} ({count})
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Key / name search */}
+            <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 shadow-sm">
+              <Search className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+              <input
+                type="text"
+                placeholder="Filter by key or name…"
+                value={testSearch}
+                onChange={(e) => setTestSearch(e.target.value)}
+                className="flex-1 bg-transparent text-sm text-slate-700 placeholder:text-slate-400 focus:outline-none"
+              />
+              {testSearch && (
                 <button
-                  onClick={() => setTestSetFilter(FILTER_ALL)}
-                  className="text-xs text-slate-400 hover:text-slate-600 underline"
+                  onClick={() => setTestSearch("")}
+                  className="text-slate-400 hover:text-slate-600"
+                  aria-label="Clear search"
                 >
-                  Clear
+                  <X className="h-3.5 w-3.5" />
                 </button>
               )}
             </div>
-          )}
+          </div>
 
           {/* Progress summary */}
           <div className="mb-4 rounded-lg border border-slate-200 bg-white px-4 py-3 shadow-sm">
@@ -535,12 +651,11 @@ export function TestExecutionDetail({
             {/* Footer with count + load more */}
             <div className="flex items-center justify-between border-t border-slate-100 px-4 py-2 text-xs text-slate-400">
               <span>
-                {testSetFilter !== FILTER_ALL
+                {filteredRuns.length < runs.length
                   ? `${filteredRuns.length} of ${runs.length}`
-                  : runs.length}
-                {testSetFilter === FILTER_ALL && totalFromServer > runs.length
-                  ? ` of ${totalFromServer}`
-                  : ""}{" "}
+                  : runs.length < totalFromServer
+                    ? `${runs.length} of ${totalFromServer}`
+                    : runs.length}{" "}
                 test{totalFromServer !== 1 ? "s" : ""}
               </span>
               {hasNextPage && (
