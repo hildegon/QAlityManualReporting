@@ -24,6 +24,7 @@ import type {
   XrayTest,
   XrayTestRunStatus,
   XrayTestSet,
+  XrayTestWithStatus,
 } from "@/types";
 
 // ── Config ────────────────────────────────────────────────────────────────────
@@ -183,3 +184,7 @@ export const addTestsToTestPlan = (
   testPlanIssueId: string,
   testIssueIds: string[],
 ): Promise<void> => invoke("add_tests_to_test_plan", { testPlanIssueId, testIssueIds });
+
+/** Fetch all tests in a test set including each test's latest execution status. */
+export const getTestSetTestsWithStatus = (issueId: string): Promise<XrayTestWithStatus[]> =>
+  invoke("get_test_set_tests_with_status", { issueId });

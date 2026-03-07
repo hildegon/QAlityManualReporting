@@ -12,8 +12,8 @@ use crate::models::xray::{
     CreateTestSetResponse, CreateTestSetResult, CreateXrayTestInput, GraphQLRequest,
     GraphQLResponse, StatusesResult, StepStatusesResult, TestExecutionsResult, TestPlanResult,
     TestPlansResult, TestRunsResult, TestSetMemberInfo, TestSetMembershipsResponse, TestSetResult,
-    TestSetsResult, TestsResult, UpdateTestRunStatusInput, XrayAuthRequest, XrayStepStatus,
-    XrayTest, XrayTestRunStatus, XrayTestSet,
+    TestSetWithStatusResult, TestSetsResult, TestsResult, UpdateTestRunStatusInput,
+    XrayAuthRequest, XrayStepStatus, XrayTest, XrayTestRunStatus, XrayTestSet, XrayTestWithStatus,
 };
 
 const XRAY_AUTH_URL: &str = "https://xray.cloud.getxray.app/api/v2/authenticate";
@@ -449,6 +449,40 @@ impl XrayClient {
             .graphql(query, serde_json::json!({ "jql": jql, "limit": limit }))
             .await?;
         Ok(result.get_test_sets.results)
+    }
+
+    /// Fetch all tests belonging to a specific test set, including each test's
+    /// latest execution status (for the Coverage page).
+    pub async fn get_test_set_tests_with_status(
+        &self,
+        issue_id: &str,
+    ) -> Result<Vec<XrayTestWithStatus>> {
+        let query = r#"
+            query GetTestSetWithStatus($issueId: String!, $limit: Int!) {
+                getTestSet(issueId: $issueId) {
+                    issueId
+                    tests(limit: $limit) {
+                        results {
+                            issueId
+                            jira(fields: ["key", "summary"])
+                            status {
+                                name
+                                color
+                                description
+                                final
+                            }
+                        }
+                    }
+                }
+            }
+        "#;
+        let result: TestSetWithStatusResult = self
+            .graphql(
+                query,
+                serde_json::json!({ "issueId": issue_id, "limit": 500 }),
+            )
+            .await?;
+        Ok(result.get_test_set.tests.results)
     }
 
     /// Fetch all tests belonging to a specific test set.

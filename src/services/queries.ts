@@ -34,6 +34,7 @@ import type {
   XrayTest,
   XrayTestRunStatus,
   XrayTestSet,
+  XrayTestWithStatus,
 } from "@/types";
 import * as api from "./tauri";
 
@@ -59,6 +60,8 @@ export const queryKeys = {
   tests: (projectKey: string) => ["xray", "tests", projectKey] as const,
   testSets: (projectKey: string) => ["xray", "test-sets", projectKey] as const,
   testSetTests: (issueId: string) => ["xray", "test-set-tests", issueId] as const,
+  testSetTestsWithStatus: (issueId: string) =>
+    ["xray", "test-set-tests-with-status", issueId] as const,
   testSetMemberships: (projectKey: string) => ["xray", "test-set-memberships", projectKey] as const,
   testPlanTests: (issueId: string) => ["xray", "test-plan-tests", issueId] as const,
   xrayStatuses: (projectId: string) => ["xray", "statuses", projectId] as const,
@@ -592,6 +595,21 @@ export function useGetTestSetTests(issueId: string | null) {
     queryFn: () => api.getTestSetTests(issueId!),
     enabled: !!issueId,
     staleTime: 5 * 60 * 1_000,
+  });
+}
+
+// ── Get Test Set Tests with latest status (Coverage page) ────────────────────
+
+/**
+ * Fetch tests in a test set with each test's latest execution status.
+ * Used by the Coverage page. Returns `null` when `issueId` is null (not selected).
+ */
+export function useGetTestSetTestsWithStatus(issueId: string | null) {
+  return useQuery<XrayTestWithStatus[]>({
+    queryKey: queryKeys.testSetTestsWithStatus(issueId ?? ""),
+    queryFn: () => api.getTestSetTestsWithStatus(issueId!),
+    enabled: !!issueId,
+    staleTime: 2 * 60 * 1_000, // shorter stale time — coverage data changes often
   });
 }
 

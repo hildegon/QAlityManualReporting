@@ -4,6 +4,7 @@ import { AppShell } from "@/components/common/AppShell";
 import { ErrorBoundary } from "@/components/common/ErrorBoundary";
 import { SettingsPage } from "@/pages/SettingsPage";
 import { TestExecutionsPage } from "@/pages/TestExecutionsPage";
+import { CoveragePage } from "@/pages/CoveragePage";
 import { TestPlansPage } from "@/pages/TestPlansPage";
 import { TestsPage } from "@/pages/TestsPage";
 import { CreateTestPage } from "@/pages/CreateTestPage";
@@ -87,6 +88,7 @@ export default function App() {
             <Route element={<AppShell />}>
               <Route index element={<Navigate to="/executions" replace />} />
               <Route path="/executions" element={<TestExecutionsPage />} />
+              <Route path="/coverage" element={<CoveragePage />} />
               <Route path="/test-plans" element={<TestPlansPage />} />
               <Route path="/tests" element={<TestsPage />} />
               <Route path="/versions" element={<VersionsPage />} />
