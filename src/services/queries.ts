@@ -22,6 +22,7 @@ import type {
   JiraProject,
   JiraTransition,
   JiraUser,
+  JiraVersion,
   TestExecution,
   TestPlan,
   TestRun,
@@ -44,10 +45,13 @@ export const queryKeys = {
   config: ["config"] as const,
   jiraProjects: ["jira", "projects"] as const,
   projectComponents: (projectKey: string) => ["jira", "components", projectKey] as const,
+  projectVersions: (projectKey: string) => ["jira", "versions", projectKey] as const,
   issueTransitions: (issueKey: string) => ["jira", "transitions", issueKey] as const,
   userSearch: (query: string) => ["jira", "user-search", query] as const,
   testPlans: (projectKey: string) => ["xray", "test-plans", projectKey] as const,
   testExecutions: (projectKey: string) => ["xray", "test-executions", projectKey] as const,
+  testExecutionsByVersion: (projectKey: string, versionName: string) =>
+    ["xray", "test-executions-by-version", projectKey, versionName] as const,
   testRuns: (executionIssueId: string) => ["xray", "test-runs", executionIssueId] as const,
   tests: (projectKey: string) => ["xray", "tests", projectKey] as const,
   testSets: (projectKey: string) => ["xray", "test-sets", projectKey] as const,
@@ -198,6 +202,30 @@ export function useTestExecutions(projectKey: string | null) {
     queryFn: () => api.getTestExecutions(projectKey!),
     enabled: !!projectKey,
     staleTime: 5 * 60 * 1_000, // 5 minutes
+  });
+}
+
+// ── Jira Versions ─────────────────────────────────────────────────────────────
+
+/** Fetch all versions for a Jira project. */
+export function useProjectVersions(projectKey: string | null) {
+  return useQuery<JiraVersion[]>({
+    queryKey: queryKeys.projectVersions(projectKey ?? ""),
+    queryFn: () => api.getProjectVersions(projectKey!),
+    enabled: !!projectKey,
+    staleTime: 5 * 60 * 1_000,
+  });
+}
+
+// ── Test Executions by Version ────────────────────────────────────────────────
+
+/** Fetch test executions in a project filtered by a specific fix version. */
+export function useTestExecutionsByVersion(projectKey: string | null, versionName: string | null) {
+  return useQuery<TestExecution[]>({
+    queryKey: queryKeys.testExecutionsByVersion(projectKey ?? "", versionName ?? ""),
+    queryFn: () => api.getTestExecutionsByVersion(projectKey!, versionName!),
+    enabled: !!projectKey && !!versionName,
+    staleTime: 2 * 60 * 1_000,
   });
 }
 
@@ -587,6 +615,218 @@ export interface TestSetInfo {
   issueId: string;
   key: string;
   summary: string;
+}
+
+// ── Version run statistics ────────────────────────────────────────────────────
+
+/**
+ * A single test's result history across all executions in the version.
+ * Entries are ordered by execution Jira key (ascending, i.e. earliest first).
+ */
+export interface TestRunHistory {
+  /** Stable Xray test issue ID — the same test across all executions. */
+  testIssueId: string;
+  testKey: string;
+  testSummary: string;
+  /**
+   * One entry per execution in which this test appeared, sorted by execution
+   * key ascending (proxy for chronological order since no date is available).
+   */
+  history: Array<{
+    executionKey: string;
+    executionIssueId: string;
+    statusName: string;
+  }>;
+  /**
+   * Classification derived from the history:
+   *  - "fixed"      — ever failed/blocked, but the *last* result is a pass
+   *  - "failing"    — last result is a failure or blocked status
+   *  - "flaky"      — multiple executions with mixed pass/fail results
+   *  - "never-passed" — only one execution and it failed (no trend yet)
+   */
+  classification: "fixed" | "failing" | "flaky" | "never-passed";
+}
+
+export interface RunStats {
+  /** Counts keyed by uppercased status name, e.g. { PASS: 12, FAIL: 3, TODO: 5 } */
+  counts: Record<string, number>;
+  /** Total number of test runs across all executions (sum of results loaded). */
+  total: number;
+  /** How many individual page fetches have completed (for progress indication). */
+  pagesLoaded: number;
+  /** How many individual page fetches are expected in total. */
+  pagesExpected: number;
+  /**
+   * Per-test history for every test that had at least one non-passing result
+   * (FAIL, BLOCKED, or any non-PASS/TODO/EXECUTING status).
+   * Only populated once all pages have loaded.
+   */
+  failedTests: TestRunHistory[];
+}
+
+const PASS_STATUSES = new Set(["PASS", "PASSED"]);
+const FAIL_STATUSES = new Set(["FAIL", "FAILED", "BLOCKED"]);
+
+function classifyHistory(history: TestRunHistory["history"]): TestRunHistory["classification"] {
+  if (history.length === 0) return "failing";
+  const last = history[history.length - 1]!;
+  const lastStatus = last.statusName.toUpperCase();
+  const isLastPass = PASS_STATUSES.has(lastStatus);
+  const hadFailure = history.some((h) => FAIL_STATUSES.has(h.statusName.toUpperCase()));
+
+  if (isLastPass && hadFailure) return "fixed";
+  if (!isLastPass && hadFailure) {
+    // Flaky: had at least one pass before the last failure
+    const hadPass = history.slice(0, -1).some((h) => PASS_STATUSES.has(h.statusName.toUpperCase()));
+    return hadPass ? "flaky" : history.length > 1 ? "failing" : "never-passed";
+  }
+  return "failing";
+}
+
+/**
+ * Aggregates test-run status counts AND per-test failure history across all
+ * executions in a version.
+ *
+ * Cache-key safety: phase 1 uses the prefix "version-run-stats" to avoid
+ * colliding with the `useInfiniteQuery` cache entries written by `useTestRuns`
+ * (which uses `queryKeys.testRuns`). Both hooks call the same Rust command but
+ * write incompatible data shapes — regular `TestRunsPage` vs `InfiniteData`.
+ *
+ * Strategy (two-phase parallel fetch):
+ *   Phase 1 — fetch page 0 for every execution simultaneously. Each page 0
+ *              response carries `total`, letting us compute extra pages needed.
+ *   Phase 2 — fire all remaining pages in parallel.
+ *   Aggregate — counts and per-test histories are built from every resolved page.
+ */
+export function useVersionRunStats(executions: TestExecution[]): RunStats {
+  const PAGE_SIZE = TEST_RUNS_PAGE_SIZE;
+
+  // ── Phase 1: page 0 per execution ────────────────────────────────────────────
+  // NOTE: key prefix "version-run-stats" avoids colliding with the InfiniteQuery
+  // cache entries that useTestRuns writes under ["xray", "test-runs", issueId].
+  const phase1 = useQueries({
+    queries: executions.map((ex) => ({
+      queryKey: ["version-run-stats", ex.issue_id, 0] as const,
+      queryFn: () => api.getTestRuns(ex.issue_id, PAGE_SIZE, 0),
+      staleTime: 30 * 1_000,
+      enabled: executions.length > 0,
+    })),
+  });
+
+  // ── Phase 2: extra pages derived from phase 1 totals ─────────────────────────
+  const extraPageQueries = useMemo(() => {
+    const queries: { issueId: string; start: number }[] = [];
+    for (let i = 0; i < executions.length; i++) {
+      const ex = executions[i];
+      const page0 = phase1[i]?.data;
+      if (!page0 || !ex) continue;
+      for (let start = PAGE_SIZE; start < page0.total; start += PAGE_SIZE) {
+        queries.push({ issueId: ex.issue_id, start });
+      }
+    }
+    return queries;
+  }, [executions, phase1, PAGE_SIZE]);
+
+  const phase2 = useQueries({
+    queries: extraPageQueries.map(({ issueId, start }) => ({
+      queryKey: ["version-run-stats", issueId, start] as const,
+      queryFn: () => api.getTestRuns(issueId, PAGE_SIZE, start),
+      staleTime: 30 * 1_000,
+      enabled: extraPageQueries.length > 0,
+    })),
+  });
+
+  // ── Aggregate ────────────────────────────────────────────────────────────────
+  return useMemo(() => {
+    const counts: Record<string, number> = {};
+    let total = 0;
+    let pagesLoaded = 0;
+    const pagesExpected = executions.length + extraPageQueries.length;
+
+    // Map from testIssueId → { meta, history entries indexed by executionIssueId }
+    const testMap = new Map<
+      string,
+      { testKey: string; testSummary: string; byExec: Map<string, string> }
+    >();
+
+    const processPage = (page: TestRunsPage | undefined, executionIssueId: string) => {
+      if (!page) return;
+      pagesLoaded += 1;
+      for (const run of page.results) {
+        const statusKey = run.status.name.toUpperCase();
+        counts[statusKey] = (counts[statusKey] ?? 0) + 1;
+        total += 1;
+
+        // Track every run that ever failed/blocked for cross-execution history
+        const statusUpper = statusKey;
+        if (FAIL_STATUSES.has(statusUpper) || PASS_STATUSES.has(statusUpper)) {
+          const tid = run.test.issue_id;
+          if (!testMap.has(tid)) {
+            testMap.set(tid, {
+              testKey: run.test.jira.key,
+              testSummary: run.test.jira.summary,
+              byExec: new Map(),
+            });
+          }
+          // Last write wins if multiple runs for the same test in the same execution
+          testMap.get(tid)!.byExec.set(executionIssueId, run.status.name);
+        }
+      }
+    };
+
+    for (let i = 0; i < executions.length; i++) {
+      processPage(phase1[i]?.data, executions[i]?.issue_id ?? "");
+    }
+    for (let i = 0; i < extraPageQueries.length; i++) {
+      processPage(phase2[i]?.data, extraPageQueries[i]?.issueId ?? "");
+    }
+
+    // Build TestRunHistory only for tests that had at least one failure/block
+    const allLoaded = pagesLoaded >= pagesExpected && pagesExpected > 0;
+    const failedTests: TestRunHistory[] = [];
+
+    if (allLoaded) {
+      // Sort executions by Jira key for consistent chronological ordering
+      const sortedExecs = [...executions].sort((a, b) =>
+        a.jira.key.localeCompare(b.jira.key, undefined, { numeric: true }),
+      );
+
+      for (const [testIssueId, meta] of testMap) {
+        // Only include tests that had at least one failure or block
+        const hadFailure = [...meta.byExec.values()].some((s) =>
+          FAIL_STATUSES.has(s.toUpperCase()),
+        );
+        if (!hadFailure) continue;
+
+        const history: TestRunHistory["history"] = sortedExecs
+          .filter((ex) => meta.byExec.has(ex.issue_id))
+          .map((ex) => ({
+            executionKey: ex.jira.key,
+            executionIssueId: ex.issue_id,
+            statusName: meta.byExec.get(ex.issue_id)!,
+          }));
+
+        failedTests.push({
+          testIssueId,
+          testKey: meta.testKey,
+          testSummary: meta.testSummary,
+          history,
+          classification: classifyHistory(history),
+        });
+      }
+
+      // Sort: still failing first, then flaky, then fixed, then never-passed
+      const ORDER: Record<TestRunHistory["classification"], number> = {
+        failing: 0,
+        flaky: 1,
+        "never-passed": 2,
+        fixed: 3,
+      };
+      failedTests.sort((a, b) => ORDER[a.classification] - ORDER[b.classification]);
+    }
+
+    return { counts, total, pagesLoaded, pagesExpected, failedTests };
+  }, [executions, extraPageQueries, phase1, phase2]);
 }
 
 /**

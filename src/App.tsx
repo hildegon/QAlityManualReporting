@@ -7,6 +7,7 @@ import { TestExecutionsPage } from "@/pages/TestExecutionsPage";
 import { TestPlansPage } from "@/pages/TestPlansPage";
 import { TestSetsPage } from "@/pages/TestSetsPage";
 import { CreateTestPage } from "@/pages/CreateTestPage";
+import { VersionsPage } from "@/pages/VersionsPage";
 import { useUiStore, parseRateLimitError } from "@/stores/uiStore";
 
 function makeQueryClient() {
@@ -59,6 +60,7 @@ export default function App() {
               <Route path="/executions" element={<TestExecutionsPage />} />
               <Route path="/test-plans" element={<TestPlansPage />} />
               <Route path="/test-sets" element={<TestSetsPage />} />
+              <Route path="/versions" element={<VersionsPage />} />
               <Route path="/create-test" element={<CreateTestPage />} />
               <Route path="/settings" element={<SettingsPage />} />
             </Route>

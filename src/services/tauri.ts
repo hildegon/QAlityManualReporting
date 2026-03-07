@@ -13,6 +13,7 @@ import type {
   JiraProject,
   JiraTransition,
   JiraUser,
+  JiraVersion,
   TestExecution,
   TestPlan,
   TestRunsPage,
@@ -56,6 +57,10 @@ export const updateAssignee = (issueKey: string, accountId?: string): Promise<vo
 export const searchUsers = (query: string): Promise<JiraUser[]> =>
   invoke("search_users", { query });
 
+/** Fetch all versions for a Jira project. */
+export const getProjectVersions = (projectKey: string): Promise<JiraVersion[]> =>
+  invoke("get_project_versions", { projectKey });
+
 // ── Xray ──────────────────────────────────────────────────────────────────────
 
 export const authenticateXray = (): Promise<void> => invoke("authenticate_xray");
@@ -65,6 +70,14 @@ export const getTestPlans = (projectKey: string, limit?: number): Promise<TestPl
 
 export const getTestExecutions = (projectKey: string, limit?: number): Promise<TestExecution[]> =>
   invoke("get_test_executions", { projectKey, limit });
+
+/** Fetch test executions filtered by a Jira fix version name. */
+export const getTestExecutionsByVersion = (
+  projectKey: string,
+  versionName: string,
+  limit?: number,
+): Promise<TestExecution[]> =>
+  invoke("get_test_executions_by_version", { projectKey, versionName, limit });
 
 export const getTestRuns = (
   testExecutionIssueId: string,
@@ -127,12 +140,8 @@ export const createTest = (
   component?: string,
 ): Promise<CreateTestResult> => invoke("create_test", { projectKey, summary, steps, component });
 
-export const addTestsToTestSet = (
-  testSetIssueId: string,
-  testIssueIds: string[],
-): Promise<void> => invoke("add_tests_to_test_set", { testSetIssueId, testIssueIds });
+export const addTestsToTestSet = (testSetIssueId: string, testIssueIds: string[]): Promise<void> =>
+  invoke("add_tests_to_test_set", { testSetIssueId, testIssueIds });
 
-export const createTestSet = (
-  projectKey: string,
-  summary: string,
-): Promise<CreateTestSetResult> => invoke("create_test_set", { projectKey, summary });
+export const createTestSet = (projectKey: string, summary: string): Promise<CreateTestSetResult> =>
+  invoke("create_test_set", { projectKey, summary });

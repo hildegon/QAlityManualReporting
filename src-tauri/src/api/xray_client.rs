@@ -230,6 +230,32 @@ impl XrayClient {
             .await
     }
 
+    /// Fetch test executions filtered by a specific Jira fix version name.
+    pub async fn get_test_executions_by_version(
+        &self,
+        project_key: &str,
+        version_name: &str,
+        limit: u32,
+    ) -> Result<TestExecutionsResult> {
+        let jql = format!("project = '{project_key}' AND fixVersion = \"{version_name}\"");
+        let query = r#"
+            query GetTestExecutions($jql: String!, $limit: Int!) {
+                getTestExecutions(jql: $jql, limit: $limit) {
+                    total
+                    start
+                    limit
+                    results {
+                        issueId
+                        projectId
+                        jira(fields: ["key", "summary", "status", "assignee"])
+                    }
+                }
+            }
+        "#;
+        self.graphql(query, serde_json::json!({ "jql": jql, "limit": limit }))
+            .await
+    }
+
     // ── Test Runs (tests inside an execution) ─────────────────────────────────
 
     pub async fn get_test_runs(

@@ -13,20 +13,17 @@ export function useContentProjectKey(): string | null {
 }
 
 /**
- * Returns the effective project key for Test Executions.
- * Falls back to content_project_key if execution_project_key is not set.
- * Priority: config.execution_project_key > Zustand activeProject.key > config.content_project_key > null
+ * Returns the effective project key for Test Executions and Versions.
+ * When a project is explicitly selected via the ProjectSelector, it takes
+ * priority — consistent with useContentProjectKey behaviour.
+ * Falls back to config.execution_project_key, then content_project_key.
+ * Priority: Zustand activeProject.key > config.execution_project_key > config.content_project_key > null
  */
 export function useExecutionProjectKey(): string | null {
   const { activeProject } = useProjectStore();
   const { data: config } = useConfig();
 
-  return (
-    config?.execution_project_key ||
-    activeProject?.key ||
-    config?.content_project_key ||
-    null
-  );
+  return activeProject?.key || config?.execution_project_key || config?.content_project_key || null;
 }
 
 /**
