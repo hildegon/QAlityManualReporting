@@ -10,6 +10,9 @@ interface UiState {
   toasts: Toast[];
   addToast: (message: string, type?: Toast["type"]) => void;
   removeToast: (id: string) => void;
+  /** Epoch-millisecond timestamp at which an active rate-limit block lifts, or null. */
+  rateLimitUntil: number | null;
+  setRateLimit: (untilMs: number | null) => void;
 }
 
 export const useUiStore = create<UiState>((set) => ({
@@ -22,4 +25,27 @@ export const useUiStore = create<UiState>((set) => ({
     set((state) => ({
       toasts: state.toasts.filter((t) => t.id !== id),
     })),
+  rateLimitUntil: null,
+  setRateLimit: (untilMs) => set({ rateLimitUntil: untilMs }),
 }));
+
+/**
+ * Parse a Tauri error string for a rate-limit signal emitted by the Rust backend.
+ * Returns the unblock epoch-ms if found, or `null` otherwise.
+ *
+ * The Rust backend emits:
+ *   "RATE_LIMITED:<epoch_ms>"  — when a Retry-After / X-RateLimit-Reset header was present
+ *   "RATE_LIMITED"             — when no timing header was present (fall back to 60 s)
+ */
+export function parseRateLimitError(err: unknown): number | null {
+  const msg = err instanceof Error ? err.message : String(err);
+  const idx = msg.indexOf("RATE_LIMITED");
+  if (idx === -1) return null;
+  const rest = msg.slice(idx + "RATE_LIMITED".length);
+  if (rest.startsWith(":")) {
+    const ms = parseInt(rest.slice(1), 10);
+    if (!Number.isNaN(ms)) return ms;
+  }
+  // No timestamp — fall back to 60 seconds from now.
+  return Date.now() + 60_000;
+}

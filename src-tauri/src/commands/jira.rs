@@ -3,7 +3,7 @@ use tauri::AppHandle;
 use crate::{
     api::jira_client::JiraClient,
     commands::config::load_config,
-    models::jira::{JiraComponent, JiraProject},
+    models::jira::{JiraComponent, JiraProject, JiraTransition, JiraUserSearchResult},
 };
 
 /// Format an anyhow error with its full cause chain for debugging.
@@ -47,4 +47,55 @@ pub async fn get_project_components(
         .get_project_components(&project_key)
         .await
         .map_err(format_err)
+}
+
+/// Fetch the available workflow transitions for a Jira issue.
+#[tauri::command]
+pub async fn get_issue_transitions(
+    app: AppHandle,
+    issue_key: String,
+) -> Result<Vec<JiraTransition>, String> {
+    let client = make_jira_client(&app)?;
+    client
+        .get_issue_transitions(&issue_key)
+        .await
+        .map_err(format_err)
+}
+
+/// Apply a workflow transition to a Jira issue.
+#[tauri::command]
+pub async fn transition_issue(
+    app: AppHandle,
+    issue_key: String,
+    transition_id: String,
+) -> Result<(), String> {
+    let client = make_jira_client(&app)?;
+    client
+        .transition_issue(&issue_key, &transition_id)
+        .await
+        .map_err(format_err)
+}
+
+/// Update the assignee of a Jira issue. Pass `None` to unassign.
+#[tauri::command]
+pub async fn update_assignee(
+    app: AppHandle,
+    issue_key: String,
+    account_id: Option<String>,
+) -> Result<(), String> {
+    let client = make_jira_client(&app)?;
+    client
+        .update_assignee(&issue_key, account_id.as_deref())
+        .await
+        .map_err(format_err)
+}
+
+/// Search Jira users by display name or email.
+#[tauri::command]
+pub async fn search_users(
+    app: AppHandle,
+    query: String,
+) -> Result<Vec<JiraUserSearchResult>, String> {
+    let client = make_jira_client(&app)?;
+    client.search_users(&query).await.map_err(format_err)
 }

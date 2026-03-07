@@ -1,6 +1,7 @@
 import { Outlet, NavLink } from "react-router-dom";
 import { Settings, ListChecks, BookOpen, Layers, FilePlus2 } from "lucide-react";
 import { ProjectSelector } from "./ProjectSelector";
+import { RateLimitBanner } from "./RateLimitBanner";
 import { useConfig } from "@/services/queries";
 import { cn } from "@/components/ui/utils";
 
@@ -15,14 +16,19 @@ const navItems = [
 export function AppShell() {
   const { data: config } = useConfig();
   const isJiraConfigured = !!config?.jira_url && !!config.jira_email && !!config.jira_api_token;
+
   const contentKey = config?.content_project_key || null;
+  const contentName = config?.content_project_name || contentKey;
   const executionKey = config?.execution_project_key || null;
-  // Show a compact label when Jira is not configured (no project selector available)
+  const executionName = config?.execution_project_name || executionKey;
+
+  // Label shown when Jira is not configured (no interactive project selector).
+  // Uses the stored project names, falling back to raw keys when names aren't set.
   const projectLabel = (() => {
-    if (!contentKey && !executionKey) return null;
-    if (contentKey && executionKey && contentKey !== executionKey)
-      return `${contentKey} / ${executionKey}`;
-    return contentKey || executionKey;
+    if (!contentName && !executionName) return null;
+    if (contentName && executionName && contentKey !== executionKey)
+      return `${contentName} / ${executionName}`;
+    return contentName || executionName;
   })();
 
   return (
@@ -60,6 +66,9 @@ export function AppShell() {
           ))}
         </nav>
       </header>
+
+      {/* Rate-limit banner — shown below the nav bar when a 429 is active */}
+      <RateLimitBanner />
 
       {/* Main content area */}
       <main className="min-h-0 flex-1 overflow-auto p-6">

@@ -1,6 +1,7 @@
 use anyhow::{bail, Context, Result};
 use reqwest::Client;
 use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::Mutex;
 
 use crate::models::xray::{
@@ -14,6 +15,38 @@ use crate::models::xray::{
 
 const XRAY_AUTH_URL: &str = "https://xray.cloud.getxray.app/api/v2/authenticate";
 const XRAY_GRAPHQL_URL: &str = "https://xray.cloud.getxray.app/api/v2/graphql";
+
+/// Parse rate-limit headers from a 429 response and return the epoch-millisecond
+/// timestamp at which the block is expected to lift.
+///
+/// Precedence (both headers may be absent on some 429s):
+/// 1. `X-RateLimit-Reset` — Unix epoch **seconds** (absolute timestamp).
+/// 2. `Retry-After`       — delay in **seconds** from now.
+///
+/// Returns `None` if neither header is present or parseable.
+fn rate_limit_until_ms(headers: &reqwest::header::HeaderMap) -> Option<u64> {
+    // X-RateLimit-Reset: absolute Unix timestamp in seconds.
+    if let Some(val) = headers.get("x-ratelimit-reset") {
+        if let Ok(s) = val.to_str() {
+            if let Ok(secs) = s.trim().parse::<u64>() {
+                return Some(secs * 1_000);
+            }
+        }
+    }
+    // Retry-After: relative delay in seconds.
+    if let Some(val) = headers.get("retry-after") {
+        if let Ok(s) = val.to_str() {
+            if let Ok(delay_secs) = s.trim().parse::<u64>() {
+                let now_ms = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_millis() as u64;
+                return Some(now_ms + delay_secs * 1_000);
+            }
+        }
+    }
+    None
+}
 
 /// Thread-safe Xray Cloud client with token caching.
 /// Cloning is cheap — the token cache is shared via `Arc`.
@@ -102,6 +135,14 @@ impl XrayClient {
                 // Clear the cached token and retry once.
                 *self.token.lock().await = None;
                 continue;
+            }
+
+            if resp.status() == reqwest::StatusCode::TOO_MANY_REQUESTS {
+                let until_ms = rate_limit_until_ms(resp.headers());
+                match until_ms {
+                    Some(ms) => bail!("RATE_LIMITED:{ms}"),
+                    None => bail!("RATE_LIMITED"),
+                }
             }
 
             let status = resp.status();

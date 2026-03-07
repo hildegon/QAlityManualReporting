@@ -20,6 +20,8 @@ import type {
   CreateTestStepInput,
   JiraComponent,
   JiraProject,
+  JiraTransition,
+  JiraUser,
   TestExecution,
   TestPlan,
   TestRun,
@@ -42,6 +44,8 @@ export const queryKeys = {
   config: ["config"] as const,
   jiraProjects: ["jira", "projects"] as const,
   projectComponents: (projectKey: string) => ["jira", "components", projectKey] as const,
+  issueTransitions: (issueKey: string) => ["jira", "transitions", issueKey] as const,
+  userSearch: (query: string) => ["jira", "user-search", query] as const,
   testPlans: (projectKey: string) => ["xray", "test-plans", projectKey] as const,
   testExecutions: (projectKey: string) => ["xray", "test-executions", projectKey] as const,
   testRuns: (executionIssueId: string) => ["xray", "test-runs", executionIssueId] as const,
@@ -98,6 +102,83 @@ export function useProjectComponents(projectKey: string | null | undefined) {
   });
 }
 
+/**
+ * Fetch available workflow transitions for a Jira issue.
+ * Only runs when `issueKey` is non-null (e.g. when a dialog is open).
+ */
+export function useIssueTransitions(issueKey: string | null) {
+  return useQuery<JiraTransition[]>({
+    queryKey: queryKeys.issueTransitions(issueKey ?? ""),
+    queryFn: () => api.getIssueTransitions(issueKey!),
+    enabled: !!issueKey,
+    staleTime: 60 * 1000, // transitions can change, cache briefly
+    retry: false,
+  });
+}
+
+/**
+ * Search Jira users by display name or email.
+ * Only runs when `query` is at least 2 characters to avoid noisy empty results.
+ */
+export function useSearchUsers(query: string) {
+  return useQuery<JiraUser[]>({
+    queryKey: queryKeys.userSearch(query),
+    queryFn: () => api.searchUsers(query),
+    enabled: query.length >= 2,
+    staleTime: 30 * 1000,
+    retry: false,
+  });
+}
+
+// ── Transition Jira issue ─────────────────────────────────────────────────────
+
+interface TransitionIssueVars {
+  issueKey: string;
+  transitionId: string;
+  /** Execution project key — used to invalidate the executions list on success. */
+  executionProjectKey: string;
+}
+
+/** Apply a workflow transition to a Jira issue and invalidate the executions list. */
+export function useTransitionIssue() {
+  const queryClient = useQueryClient();
+  return useMutation<void, Error, TransitionIssueVars>({
+    mutationFn: ({ issueKey, transitionId }) => api.transitionIssue(issueKey, transitionId),
+    onSuccess: (_data, { issueKey, executionProjectKey }) => {
+      // Invalidate transitions cache so re-opening the dialog shows fresh options
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.issueTransitions(issueKey),
+      });
+      // Refresh the executions list to show the updated status
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.testExecutions(executionProjectKey),
+      });
+    },
+  });
+}
+
+// ── Update Jira issue assignee ────────────────────────────────────────────────
+
+interface UpdateAssigneeVars {
+  issueKey: string;
+  accountId?: string;
+  /** Execution project key — used to invalidate the executions list on success. */
+  executionProjectKey: string;
+}
+
+/** Update (or clear) the assignee of a Jira issue and invalidate the executions list. */
+export function useUpdateAssignee() {
+  const queryClient = useQueryClient();
+  return useMutation<void, Error, UpdateAssigneeVars>({
+    mutationFn: ({ issueKey, accountId }) => api.updateAssignee(issueKey, accountId),
+    onSuccess: (_data, { executionProjectKey }) => {
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.testExecutions(executionProjectKey),
+      });
+    },
+  });
+}
+
 // ── Test Plans ────────────────────────────────────────────────────────────────
 
 export function useTestPlans(projectKey: string | null) {
@@ -116,7 +197,7 @@ export function useTestExecutions(projectKey: string | null) {
     queryKey: queryKeys.testExecutions(projectKey ?? ""),
     queryFn: () => api.getTestExecutions(projectKey!),
     enabled: !!projectKey,
-    staleTime: 60 * 1000, // 1 minute
+    staleTime: 5 * 60 * 1_000, // 5 minutes
   });
 }
 
