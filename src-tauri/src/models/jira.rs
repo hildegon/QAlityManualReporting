@@ -133,3 +133,33 @@ pub struct JiraVersion {
     #[serde(rename(deserialize = "releaseDate"))]
     pub release_date: Option<String>,
 }
+
+/// Fields returned for a bug issue from JQL search.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct JiraBugFields {
+    pub summary: String,
+    pub status: Option<JiraStatus>,
+    pub priority: Option<JiraPriority>,
+    pub assignee: Option<JiraUser>,
+}
+
+/// A single bug issue returned by a JQL search.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct JiraBug {
+    pub id: String,
+    pub key: String,
+    pub fields: JiraBugFields,
+}
+
+/// Response from `POST /rest/api/3/search/jql` (enhanced search, cursor-based).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct JiraSearchResponse {
+    /// `true` when this is the last page of results.
+    #[serde(rename = "isLast")]
+    pub is_last: bool,
+    pub issues: Vec<JiraBug>,
+    /// Cursor token to pass as `nextPageToken` in the next request.
+    /// `None` when `is_last` is `true`.
+    #[serde(rename = "nextPageToken")]
+    pub next_page_token: Option<String>,
+}

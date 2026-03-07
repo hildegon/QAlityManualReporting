@@ -4,8 +4,8 @@ use reqwest::Client;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::models::jira::{
-    JiraComponent, JiraIssue, JiraProject, JiraProjectsResponse, JiraTransition,
-    JiraTransitionsResponse, JiraUserSearchResult, JiraVersion,
+    JiraBug, JiraComponent, JiraIssue, JiraProject, JiraProjectsResponse, JiraSearchResponse,
+    JiraTransition, JiraTransitionsResponse, JiraUserSearchResult, JiraVersion,
 };
 
 /// Check a response for 429 (rate-limited) before consuming it with `error_for_status`.
@@ -308,6 +308,64 @@ impl JiraClient {
         .json()
         .await
         .context("Failed to parse Jira user search response")
+    }
+
+    /// Fetch bugs with `affectedVersion` matching `version_name` in the given project.
+    ///
+    /// Uses `POST /rest/api/3/search/jql` (enhanced search, cursor-based pagination) with JQL:
+    /// `project = "{key}" AND issuetype = Bug AND affectedVersion = "{name}" ORDER BY priority ASC`
+    ///
+    /// Collects all pages (max 100 per page), following `nextPageToken` until `isLast` is `true`.
+    pub async fn get_bugs_by_version(
+        &self,
+        project_key: &str,
+        version_name: &str,
+    ) -> Result<Vec<JiraBug>> {
+        let jql = format!(
+            "project = \"{}\" AND issuetype = Bug AND affectedVersion = \"{}\" ORDER BY priority ASC",
+            project_key, version_name,
+        );
+        let url = format!("{}/rest/api/3/search/jql", self.base_url);
+        let mut all_bugs: Vec<JiraBug> = Vec::new();
+        let mut next_page_token: Option<String> = None;
+
+        loop {
+            let mut body = serde_json::json!({
+                "jql": jql,
+                "fields": ["summary", "status", "priority", "assignee"],
+                "maxResults": 100,
+            });
+            if let Some(ref token) = next_page_token {
+                body["nextPageToken"] = serde_json::Value::String(token.clone());
+            }
+
+            let resp: JiraSearchResponse = check_rate_limit(
+                self.client
+                    .post(&url)
+                    .header("Authorization", &self.auth_header)
+                    .header("Accept", "application/json")
+                    .header("Content-Type", "application/json")
+                    .json(&body)
+                    .send()
+                    .await
+                    .context("Failed to send Jira bug search request")?,
+            )?
+            .error_for_status()
+            .context("Jira bug search request returned error status")?
+            .json()
+            .await
+            .context("Failed to parse Jira bug search response")?;
+
+            let is_last = resp.is_last;
+            next_page_token = resp.next_page_token.clone();
+            all_bugs.extend(resp.issues);
+
+            if is_last || next_page_token.is_none() {
+                break;
+            }
+        }
+
+        Ok(all_bugs)
     }
 
     /// Fetch all versions for a given Jira project key.

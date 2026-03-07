@@ -6,8 +6,9 @@ mod state;
 use commands::{
     config::{clear_config, get_config, save_config_cmd},
     jira::{
-        get_issue_transitions, get_jira_projects, get_project_components, get_project_versions,
-        search_users, transition_issue, update_assignee, validate_jira_credentials,
+        get_bugs_by_version, get_issue_transitions, get_jira_projects, get_project_components,
+        get_project_versions, search_users, transition_issue, update_assignee,
+        validate_jira_credentials,
     },
     xray::{
         add_tests_to_test_set, authenticate_xray, create_test, create_test_execution,
@@ -34,6 +35,7 @@ pub fn run() {
             validate_jira_credentials,
             get_project_components,
             get_project_versions,
+            get_bugs_by_version,
             get_issue_transitions,
             transition_issue,
             update_assignee,

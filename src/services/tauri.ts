@@ -9,6 +9,7 @@ import type {
   CreateTestResult,
   CreateTestSetResult,
   CreateTestStepInput,
+  JiraBug,
   JiraComponent,
   JiraProject,
   JiraTransition,
@@ -60,6 +61,10 @@ export const searchUsers = (query: string): Promise<JiraUser[]> =>
 /** Fetch all versions for a Jira project. */
 export const getProjectVersions = (projectKey: string): Promise<JiraVersion[]> =>
   invoke("get_project_versions", { projectKey });
+
+/** Fetch Bug issues with the given affectedVersion in the project. */
+export const getBugsByVersion = (projectKey: string, versionName: string): Promise<JiraBug[]> =>
+  invoke("get_bugs_by_version", { projectKey, versionName });
 
 // ── Xray ──────────────────────────────────────────────────────────────────────
 

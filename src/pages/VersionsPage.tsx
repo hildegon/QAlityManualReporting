@@ -12,8 +12,14 @@ import {
   CheckCheck,
   Shuffle,
   TrendingDown,
+  Bug,
+  User,
+  Search,
+  X,
+  Filter,
 } from "lucide-react";
 import {
+  useBugsByVersion,
   useProjectVersions,
   useTestExecutionsByVersion,
   useVersionRunStats,
@@ -24,7 +30,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { Badge, statusVariant } from "@/components/ui/badge";
 import { cn } from "@/components/ui/utils";
 import { TestExecutionDetail } from "@/components/test-execution/TestExecutionDetail";
-import type { JiraVersion, TestExecution } from "@/types";
+import type { JiraBug, JiraVersion, TestExecution } from "@/types";
 import type { RunStats, TestRunHistory } from "@/services/queries";
 
 // ── Status palette ────────────────────────────────────────────────────────────
@@ -730,6 +736,7 @@ function ExecutionListPanel({ projectKey, version, onSelectExecution }: Executio
 
   return (
     <VersionContent
+      projectKey={projectKey}
       executions={executions ?? []}
       version={version}
       onSelectExecution={onSelectExecution}
@@ -737,16 +744,317 @@ function ExecutionListPanel({ projectKey, version, onSelectExecution }: Executio
   );
 }
 
+// ── Bugs panel ────────────────────────────────────────────────────────────────
+
+/** Colour class for a Jira status category key. */
+function statusCategoryClass(categoryKey?: string): string {
+  if (categoryKey === "done") return "bg-emerald-100 text-emerald-700";
+  if (categoryKey === "indeterminate") return "bg-blue-100 text-blue-700";
+  if (categoryKey === "new") return "bg-slate-100 text-slate-500";
+  return "bg-slate-100 text-slate-500";
+}
+
+/** Colour class for a Jira priority name. */
+function priorityClass(priority?: string): string {
+  const p = priority?.toLowerCase() ?? "";
+  if (p === "highest" || p === "critical") return "text-red-600";
+  if (p === "high") return "text-orange-500";
+  if (p === "medium") return "text-amber-500";
+  if (p === "low") return "text-blue-400";
+  return "text-slate-400";
+}
+
+/** Toggle-chip used for priority and status multi-select filters. */
+function FilterChip({
+  label,
+  active,
+  colorClass,
+  onClick,
+}: {
+  label: string;
+  active: boolean;
+  colorClass?: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={cn(
+        "rounded-full border px-2.5 py-0.5 text-xs font-medium transition-colors",
+        active
+          ? cn("border-slate-700 bg-slate-700 text-white", colorClass && "")
+          : "border-slate-200 bg-white text-slate-500 hover:border-slate-300 hover:bg-slate-50",
+      )}
+    >
+      {label}
+    </button>
+  );
+}
+
+const PRIORITY_ORDER = ["Highest", "High", "Medium", "Low", "Lowest"];
+
+interface BugsPanelProps {
+  projectKey: string;
+  versionName: string;
+}
+
+function BugsPanel({ projectKey, versionName }: BugsPanelProps) {
+  const { data: bugs, isLoading, isError, error } = useBugsByVersion(projectKey, versionName);
+
+  // ── filter state ──────────────────────────────────────────────────────────
+  const [search, setSearch] = useState("");
+  const [activePriorities, setActivePriorities] = useState<Set<string>>(new Set());
+  const [activeStatuses, setActiveStatuses] = useState<Set<string>>(new Set());
+  const [activeAssignee, setActiveAssignee] = useState<string | null>(null);
+  const [unresolvedOnly, setUnresolvedOnly] = useState(false);
+
+  // ── derived option lists (built from loaded data) ─────────────────────────
+  const { priorities, statuses, assignees } = useMemo(() => {
+    const list = bugs ?? [];
+    const pSet = new Set<string>();
+    const sSet = new Set<string>();
+    const aSet = new Set<string>();
+    for (const b of list) {
+      if (b.fields.priority?.name) pSet.add(b.fields.priority.name);
+      if (b.fields.status?.name) sSet.add(b.fields.status.name);
+      if (b.fields.assignee?.display_name) aSet.add(b.fields.assignee.display_name);
+    }
+    const sortedP = PRIORITY_ORDER.filter((p) => pSet.has(p)).concat(
+      [...pSet].filter((p) => !PRIORITY_ORDER.includes(p)).sort(),
+    );
+    return {
+      priorities: sortedP,
+      statuses: [...sSet].sort(),
+      assignees: [...aSet].sort(),
+    };
+  }, [bugs]);
+
+  // ── filtered list ─────────────────────────────────────────────────────────
+  const filtered = useMemo(() => {
+    const list = bugs ?? [];
+    const q = search.trim().toLowerCase();
+    return list.filter((b) => {
+      if (q && !b.fields.summary.toLowerCase().includes(q) && !b.key.toLowerCase().includes(q))
+        return false;
+      if (activePriorities.size > 0 && !activePriorities.has(b.fields.priority?.name ?? ""))
+        return false;
+      if (activeStatuses.size > 0 && !activeStatuses.has(b.fields.status?.name ?? "")) return false;
+      if (activeAssignee !== null) {
+        const name = b.fields.assignee?.display_name ?? null;
+        if (name !== activeAssignee) return false;
+      }
+      if (unresolvedOnly && b.fields.status?.category?.key === "done") return false;
+      return true;
+    });
+  }, [bugs, search, activePriorities, activeStatuses, activeAssignee, unresolvedOnly]);
+
+  const hasActiveFilters =
+    search.trim() !== "" ||
+    activePriorities.size > 0 ||
+    activeStatuses.size > 0 ||
+    activeAssignee !== null ||
+    unresolvedOnly;
+
+  function clearFilters() {
+    setSearch("");
+    setActivePriorities(new Set());
+    setActiveStatuses(new Set());
+    setActiveAssignee(null);
+    setUnresolvedOnly(false);
+  }
+
+  function toggleSet(set: Set<string>, value: string): Set<string> {
+    const next = new Set(set);
+    if (next.has(value)) next.delete(value);
+    else next.add(value);
+    return next;
+  }
+
+  // ── render ────────────────────────────────────────────────────────────────
+  if (isLoading) {
+    return (
+      <div className="flex h-16 items-center justify-center">
+        <Loader2 className="h-4 w-4 animate-spin text-slate-400" />
+      </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <div className="rounded-md bg-red-50 px-3 py-2 text-xs text-red-700">
+        Failed to load bugs: {String(error)}
+      </div>
+    );
+  }
+
+  const list = bugs ?? [];
+
+  return (
+    <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+      {/* Header */}
+      <div className="mb-3 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-slate-400">
+        <Bug className="h-3.5 w-3.5" />
+        Bugs ({list.length})
+        {hasActiveFilters && (
+          <span className="ml-1 rounded-full bg-slate-700 px-1.5 py-0.5 text-white">
+            {filtered.length} shown
+          </span>
+        )}
+      </div>
+
+      {list.length > 0 && (
+        <div className="mb-3 space-y-2">
+          {/* Text search */}
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+            <input
+              type="text"
+              placeholder="Search summary or key…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="w-full rounded-lg border border-slate-200 bg-slate-50 py-1.5 pl-8 pr-8 text-sm text-slate-800 placeholder-slate-400 outline-none focus:border-slate-400 focus:bg-white"
+            />
+            {search && (
+              <button
+                onClick={() => setSearch("")}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
+
+          {/* Filter row */}
+          <div className="flex flex-wrap items-center gap-2">
+            <Filter className="h-3.5 w-3.5 shrink-0 text-slate-300" />
+
+            {/* Unresolved toggle */}
+            <FilterChip
+              label="Unresolved"
+              active={unresolvedOnly}
+              onClick={() => setUnresolvedOnly((v) => !v)}
+            />
+
+            {/* Priority chips */}
+            {priorities.map((p) => (
+              <FilterChip
+                key={p}
+                label={p}
+                active={activePriorities.has(p)}
+                onClick={() => setActivePriorities((s) => toggleSet(s, p))}
+              />
+            ))}
+
+            {/* Status chips */}
+            {statuses.map((s) => (
+              <FilterChip
+                key={s}
+                label={s}
+                active={activeStatuses.has(s)}
+                onClick={() => setActiveStatuses((prev) => toggleSet(prev, s))}
+              />
+            ))}
+
+            {/* Assignee chips */}
+            {assignees.map((a) => (
+              <FilterChip
+                key={a}
+                label={a}
+                active={activeAssignee === a}
+                onClick={() => setActiveAssignee((prev) => (prev === a ? null : a))}
+              />
+            ))}
+
+            {/* Clear all */}
+            {hasActiveFilters && (
+              <button
+                onClick={clearFilters}
+                className="ml-auto text-xs text-slate-400 hover:text-slate-600"
+              >
+                Clear filters
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {filtered.length === 0 ? (
+        <p className="text-xs italic text-slate-400">
+          {list.length === 0
+            ? "No bugs found for this version."
+            : "No bugs match the current filters."}
+        </p>
+      ) : (
+        <div className="space-y-1.5">
+          {filtered.map((bug: JiraBug) => (
+            <div
+              key={bug.id}
+              className="flex items-start gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2.5"
+            >
+              {/* Priority dot */}
+              <span
+                className={cn(
+                  "mt-0.5 shrink-0 font-bold leading-none",
+                  priorityClass(bug.fields.priority?.name),
+                )}
+                title={bug.fields.priority?.name ?? "No priority"}
+              >
+                ●
+              </span>
+
+              {/* Key + summary */}
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm text-slate-800">{bug.fields.summary}</p>
+                <p className="mt-0.5 font-mono text-xs text-slate-400">{bug.key}</p>
+              </div>
+
+              {/* Assignee */}
+              {bug.fields.assignee ? (
+                <span className="flex shrink-0 items-center gap-1 text-xs text-slate-400">
+                  <User className="h-3 w-3" />
+                  {bug.fields.assignee.display_name}
+                </span>
+              ) : null}
+
+              {/* Status badge */}
+              {bug.fields.status && (
+                <span
+                  className={cn(
+                    "shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium",
+                    statusCategoryClass(bug.fields.status.category?.key),
+                  )}
+                >
+                  {bug.fields.status.name}
+                </span>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Version content ───────────────────────────────────────────────────────────
+
 interface VersionContentProps {
+  projectKey: string;
   executions: TestExecution[];
   version: JiraVersion;
   onSelectExecution: (exec: TestExecution) => void;
 }
 
-function VersionContent({ executions, version, onSelectExecution }: VersionContentProps) {
+function VersionContent({
+  projectKey,
+  executions,
+  version,
+  onSelectExecution,
+}: VersionContentProps) {
   return (
     <>
       <VersionDashboard executions={executions} version={version} />
+
+      <BugsPanel projectKey={projectKey} versionName={version.name} />
 
       {executions.length > 0 && (
         <div className="mt-4">

@@ -17,6 +17,7 @@ import { Badge, statusVariant } from "@/components/ui/badge";
 import { cn } from "@/components/ui/utils";
 import {
   ArrowLeft,
+  ArrowUpDown,
   CheckCheck,
   ChevronDown,
   ChevronRight,
@@ -25,10 +26,12 @@ import {
   Loader2,
   MessageSquare,
   Pencil,
+  RotateCcw,
   Search,
   X,
 } from "lucide-react";
 import type {
+  CucumberResult,
   TestExecution,
   TestRun,
   TestRunStep,
@@ -71,6 +74,20 @@ const FILTER_ALL = "__all__";
 /** Sentinel value meaning "show only runs whose test is in no test set". */
 const FILTER_NONE = "__none__";
 
+/**
+ * Status sort priority — lower number = shown first.
+ * Unrecognised statuses sort after all known ones.
+ */
+const STATUS_SORT_ORDER: Record<string, number> = {
+  FAIL: 0,
+  FAILED: 0,
+  BLOCKED: 1,
+  EXECUTING: 2,
+  TODO: 3,
+  PASS: 4,
+  PASSED: 4,
+};
+
 export function TestExecutionDetail({
   execution,
   onBack,
@@ -93,6 +110,10 @@ export function TestExecutionDetail({
   const [expandedRuns, setExpandedRuns] = useState<Set<string>>(new Set());
   const [testSetFilter, setTestSetFilter] = useState<string>(FILTER_ALL);
   const [testSearch, setTestSearch] = useState("");
+  const [sortByStatus, setSortByStatus] = useState(false);
+  const [loadingAll, setLoadingAll] = useState(false);
+  /** Map of runId → status name captured just before a bulk-status operation. */
+  const [bulkUndoSnapshot, setBulkUndoSnapshot] = useState<Map<string, string> | null>(null);
   const parentRef = useRef<HTMLDivElement>(null);
 
   // Flatten all pages into a single runs array
@@ -110,7 +131,7 @@ export function TestExecutionDetail({
     return map;
   }, [runs, membership]);
 
-  // Apply test-set filter, then text search.
+  // Apply test-set filter, then text search, then optional status sort.
   const filteredRuns = useMemo(() => {
     let result = runs;
 
@@ -133,8 +154,17 @@ export function TestExecutionDetail({
       );
     }
 
+    // 3. Status sort (stable — preserves original order within the same status group)
+    if (sortByStatus) {
+      result = [...result].sort((a, b) => {
+        const oa = STATUS_SORT_ORDER[a.status.name.toUpperCase()] ?? 99;
+        const ob = STATUS_SORT_ORDER[b.status.name.toUpperCase()] ?? 99;
+        return oa - ob;
+      });
+    }
+
     return result;
-  }, [runs, testSetFilter, membership, testSearch]);
+  }, [runs, testSetFilter, membership, testSearch, sortByStatus]);
 
   // Total count from the server (available from the first page)
   const totalFromServer = data?.pages[0]?.total ?? 0;
@@ -162,7 +192,18 @@ export function TestExecutionDetail({
     getScrollElement: () => parentRef.current,
     estimateSize: () => 56,
     overscan: 10,
+    // Use the run id as the stable measurement key so the virtualizer
+    // doesn't reuse a cached height from a different run when the list
+    // reorders (e.g. after a bulk-status update with sort-by-status on).
+    getItemKey: (index) => filteredRuns[index]?.id ?? index,
   });
+
+  // When the filtered/sorted list changes identity, force the virtualizer to
+  // recompute offsets from fresh measurements. Without this, reordered rows
+  // render at stale positions, causing overlaps and blank gaps.
+  useEffect(() => {
+    virtualizer.measure();
+  }, [filteredRuns, virtualizer]);
 
   // Auto-load next page when the user scrolls near the bottom
   const virtualItems = virtualizer.getVirtualItems();
@@ -176,14 +217,9 @@ export function TestExecutionDetail({
     }
   }, [virtualItems, hasNextPage, isFetchingNextPage, runs.length, fetchNextPage]);
 
-  // Eagerly fetch all remaining pages in the background so the test-set filter
-  // reflects the full execution (not just the first visible page).
-  // A small delay between requests avoids a burst that can trigger 429s.
-  useEffect(() => {
-    if (!hasNextPage || isFetchingNextPage) return;
-    const timer = setTimeout(() => void fetchNextPage(), 300);
-    return () => clearTimeout(timer);
-  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
+  // No automatic background prefetch — pagination is scroll-driven only.
+  // Users can click "Load all" in the footer when they need complete data
+  // (e.g. for test-set filter accuracy on large executions).
 
   const handleStatusChange = (run: TestRun, newStatus: string) => {
     updateStatus.mutate({
@@ -227,16 +263,38 @@ export function TestExecutionDetail({
   // ── Bulk operations ─────────────────────────────────────────────────────────
 
   const handleBulkRunStatus = (newStatus: string) => {
-    // Bulk operates only on the currently visible (filtered) runs.
+    // Snapshot the current status of every run that will actually change.
+    const snapshot = new Map<string, string>();
     for (const run of filteredRuns) {
       if (run.status.name.toUpperCase() !== newStatus.toUpperCase()) {
-        updateStatus.mutate({
-          testRunId: run.id,
-          status: newStatus,
-          executionIssueId: execution.issue_id,
-        });
+        snapshot.set(run.id, run.status.name);
       }
     }
+    if (snapshot.size === 0) return;
+
+    // Store snapshot for undo — overrides any previous snapshot.
+    setBulkUndoSnapshot(snapshot);
+
+    // Fire the mutations.
+    for (const [runId] of snapshot) {
+      updateStatus.mutate({
+        testRunId: runId,
+        status: newStatus,
+        executionIssueId: execution.issue_id,
+      });
+    }
+  };
+
+  const handleBulkUndo = () => {
+    if (!bulkUndoSnapshot) return;
+    for (const [runId, previousStatus] of bulkUndoSnapshot) {
+      updateStatus.mutate({
+        testRunId: runId,
+        status: previousStatus,
+        executionIssueId: execution.issue_id,
+      });
+    }
+    setBulkUndoSnapshot(null);
   };
 
   const handleBulkStepStatus = (run: TestRun, newStatus: string) => {
@@ -292,26 +350,29 @@ export function TestExecutionDetail({
       )}
 
       {/* Error */}
-      {isError && (() => {
-        const rateLimitUntil = parseRateLimitError(error);
-        if (rateLimitUntil !== null) {
-          const seconds = Math.max(0, Math.ceil((rateLimitUntil - Date.now()) / 1_000));
+      {isError &&
+        (() => {
+          const rateLimitUntil = parseRateLimitError(error);
+          if (rateLimitUntil !== null) {
+            const seconds = Math.max(0, Math.ceil((rateLimitUntil - Date.now()) / 1_000));
+            return (
+              <div className="rounded-md bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                <p className="font-medium">Rate limited by Xray</p>
+                <p className="mt-0.5 text-xs">
+                  Too many requests. Please wait{seconds > 0 ? ` ~${seconds}s` : ""} and try again.
+                </p>
+              </div>
+            );
+          }
           return (
-            <div className="rounded-md bg-amber-50 px-4 py-3 text-sm text-amber-800">
-              <p className="font-medium">Rate limited by Xray</p>
-              <p className="mt-0.5 text-xs">
-                Too many requests. Please wait{seconds > 0 ? ` ~${seconds}s` : ""} and try again.
-              </p>
+            <div className="rounded-md bg-red-50 px-4 py-3 text-sm text-red-700">
+              <p className="mb-1 font-medium">Failed to load test runs</p>
+              <pre className="whitespace-pre-wrap break-words font-mono text-xs">
+                {String(error)}
+              </pre>
             </div>
           );
-        }
-        return (
-          <div className="rounded-md bg-red-50 px-4 py-3 text-sm text-red-700">
-            <p className="mb-1 font-medium">Failed to load test runs</p>
-            <pre className="whitespace-pre-wrap break-words font-mono text-xs">{String(error)}</pre>
-          </div>
-        );
-      })()}
+        })()}
 
       {/* Empty state */}
       {!isLoading && !isError && runs.length === 0 && (
@@ -330,94 +391,111 @@ export function TestExecutionDetail({
                 with this execution (testSetCounts is empty). */}
             {testSets.length > 0 &&
               (hasNextPage || isFetchingNextPage || testSetCounts.size > 0) && (
-              <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 shadow-sm">
-                <div className="mb-1.5 flex items-center gap-1.5">
-                  <Layers className="h-3.5 w-3.5 shrink-0 text-slate-400" />
-                  <span className="text-xs font-medium text-slate-500">Test Set</span>
-                </div>
-                <div className="flex flex-wrap gap-1.5">
-                  {/* "All" pill */}
-                  <button
-                    onClick={() => setTestSetFilter(FILTER_ALL)}
-                    className={cn(
-                      "rounded-full border px-2.5 py-0.5 text-xs font-medium transition-colors",
-                      testSetFilter === FILTER_ALL
-                        ? "border-slate-800 bg-slate-800 text-white"
-                        : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50",
-                    )}
-                  >
-                    All ({runs.length})
-                  </button>
+                <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 shadow-sm">
+                  <div className="mb-1.5 flex items-center gap-1.5">
+                    <Layers className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+                    <span className="text-xs font-medium text-slate-500">Test Set</span>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {/* "All" pill */}
+                    <button
+                      onClick={() => setTestSetFilter(FILTER_ALL)}
+                      className={cn(
+                        "rounded-full border px-2.5 py-0.5 text-xs font-medium transition-colors",
+                        testSetFilter === FILTER_ALL
+                          ? "border-slate-800 bg-slate-800 text-white"
+                          : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50",
+                      )}
+                    >
+                      All ({runs.length})
+                    </button>
 
-                  {/* "No set" pill — only when some runs have no set */}
-                  {(() => {
-                    const noSetCount = runs.filter((r) => !membership.has(r.test.issue_id)).length;
-                    return noSetCount > 0 ? (
-                      <button
-                        onClick={() => setTestSetFilter(FILTER_NONE)}
-                        className={cn(
-                          "rounded-full border px-2.5 py-0.5 text-xs font-medium transition-colors",
-                          testSetFilter === FILTER_NONE
-                            ? "border-slate-800 bg-slate-800 text-white"
-                            : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50",
-                        )}
-                      >
-                        No set ({noSetCount})
-                      </button>
-                    ) : null;
-                  })()}
+                    {/* "No set" pill — only when some runs have no set */}
+                    {(() => {
+                      const noSetCount = runs.filter(
+                        (r) => !membership.has(r.test.issue_id),
+                      ).length;
+                      return noSetCount > 0 ? (
+                        <button
+                          onClick={() => setTestSetFilter(FILTER_NONE)}
+                          className={cn(
+                            "rounded-full border px-2.5 py-0.5 text-xs font-medium transition-colors",
+                            testSetFilter === FILTER_NONE
+                              ? "border-slate-800 bg-slate-800 text-white"
+                              : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50",
+                          )}
+                        >
+                          No set ({noSetCount})
+                        </button>
+                      ) : null;
+                    })()}
 
-                  {/* One pill per test set that has at least one run in this execution.
+                    {/* One pill per test set that has at least one run in this execution.
                       While pages are still loading we keep every set visible so pills
                       don't disappear mid-load; once all pages are fetched the count
                       is definitive and zero-count sets are hidden. */}
-                  {testSets.map((ts) => {
-                    const count = testSetCounts.get(ts.issue_id) ?? 0;
-                    if (count === 0 && !hasNextPage && !isFetchingNextPage) return null;
-                    const isActive = testSetFilter === ts.issue_id;
-                    return (
-                      <button
-                        key={ts.issue_id}
-                        title={`${ts.jira.key} — ${ts.jira.summary}`}
-                        onClick={() =>
-                          setTestSetFilter((prev) =>
-                            prev === ts.issue_id ? FILTER_ALL : ts.issue_id,
-                          )
-                        }
-                        className={cn(
-                          "max-w-[18rem] truncate rounded-full border px-2.5 py-0.5 text-xs font-medium transition-colors",
-                          isActive
-                            ? "border-slate-800 bg-slate-800 text-white"
-                            : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50",
-                        )}
-                      >
-                        {ts.jira.summary} ({count})
-                      </button>
-                    );
-                  })}
+                    {testSets.map((ts) => {
+                      const count = testSetCounts.get(ts.issue_id) ?? 0;
+                      if (count === 0 && !hasNextPage && !isFetchingNextPage) return null;
+                      const isActive = testSetFilter === ts.issue_id;
+                      return (
+                        <button
+                          key={ts.issue_id}
+                          title={`${ts.jira.key} — ${ts.jira.summary}`}
+                          onClick={() =>
+                            setTestSetFilter((prev) =>
+                              prev === ts.issue_id ? FILTER_ALL : ts.issue_id,
+                            )
+                          }
+                          className={cn(
+                            "max-w-[18rem] truncate rounded-full border px-2.5 py-0.5 text-xs font-medium transition-colors",
+                            isActive
+                              ? "border-slate-800 bg-slate-800 text-white"
+                              : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50",
+                          )}
+                        >
+                          {ts.jira.summary} ({count})
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
-              </div>
-            )}
-
-            {/* Key / name search */}
-            <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 shadow-sm">
-              <Search className="h-3.5 w-3.5 shrink-0 text-slate-400" />
-              <input
-                type="text"
-                placeholder="Filter by key or name…"
-                value={testSearch}
-                onChange={(e) => setTestSearch(e.target.value)}
-                className="flex-1 bg-transparent text-sm text-slate-700 placeholder:text-slate-400 focus:outline-none"
-              />
-              {testSearch && (
-                <button
-                  onClick={() => setTestSearch("")}
-                  className="text-slate-400 hover:text-slate-600"
-                  aria-label="Clear search"
-                >
-                  <X className="h-3.5 w-3.5" />
-                </button>
               )}
+
+            {/* Key / name search + sort toggle */}
+            <div className="flex items-center gap-2">
+              <div className="flex flex-1 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 shadow-sm">
+                <Search className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+                <input
+                  type="text"
+                  placeholder="Filter by key or name…"
+                  value={testSearch}
+                  onChange={(e) => setTestSearch(e.target.value)}
+                  className="flex-1 bg-transparent text-sm text-slate-700 placeholder:text-slate-400 focus:outline-none"
+                />
+                {testSearch && (
+                  <button
+                    onClick={() => setTestSearch("")}
+                    className="text-slate-400 hover:text-slate-600"
+                    aria-label="Clear search"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                )}
+              </div>
+              <button
+                onClick={() => setSortByStatus((prev) => !prev)}
+                title={sortByStatus ? "Restore original order" : "Sort by status"}
+                className={cn(
+                  "flex items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-medium shadow-sm transition-colors",
+                  sortByStatus
+                    ? "border-slate-800 bg-slate-800 text-white"
+                    : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50",
+                )}
+              >
+                <ArrowUpDown className="h-3.5 w-3.5" />
+                Status
+              </button>
             </div>
           </div>
 
@@ -451,6 +529,32 @@ export function TestExecutionDetail({
             </div>
           </div>
 
+          {/* Undo banner — shown after a bulk-status operation */}
+          {bulkUndoSnapshot && (
+            <div className="mb-3 flex items-center justify-between rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+              <span>
+                {bulkUndoSnapshot.size} test{bulkUndoSnapshot.size !== 1 ? "s" : ""} updated.
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleBulkUndo}
+                  disabled={updateStatus.isPending}
+                  className="flex items-center gap-1 font-medium hover:text-amber-900 disabled:opacity-50"
+                >
+                  <RotateCcw className="h-3 w-3" />
+                  Undo
+                </button>
+                <button
+                  onClick={() => setBulkUndoSnapshot(null)}
+                  className="text-amber-500 hover:text-amber-700"
+                  aria-label="Dismiss"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Bulk actions */}
           <div className="mb-3 flex items-center gap-2">
             <span className="text-xs font-medium text-slate-500">Set all:</span>
@@ -482,17 +586,16 @@ export function TestExecutionDetail({
             </div>
 
             {/* Virtualised rows */}
-            <div
-              ref={parentRef}
-              className="overflow-auto"
-              style={{ height: Math.min(filteredRuns.length * 56, 600) }}
-            >
+            <div ref={parentRef} className="overflow-auto" style={{ height: 600 }}>
               <div style={{ height: virtualizer.getTotalSize(), position: "relative" }}>
                 {virtualItems.map((virtualRow) => {
                   const run = filteredRuns[virtualRow.index];
                   if (!run) return null;
 
-                  const hasSteps = run.steps && run.steps.length > 0;
+                  const hasManualSteps = (run.steps?.length ?? 0) > 0;
+                  const isCucumber =
+                    run.test_type?.name?.toLowerCase() === "cucumber" || !!run.gherkin;
+                  const hasSteps = hasManualSteps || isCucumber;
                   const isExpanded = expandedRuns.has(run.id);
 
                   return (
@@ -542,7 +645,9 @@ export function TestExecutionDetail({
                             {run.test.jira.key}
                             {hasSteps && (
                               <span className="ml-2 text-slate-300">
-                                {run.steps!.length} step{run.steps!.length !== 1 ? "s" : ""}
+                                {isCucumber
+                                  ? "Cucumber"
+                                  : `${run.steps!.length} step${run.steps!.length !== 1 ? "s" : ""}`}
                               </span>
                             )}
                           </p>
@@ -625,8 +730,11 @@ export function TestExecutionDetail({
                         </div>
                       )}
 
-                      {/* Expanded steps panel */}
-                      {isExpanded && hasSteps && (
+                      {/* Expanded steps panel — manual or Cucumber */}
+                      {isExpanded && isCucumber && (
+                        <GherkinPanel gherkin={run.gherkin} results={run.results} />
+                      )}
+                      {isExpanded && hasManualSteps && (
                         <StepsPanel
                           run={run}
                           steps={run.steps!}
@@ -648,7 +756,7 @@ export function TestExecutionDetail({
               </div>
             </div>
 
-            {/* Footer with count + load more */}
+            {/* Footer with count + load controls */}
             <div className="flex items-center justify-between border-t border-slate-100 px-4 py-2 text-xs text-slate-400">
               <span>
                 {filteredRuns.length < runs.length
@@ -659,25 +767,172 @@ export function TestExecutionDetail({
                 test{totalFromServer !== 1 ? "s" : ""}
               </span>
               {hasNextPage && (
-                <button
-                  onClick={() => void fetchNextPage()}
-                  disabled={isFetchingNextPage}
-                  className="flex items-center gap-1 rounded px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-100 disabled:opacity-50"
-                >
-                  {isFetchingNextPage ? (
-                    <>
-                      <Loader2 className="h-3 w-3 animate-spin" />
-                      Loading...
-                    </>
-                  ) : (
-                    "Load more"
-                  )}
-                </button>
+                <div className="flex items-center gap-2">
+                  {/* Load next page */}
+                  <button
+                    onClick={() => void fetchNextPage()}
+                    disabled={isFetchingNextPage || loadingAll}
+                    className="flex items-center gap-1 rounded px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-100 disabled:opacity-50"
+                  >
+                    {isFetchingNextPage && !loadingAll ? (
+                      <>
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                        Loading…
+                      </>
+                    ) : (
+                      "Load more"
+                    )}
+                  </button>
+
+                  {/* Load all remaining pages — throttled to avoid 429s */}
+                  <button
+                    onClick={() => {
+                      setLoadingAll(true);
+                      const pump = () => {
+                        void fetchNextPage().then(({ hasNextPage: more }) => {
+                          if (more) {
+                            setTimeout(pump, 400);
+                          } else {
+                            setLoadingAll(false);
+                          }
+                        });
+                      };
+                      pump();
+                    }}
+                    disabled={isFetchingNextPage || loadingAll}
+                    className="flex items-center gap-1 rounded px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-100 disabled:opacity-50"
+                  >
+                    {loadingAll ? (
+                      <>
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                        Loading all…
+                      </>
+                    ) : (
+                      `Load all (${totalFromServer - runs.length} remaining)`
+                    )}
+                  </button>
+                </div>
               )}
             </div>
           </div>
         </>
       )}
+    </div>
+  );
+}
+
+// ── Gherkin Panel ─────────────────────────────────────────────────────────────
+
+/** Keyword → Tailwind colour classes for the keyword chip. */
+function gherkinKeywordStyle(keyword: string): string {
+  const k = keyword.trim().toLowerCase();
+  if (k === "given") return "bg-purple-100 text-purple-700";
+  if (k === "when") return "bg-blue-100 text-blue-700";
+  if (k === "then") return "bg-emerald-100 text-emerald-700";
+  return "bg-slate-100 text-slate-500"; // And / But / *
+}
+
+/** Keywords that introduce a step line in Gherkin. */
+const GHERKIN_KEYWORDS = /^(Given|When|Then|And|But|\*)\s+/i;
+
+interface GherkinPanelProps {
+  gherkin: string | undefined;
+  results: CucumberResult[] | undefined;
+}
+
+type GherkinRow = {
+  keyword: string;
+  sentence: string;
+  status: { name: string; color?: string } | undefined;
+  error: string | undefined;
+};
+
+function GherkinPanel({ gherkin, results }: GherkinPanelProps) {
+  // Parse step lines out of the raw Gherkin definition string.
+  const stepLines = (gherkin ?? "")
+    .split("\n")
+    .map((l) => l.trim())
+    .filter((l) => GHERKIN_KEYWORDS.test(l));
+
+  // Flatten all result steps across all scenarios for status look-up.
+  // We match by position: the Nth result step corresponds to the Nth definition step.
+  const resultSteps = results?.flatMap((r) => r.steps ?? []) ?? [];
+
+  const hasResults = resultSteps.length > 0;
+
+  // If we have no raw Gherkin string but do have result steps, fall back to those.
+  const rows: GherkinRow[] =
+    stepLines.length > 0
+      ? stepLines.map((line, i): GherkinRow => {
+          const match = GHERKIN_KEYWORDS.exec(line);
+          const keyword = match ? match[1] : "";
+          const sentence = match ? line.slice(match[0].length) : line;
+          const rs = resultSteps[i];
+          return { keyword: keyword ?? "", sentence, status: rs?.status, error: rs?.error };
+        })
+      : resultSteps.map(
+          (rs): GherkinRow => ({
+            keyword: rs.keyword ?? "",
+            sentence: rs.name ?? "",
+            status: rs.status,
+            error: rs.error,
+          }),
+        );
+
+  if (rows.length === 0 && !hasResults) {
+    // No definition and no results yet — show a placeholder.
+    return (
+      <div className="border-b border-slate-100 bg-slate-50/60 px-6 py-3">
+        <p className="text-xs text-slate-400 italic">No Gherkin steps available.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="border-b border-slate-100 bg-slate-50/60">
+      <div className="px-6 py-2">
+        <div className="mb-2 flex items-center justify-between">
+          <p className="text-xs font-medium uppercase tracking-wide text-slate-400">
+            Scenario steps ({rows.length})
+          </p>
+        </div>
+        <div className="space-y-1">
+          {rows.map((step, index) => (
+            <div key={index} className="rounded-md border border-slate-200 bg-white px-3 py-2">
+              <div className="flex items-start gap-3">
+                {/* Keyword chip */}
+                {step.keyword && (
+                  <span
+                    className={cn(
+                      "mt-0.5 shrink-0 rounded px-1.5 py-0.5 font-mono text-[10px] font-semibold",
+                      gherkinKeywordStyle(step.keyword),
+                    )}
+                  >
+                    {step.keyword}
+                  </span>
+                )}
+
+                {/* Step text */}
+                <p className="min-w-0 flex-1 text-sm text-slate-700">{step.sentence}</p>
+
+                {/* Step status badge (read-only) */}
+                {step.status && (
+                  <Badge variant={statusVariant(step.status.name)} className="shrink-0 text-[10px]">
+                    {step.status.name}
+                  </Badge>
+                )}
+              </div>
+
+              {/* Error detail from test runner */}
+              {step.error && (
+                <p className="mt-1 pl-[52px] font-mono text-xs text-red-500 whitespace-pre-wrap break-words">
+                  {step.error}
+                </p>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }

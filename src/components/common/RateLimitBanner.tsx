@@ -48,8 +48,8 @@ export function RateLimitBanner() {
     >
       <AlertTriangle className="h-4 w-4 shrink-0 text-amber-500" aria-hidden="true" />
       <span className="flex-1">
-        API rate limit reached. Requests are paused.{" "}
-        <span className="font-semibold">Resuming in {formatRemaining(remaining)}</span>
+        API rate limit reached. Requests will resume automatically in{" "}
+        <span className="font-semibold">{formatRemaining(remaining)}</span>
       </span>
       <button
         onClick={() => setRateLimit(null)}
