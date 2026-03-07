@@ -9,6 +9,7 @@ import {
   useSearchUsers,
   useTransitionIssue,
   useUpdateAssignee,
+  useRenameIssue,
   queryKeys,
 } from "@/services/queries";
 import { useContentProjectKey, useExecutionProjectKey } from "@/hooks/useProjectKey";
@@ -20,10 +21,10 @@ import { Badge, statusVariant } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { ListChecks, Pencil, Plus, RefreshCw, X } from "lucide-react";
+import { Copy, ListChecks, Pencil, Plus, RefreshCw, X } from "lucide-react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { TestExecutionDetail } from "@/components/test-execution/TestExecutionDetail";
-import type { JiraUser, TestExecution, XrayTest } from "@/types";
+import type { JiraUser, TestExecution, TestRunsPage, XrayTest } from "@/types";
 import * as api from "@/services/tauri";
 
 /** Status names considered "closed" — hidden by default. */
@@ -44,11 +45,16 @@ export function TestExecutionsPage() {
     refetch,
     isFetching,
   } = useTestExecutions(executionProjectKey);
+  const renameIssue = useRenameIssue();
   const [selected, setSelected] = useState<TestExecution | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<TestExecution | null>(null);
+  const [cloneTarget, setCloneTarget] = useState<TestExecution | null>(null);
   const [search, setSearch] = useState("");
   const [showDone, setShowDone] = useState(false);
+  /** The issue key currently being renamed inline, or null when not editing. */
+  const [renameKey, setRenameKey] = useState<string | null>(null);
+  const [renameDraft, setRenameDraft] = useState("");
 
   if (!executionProjectKey) {
     return (
@@ -204,7 +210,65 @@ export function TestExecutionsPage() {
                   onClick={() => setSelected(exec)}
                 >
                   <td className="px-4 py-3 font-mono text-xs text-slate-600">{exec.jira.key}</td>
-                  <td className="px-4 py-3 text-slate-800">{exec.jira.summary}</td>
+                  <td className="px-4 py-3 text-slate-800" onClick={(e) => e.stopPropagation()}>
+                    {renameKey === exec.jira.key ? (
+                      <form
+                        className="flex items-center gap-1.5"
+                        onSubmit={(e) => {
+                          e.preventDefault();
+                          const trimmed = renameDraft.trim();
+                          if (!trimmed || trimmed === exec.jira.summary) {
+                            setRenameKey(null);
+                            return;
+                          }
+                          renameIssue.mutate(
+                            {
+                              issueKey: exec.jira.key,
+                              summary: trimmed,
+                              queryKey: queryKeys.testExecutions(executionProjectKey),
+                            },
+                            { onSettled: () => setRenameKey(null) },
+                          );
+                        }}
+                      >
+                        <input
+                          autoFocus
+                          className="flex-1 rounded border border-slate-300 px-2 py-0.5 text-sm focus:border-slate-500 focus:outline-none"
+                          value={renameDraft}
+                          onChange={(e) => setRenameDraft(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Escape") setRenameKey(null);
+                          }}
+                          disabled={renameIssue.isPending}
+                        />
+                        <button
+                          type="submit"
+                          className="rounded px-2 py-0.5 text-xs font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-40"
+                          disabled={renameIssue.isPending}
+                        >
+                          {renameIssue.isPending ? "…" : "Save"}
+                        </button>
+                        <button
+                          type="button"
+                          className="rounded px-2 py-0.5 text-xs text-slate-400 hover:bg-slate-100"
+                          onClick={() => setRenameKey(null)}
+                        >
+                          Cancel
+                        </button>
+                      </form>
+                    ) : (
+                      <span
+                        className="group flex cursor-pointer items-center gap-1.5"
+                        onClick={() => {
+                          setRenameKey(exec.jira.key);
+                          setRenameDraft(exec.jira.summary);
+                        }}
+                      >
+                        {exec.jira.summary}
+                        <Pencil className="h-3.5 w-3.5 shrink-0 text-slate-300 opacity-0 group-hover:opacity-100" />
+                      </span>
+                    )}
+                  </td>
                   <td className="px-4 py-3">
                     {exec.jira.status && (
                       <Badge variant={statusVariant(exec.jira.status.name)}>
@@ -216,16 +280,28 @@ export function TestExecutionsPage() {
                     {exec.jira.assignee?.display_name ?? "\u2014"}
                   </td>
                   <td className="px-4 py-3">
-                    <button
-                      className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
-                      title="Edit status / assignee"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setEditTarget(exec);
-                      }}
-                    >
-                      <Pencil className="h-4 w-4" />
-                    </button>
+                    <div className="flex items-center gap-1">
+                      <button
+                        className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                        title="Edit status / assignee"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setEditTarget(exec);
+                        }}
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </button>
+                      <button
+                        className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                        title="Clone execution"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setCloneTarget(exec);
+                        }}
+                      >
+                        <Copy className="h-4 w-4" />
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -246,6 +322,15 @@ export function TestExecutionsPage() {
         executionProjectKey={executionProjectKey}
         onOpenChange={(open) => {
           if (!open) setEditTarget(null);
+        }}
+      />
+
+      <CloneExecutionDialog
+        source={cloneTarget}
+        executionProjectKey={executionProjectKey}
+        contentProjectKey={contentProjectKey}
+        onOpenChange={(open) => {
+          if (!open) setCloneTarget(null);
         }}
       />
     </div>
@@ -576,6 +661,199 @@ function CreateExecutionDialog({
                   disabled={createExecution.isPending || !summary.trim() || !executionProjectKey}
                 >
                   {createExecution.isPending ? <Spinner size="sm" /> : "Create"}
+                </Button>
+              </div>
+            </div>
+          </form>
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
+  );
+}
+
+// ── CloneExecutionDialog ──────────────────────────────────────────────────────
+
+interface CloneExecutionDialogProps {
+  /** The execution to clone, or null when the dialog is closed. */
+  source: TestExecution | null;
+  executionProjectKey: string | null;
+  contentProjectKey: string | null;
+  onOpenChange: (open: boolean) => void;
+}
+
+function CloneExecutionDialog({
+  source,
+  executionProjectKey,
+  contentProjectKey: _contentProjectKey,
+  onOpenChange,
+}: CloneExecutionDialogProps) {
+  const open = !!source;
+
+  const [summary, setSummary] = useState("");
+  const [description, setDescription] = useState("");
+  // Ids of tests copied from the source execution
+  const [testIssueIds, setTestIssueIds] = useState<string[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  const queryClient = useQueryClient();
+  const createExecution = useCreateTestExecution();
+
+  // When the source changes (dialog opens), pre-fill summary and fetch test IDs.
+  const prevSourceRef = useRef<string | null>(null);
+  if (source && source.issue_id !== prevSourceRef.current) {
+    prevSourceRef.current = source.issue_id;
+    setSummary(`Copy of ${source.jira.summary}`);
+    setDescription("");
+    setTestIssueIds([]);
+    setLoadError(null);
+    setLoading(true);
+
+    // Fetch all runs for this execution to extract test IDs.
+    // We load up to 500 in a single request — enough for any real execution.
+    queryClient
+      .fetchQuery<TestRunsPage>({
+        queryKey: [...queryKeys.testRuns(source.issue_id), "clone-prefetch"],
+        queryFn: () => api.getTestRuns(source.issue_id, 500, 0),
+        staleTime: 5 * 60 * 1_000,
+      })
+      .then((page) => {
+        setTestIssueIds(page.results.map((r: TestRunsPage["results"][number]) => r.test.issue_id));
+      })
+      .catch((err: unknown) => {
+        setLoadError(String(err));
+      })
+      .finally(() => {
+        setLoading(false);
+      });
+  }
+
+  const resetForm = () => {
+    prevSourceRef.current = null;
+    setSummary("");
+    setDescription("");
+    setTestIssueIds([]);
+    setLoading(false);
+    setLoadError(null);
+    createExecution.reset();
+  };
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!summary.trim() || !executionProjectKey) return;
+    createExecution.mutate(
+      {
+        projectKey: executionProjectKey,
+        summary,
+        description: description || undefined,
+        testIssueIds: testIssueIds.length > 0 ? testIssueIds : undefined,
+      },
+      {
+        onSuccess: () => {
+          onOpenChange(false);
+          resetForm();
+        },
+      },
+    );
+  };
+
+  return (
+    <Dialog.Root
+      open={open}
+      onOpenChange={(v) => {
+        if (!v) resetForm();
+        onOpenChange(v);
+      }}
+    >
+      <Dialog.Portal>
+        <Dialog.Overlay className="fixed inset-0 bg-black/30 backdrop-blur-sm" />
+        <Dialog.Content className="fixed left-1/2 top-1/2 flex max-h-[85vh] w-full max-w-lg -translate-x-1/2 -translate-y-1/2 flex-col rounded-xl bg-white shadow-xl">
+          {/* Header */}
+          <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
+            <div>
+              <Dialog.Title className="text-lg font-semibold">Clone Execution</Dialog.Title>
+              {source && (
+                <p className="mt-0.5 font-mono text-xs text-slate-500">{source.jira.key}</p>
+              )}
+            </div>
+            <Dialog.Close asChild>
+              <button className="rounded p-1 hover:bg-slate-100">
+                <X className="h-4 w-4 text-slate-500" />
+              </button>
+            </Dialog.Close>
+          </div>
+
+          {/* Form */}
+          <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
+            <div className="flex-1 overflow-y-auto px-6 py-4">
+              <div className="space-y-5">
+                {/* Summary */}
+                <div className="space-y-1.5">
+                  <Label htmlFor="clone-summary">Summary *</Label>
+                  <Input
+                    id="clone-summary"
+                    value={summary}
+                    onChange={(e) => setSummary(e.target.value)}
+                    required
+                  />
+                </div>
+
+                {/* Description */}
+                <div className="space-y-1.5">
+                  <Label htmlFor="clone-desc">Description</Label>
+                  <Input
+                    id="clone-desc"
+                    value={description}
+                    onChange={(e) => setDescription(e.target.value)}
+                    placeholder="Optional description"
+                  />
+                </div>
+
+                {/* Tests preview */}
+                <div className="space-y-1.5">
+                  <Label>Tests from source</Label>
+                  {loading ? (
+                    <div className="flex items-center gap-2 text-sm text-slate-400">
+                      <Spinner size="sm" /> Loading tests from source execution…
+                    </div>
+                  ) : loadError ? (
+                    <p className="text-sm text-red-600">
+                      Could not load tests: {loadError}. The clone will be created without tests.
+                    </p>
+                  ) : (
+                    <p className="text-sm text-slate-500">
+                      {testIssueIds.length > 0
+                        ? `${testIssueIds.length} test${testIssueIds.length !== 1 ? "s" : ""} will be included.`
+                        : "No tests found in the source execution."}
+                    </p>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="space-y-3 border-t border-slate-200 px-6 py-4">
+              {createExecution.isError && (
+                <div className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
+                  <p className="font-medium">Failed to clone execution</p>
+                  <pre className="mt-1 whitespace-pre-wrap break-words font-mono text-xs">
+                    {String(createExecution.error)}
+                  </pre>
+                </div>
+              )}
+              <div className="flex justify-end gap-2">
+                <Dialog.Close asChild>
+                  <Button type="button" variant="outline" onClick={resetForm}>
+                    Cancel
+                  </Button>
+                </Dialog.Close>
+                <Button
+                  type="submit"
+                  disabled={
+                    createExecution.isPending || loading || !summary.trim() || !executionProjectKey
+                  }
+                >
+                  {createExecution.isPending ? <Spinner size="sm" /> : "Clone"}
                 </Button>
               </div>
             </div>

@@ -8,6 +8,28 @@ use crate::models::jira::{
     JiraTransition, JiraTransitionsResponse, JiraUserSearchResult, JiraVersion,
 };
 
+/// Validate that a Jira project key contains only safe characters (`[A-Z0-9_]+`).
+fn validate_project_key(key: &str) -> Result<()> {
+    if key.is_empty() {
+        bail!("Project key must not be empty");
+    }
+    if !key
+        .chars()
+        .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_')
+    {
+        bail!(
+            "Invalid project key '{}': must contain only uppercase letters, digits, or underscores",
+            key
+        );
+    }
+    Ok(())
+}
+
+/// Escape a string for safe embedding inside a double-quoted JQL literal.
+fn escape_jql_string(value: &str) -> String {
+    value.replace('"', "\\\"")
+}
+
 /// Check a response for 429 (rate-limited) before consuming it with `error_for_status`.
 /// Returns `Ok(response)` unchanged if the status is not 429.
 fn check_rate_limit(resp: reqwest::Response) -> Result<reqwest::Response> {
@@ -48,8 +70,12 @@ impl JiraClient {
     pub fn new(base_url: String, email: String, api_token: String) -> Self {
         use base64::{engine::general_purpose::STANDARD, Engine};
         let credentials = STANDARD.encode(format!("{email}:{api_token}"));
+        let client = Client::builder()
+            .timeout(std::time::Duration::from_secs(30))
+            .build()
+            .expect("Failed to build HTTP client");
         Self {
-            client: Client::new(),
+            client,
             base_url: base_url.trim_end_matches('/').to_owned(),
             auth_header: format!("Basic {credentials}"),
         }
@@ -321,9 +347,11 @@ impl JiraClient {
         project_key: &str,
         version_name: &str,
     ) -> Result<Vec<JiraBug>> {
+        validate_project_key(project_key)?;
+        let safe_version = escape_jql_string(version_name);
         let jql = format!(
             "project = \"{}\" AND issuetype = Bug AND affectedVersion = \"{}\" ORDER BY priority ASC",
-            project_key, version_name,
+            project_key, safe_version,
         );
         let url = format!("{}/rest/api/3/search/jql", self.base_url);
         let mut all_bugs: Vec<JiraBug> = Vec::new();
@@ -366,6 +394,31 @@ impl JiraClient {
         }
 
         Ok(all_bugs)
+    }
+
+    /// Update the summary (name) of any Jira issue.
+    ///
+    /// Works for Test Plans, Test Sets, Test Executions — all are Jira issues.
+    /// Uses `PUT /rest/api/3/issue/{key}` with body `{"fields":{"summary":"…"}}`.
+    /// Returns 204 No Content on success.
+    pub async fn update_issue_summary(&self, issue_key: &str, summary: &str) -> Result<()> {
+        let url = format!("{}/rest/api/3/issue/{}", self.base_url, issue_key.trim(),);
+        let body = serde_json::json!({ "fields": { "summary": summary } });
+
+        check_rate_limit(
+            self.client
+                .put(&url)
+                .header("Authorization", &self.auth_header)
+                .header("Content-Type", "application/json")
+                .json(&body)
+                .send()
+                .await
+                .context("Failed to send Jira update-summary request")?,
+        )?
+        .error_for_status()
+        .with_context(|| format!("Jira update-summary failed for '{}'", issue_key))?;
+
+        Ok(())
     }
 
     /// Fetch all versions for a given Jira project key.

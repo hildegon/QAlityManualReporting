@@ -6,6 +6,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type {
   AppConfig,
   CreateTestExecutionResult,
+  CreateTestPlanResult,
   CreateTestResult,
   CreateTestSetResult,
   CreateTestStepInput,
@@ -66,6 +67,10 @@ export const getProjectVersions = (projectKey: string): Promise<JiraVersion[]> =
 /** Fetch Bug issues with the given affectedVersion in the project. */
 export const getBugsByVersion = (projectKey: string, versionName: string): Promise<JiraBug[]> =>
   invoke("get_bugs_by_version", { projectKey, versionName });
+
+/** Update the summary (name) of any Jira issue — Test Plan, Test Set, Test Execution, etc. */
+export const updateIssueSummary = (issueKey: string, summary: string): Promise<void> =>
+  invoke("update_issue_summary", { issueKey, summary });
 
 // ── Xray ──────────────────────────────────────────────────────────────────────
 
@@ -162,3 +167,19 @@ export const createTestSet = (
   component?: string,
 ): Promise<CreateTestSetResult> =>
   invoke("create_test_set", { projectKey, summary, component: component ?? null });
+
+/** Create a new Test Plan in Xray. */
+export const createTestPlan = (
+  projectKey: string,
+  summary: string,
+  description?: string,
+  component?: string,
+  fixVersion?: string,
+): Promise<CreateTestPlanResult> =>
+  invoke("create_test_plan", { projectKey, summary, description, component, fixVersion });
+
+/** Add test issues directly to a test plan's test scope. */
+export const addTestsToTestPlan = (
+  testPlanIssueId: string,
+  testIssueIds: string[],
+): Promise<void> => invoke("add_tests_to_test_plan", { testPlanIssueId, testIssueIds });

@@ -15,6 +15,7 @@ import {
 import type {
   AppConfig,
   CreateTestExecutionResult,
+  CreateTestPlanResult,
   CreateTestResult,
   CreateTestSetResult,
   CreateTestStepInput,
@@ -646,6 +647,53 @@ export function useAddTestsToTestSet() {
   });
 }
 
+// ── Create Test Plan ──────────────────────────────────────────────────────────
+
+export function useCreateTestPlan() {
+  const queryClient = useQueryClient();
+  return useMutation<
+    CreateTestPlanResult,
+    Error,
+    {
+      projectKey: string;
+      summary: string;
+      description?: string;
+      component?: string;
+      fixVersion?: string;
+    }
+  >({
+    mutationFn: ({ projectKey, summary, description, component, fixVersion }) =>
+      api.createTestPlan(projectKey, summary, description, component, fixVersion),
+    onSuccess: (_data, { projectKey }) => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.testPlans(projectKey) });
+    },
+  });
+}
+
+// ── Add Tests to Test Plan ────────────────────────────────────────────────────
+
+export function useAddTestsToTestPlan() {
+  const queryClient = useQueryClient();
+  return useMutation<
+    void,
+    Error,
+    { testPlanIssueId: string; testIssueIds: string[]; projectKey: string }
+  >({
+    mutationFn: ({ testPlanIssueId, testIssueIds }) =>
+      api.addTestsToTestPlan(testPlanIssueId, testIssueIds),
+    onSuccess: (_data, { testPlanIssueId, projectKey }) => {
+      // Refresh the plan's test list so the expanded panel reflects the new members.
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.testPlanTests(testPlanIssueId),
+      });
+      // Refresh the top-level plans list in case the plan summary changed.
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.testPlans(projectKey),
+      });
+    },
+  });
+}
+
 // ── Create Test ───────────────────────────────────────────────────────────────
 
 interface CreateTestVars {
@@ -946,4 +994,65 @@ export function useTestSetMembership(projectKey: string | null) {
     membership,
     isLoading,
   };
+}
+
+// ── Rename issue (summary) ────────────────────────────────────────────────────
+
+interface RenameIssueVars {
+  /** Jira issue key, e.g. "PROJ-42". */
+  issueKey: string;
+  /** New summary text. */
+  summary: string;
+  /**
+   * TanStack Query cache key to optimistically update and later invalidate.
+   * Pass the result of `queryKeys.testPlans(pk)`, `queryKeys.testExecutions(pk)`, etc.
+   */
+  queryKey: readonly unknown[];
+}
+
+/**
+ * Rename any Jira issue (Test Plan, Test Set, Test Execution) by updating its summary field.
+ *
+ * Performs an optimistic cache update so the UI reflects the new name instantly,
+ * and rolls back on error. The cache is invalidated on settle to stay in sync.
+ */
+export function useRenameIssue() {
+  const queryClient = useQueryClient();
+
+  return useMutation<void, Error, RenameIssueVars>({
+    mutationFn: ({ issueKey, summary }) => api.updateIssueSummary(issueKey, summary),
+
+    onMutate: async ({ issueKey, summary, queryKey }) => {
+      await queryClient.cancelQueries({ queryKey });
+
+      // Snapshot the previous value for rollback.
+      const previous = queryClient.getQueryData(queryKey);
+
+      // Optimistically patch the `jira.summary` field on the matching item.
+      queryClient.setQueryData(queryKey, (old: unknown) => {
+        if (!Array.isArray(old)) return old;
+        return old.map((item: { issue_id?: string; jira?: { key?: string; summary?: string } }) => {
+          // Match by issue_id (Xray lists) or by jira.key (Jira-keyed lists).
+          const key = item.jira?.key ?? "";
+          if (item.issue_id === issueKey || key === issueKey) {
+            return { ...item, jira: { ...item.jira, summary } };
+          }
+          return item;
+        });
+      });
+
+      return { previous, queryKey };
+    },
+
+    onError: (_err, _vars, context) => {
+      const ctx = context as { previous: unknown; queryKey: readonly unknown[] } | undefined;
+      if (ctx) {
+        queryClient.setQueryData(ctx.queryKey, ctx.previous);
+      }
+    },
+
+    onSettled: (_data, _err, { queryKey }) => {
+      void queryClient.invalidateQueries({ queryKey });
+    },
+  });
 }
