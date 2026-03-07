@@ -68,6 +68,18 @@ export interface JiraVersion {
   release_date?: string;
 }
 
+/** A Bug issue returned by `get_bugs_by_version`. */
+export interface JiraBug {
+  id: string;
+  key: string;
+  fields: {
+    summary: string;
+    status?: { name: string; category?: { key: string; name: string } };
+    priority?: { name: string };
+    assignee?: { account_id: string; display_name: string };
+  };
+}
+
 // ── Xray ──────────────────────────────────────────────────────────────────────
 
 export interface TestPlan {
@@ -92,15 +104,44 @@ export interface TestExecution {
   };
 }
 
+/** The type of an Xray test (Manual, Cucumber, Generic). */
+export interface TestType {
+  name: string;
+  kind?: string;
+}
+
+/** A single step within a Cucumber scenario result. */
+export interface CucumberResultsStep {
+  /** Gherkin keyword (Given, When, Then, And, But) — absent for hooks. */
+  keyword?: string;
+  /** The step text. */
+  name?: string;
+  status?: StepStatus;
+  /** Error/failure message from the test runner. */
+  error?: string;
+}
+
+/** A single Cucumber scenario result (one per scenario / outline row). */
+export interface CucumberResult {
+  status?: StepStatus;
+  steps?: CucumberResultsStep[];
+}
+
 export interface TestRun {
   id: string;
   status: TestRunStatus;
+  /** Test type for this run (Manual, Cucumber, Generic). */
+  test_type?: TestType;
+  /** Raw Gherkin feature definition string (present for Cucumber tests). */
+  gherkin?: string;
   test: {
     issue_id: string;
     jira: { key: string; summary: string };
   };
   comment?: string;
   steps?: TestRunStep[];
+  /** Cucumber scenario results (one entry per scenario / outline row). */
+  results?: CucumberResult[];
   started_on?: string;
   finished_on?: string;
   assignee_id?: string;

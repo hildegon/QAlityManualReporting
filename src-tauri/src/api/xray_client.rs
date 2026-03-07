@@ -278,6 +278,8 @@ impl XrayClient {
                         finishedOn
                         assigneeId
                         executedById
+                        testType { name kind }
+                        gherkin
                         test {
                             issueId
                             jira(fields: ["key", "summary"])
@@ -291,6 +293,15 @@ impl XrayClient {
                             comment
                             defects
                             status { name color description }
+                        }
+                        results {
+                            status { name color description }
+                            steps {
+                                keyword
+                                name
+                                status { name color description }
+                                error
+                            }
                         }
                     }
                 }

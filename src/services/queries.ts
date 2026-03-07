@@ -18,6 +18,7 @@ import type {
   CreateTestResult,
   CreateTestSetResult,
   CreateTestStepInput,
+  JiraBug,
   JiraComponent,
   JiraProject,
   JiraTransition,
@@ -59,6 +60,8 @@ export const queryKeys = {
   testPlanTests: (issueId: string) => ["xray", "test-plan-tests", issueId] as const,
   xrayStatuses: (projectId: string) => ["xray", "statuses", projectId] as const,
   stepStatuses: (projectId: string) => ["xray", "step-statuses", projectId] as const,
+  bugsByVersion: (projectKey: string, versionName: string) =>
+    ["jira", "bugs-by-version", projectKey, versionName] as const,
 };
 
 // ── Config ────────────────────────────────────────────────────────────────────
@@ -214,6 +217,18 @@ export function useProjectVersions(projectKey: string | null) {
     queryFn: () => api.getProjectVersions(projectKey!),
     enabled: !!projectKey,
     staleTime: 5 * 60 * 1_000,
+  });
+}
+
+// ── Bugs by Version ───────────────────────────────────────────────────────────
+
+/** Fetch Bug issues with the given affectedVersion in a Jira project. */
+export function useBugsByVersion(projectKey: string | null, versionName: string | null) {
+  return useQuery<JiraBug[]>({
+    queryKey: queryKeys.bugsByVersion(projectKey ?? "", versionName ?? ""),
+    queryFn: () => api.getBugsByVersion(projectKey!, versionName!),
+    enabled: !!projectKey && !!versionName,
+    staleTime: 2 * 60 * 1_000,
   });
 }
 

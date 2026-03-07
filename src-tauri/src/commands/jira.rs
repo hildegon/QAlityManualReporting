@@ -3,7 +3,9 @@ use tauri::AppHandle;
 use crate::{
     api::jira_client::JiraClient,
     commands::config::load_config,
-    models::jira::{JiraComponent, JiraProject, JiraTransition, JiraUserSearchResult, JiraVersion},
+    models::jira::{
+        JiraBug, JiraComponent, JiraProject, JiraTransition, JiraUserSearchResult, JiraVersion,
+    },
 };
 
 /// Format an anyhow error with its full cause chain for debugging.
@@ -109,6 +111,20 @@ pub async fn get_project_versions(
     let client = make_jira_client(&app)?;
     client
         .get_project_versions(&project_key)
+        .await
+        .map_err(format_err)
+}
+
+/// Fetch all Bug issues with the given `affectedVersion` in the project.
+#[tauri::command]
+pub async fn get_bugs_by_version(
+    app: AppHandle,
+    project_key: String,
+    version_name: String,
+) -> Result<Vec<JiraBug>, String> {
+    let client = make_jira_client(&app)?;
+    client
+        .get_bugs_by_version(&project_key, &version_name)
         .await
         .map_err(format_err)
 }

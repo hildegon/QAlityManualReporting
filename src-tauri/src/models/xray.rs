@@ -74,8 +74,15 @@ pub struct TestRun {
     pub id: String,
     pub status: TestRunStatus,
     pub test: TestRunTest,
+    /// Test type for this run (Manual, Cucumber, Generic).
+    #[serde(rename(deserialize = "testType"))]
+    pub test_type: Option<TestType>,
+    /// Raw Gherkin feature definition string (present for Cucumber tests).
+    pub gherkin: Option<String>,
     pub comment: Option<String>,
     pub steps: Option<Vec<TestRunStep>>,
+    /// Cucumber scenario results (one entry per scenario / outline row).
+    pub results: Option<Vec<CucumberResult>>,
     #[serde(rename(deserialize = "startedOn"))]
     pub started_on: Option<String>,
     #[serde(rename(deserialize = "finishedOn"))]
@@ -109,6 +116,15 @@ pub struct TestRunTestJira {
     pub summary: String,
 }
 
+// ── Test Type ─────────────────────────────────────────────────────────────────
+
+/// The type of an Xray test (Manual, Cucumber, Generic).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TestType {
+    pub name: String,
+    pub kind: Option<String>,
+}
+
 // ── Test Run Steps ────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -129,6 +145,27 @@ pub struct StepStatus {
     pub name: String,
     pub description: Option<String>,
     pub color: Option<String>,
+}
+
+// ── Cucumber / BDD Results ────────────────────────────────────────────────────
+
+/// A single step within a `CucumberResult` (from `results[].steps`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CucumberResultsStep {
+    /// The Gherkin keyword (Given, When, Then, And, But) — may be absent for hooks.
+    pub keyword: Option<String>,
+    /// The step text (the sentence after the keyword).
+    pub name: Option<String>,
+    pub status: Option<StepStatus>,
+    /// Error message from the test runner when the step failed.
+    pub error: Option<String>,
+}
+
+/// A single Cucumber scenario result (from `results[]`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CucumberResult {
+    pub status: Option<StepStatus>,
+    pub steps: Option<Vec<CucumberResultsStep>>,
 }
 
 /// Result from `getStepStatuses` query.
