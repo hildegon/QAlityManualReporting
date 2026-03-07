@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useCallback } from "react";
 import {
   Tag,
   CheckCircle2,
@@ -17,13 +17,16 @@ import {
   Search,
   X,
   Filter,
+  RefreshCw,
 } from "lucide-react";
 import {
   useBugsByVersion,
   useProjectVersions,
   useTestExecutionsByVersion,
   useVersionRunStats,
+  queryKeys,
 } from "@/services/queries";
+import { useQueryClient } from "@tanstack/react-query";
 import { useExecutionProjectKey } from "@/hooks/useProjectKey";
 import { parseRateLimitError } from "@/stores/uiStore";
 import { Spinner } from "@/components/ui/spinner";
@@ -1092,6 +1095,7 @@ function EmptyState({ message }: { message: string }) {
 
 export function VersionsPage() {
   const executionProjectKey = useExecutionProjectKey();
+  const queryClient = useQueryClient();
   const {
     data: versions,
     isLoading: versionsLoading,
@@ -1101,6 +1105,7 @@ export function VersionsPage() {
 
   const [selectedVersion, setSelectedVersion] = useState<JiraVersion | null>(null);
   const [selectedExecution, setSelectedExecution] = useState<TestExecution | null>(null);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   const handleBack = () => setSelectedExecution(null);
 
@@ -1108,6 +1113,29 @@ export function VersionsPage() {
     setSelectedVersion(v);
     setSelectedExecution(null);
   };
+
+  const handleReload = useCallback(async () => {
+    if (!executionProjectKey) return;
+    setIsRefreshing(true);
+    const toInvalidate = [
+      queryClient.invalidateQueries({ queryKey: queryKeys.projectVersions(executionProjectKey) }),
+      ...(selectedVersion
+        ? [
+            queryClient.invalidateQueries({
+              queryKey: queryKeys.bugsByVersion(executionProjectKey, selectedVersion.name),
+            }),
+            queryClient.invalidateQueries({
+              queryKey: queryKeys.testExecutionsByVersion(
+                executionProjectKey,
+                selectedVersion.name,
+              ),
+            }),
+          ]
+        : []),
+    ];
+    await Promise.all(toInvalidate);
+    setIsRefreshing(false);
+  }, [executionProjectKey, selectedVersion, queryClient]);
 
   if (!executionProjectKey) {
     return <EmptyState message="Set an Execution Project Key in Settings to view versions." />;
@@ -1159,9 +1187,17 @@ export function VersionsPage() {
     <div className="flex h-full gap-6">
       {/* Sidebar — version list */}
       <div className="w-60 shrink-0 space-y-1 overflow-y-auto">
-        <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-400">
-          Versions
-        </p>
+        <div className="mb-2 flex items-center justify-between">
+          <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">Versions</p>
+          <button
+            onClick={handleReload}
+            disabled={isRefreshing}
+            title="Reload versions and data"
+            className="rounded p-1 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 disabled:opacity-40"
+          >
+            <RefreshCw className={cn("h-3.5 w-3.5", isRefreshing && "animate-spin")} />
+          </button>
+        </div>
 
         {activeVersions.length > 0 && (
           <div className="space-y-1">
