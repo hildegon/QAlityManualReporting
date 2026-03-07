@@ -14,6 +14,32 @@ use crate::{
     state::XrayClientState,
 };
 
+/// Write `data` to `path` with owner-only read/write permissions (0o600 on Unix).
+/// On Windows the file is written normally (ACL management requires extra crates).
+fn write_private_file(path: &std::path::Path, data: &[u8]) -> Result<()> {
+    #[cfg(unix)]
+    {
+        use std::fs::OpenOptions;
+        use std::io::Write;
+        use std::os::unix::fs::OpenOptionsExt;
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(path)
+            .with_context(|| format!("Failed to open {} for writing", path.display()))?;
+        file.write_all(data)
+            .with_context(|| format!("Failed to write to {}", path.display()))?;
+    }
+    #[cfg(not(unix))]
+    {
+        std::fs::write(path, data)
+            .with_context(|| format!("Failed to write to {}", path.display()))?;
+    }
+    Ok(())
+}
+
 /// Derive the config file path using Tauri's app config directory.
 fn config_path(app: &AppHandle) -> Result<PathBuf> {
     let config_dir = app
@@ -44,7 +70,7 @@ fn get_or_create_key(app: &AppHandle) -> Result<[u8; 32]> {
         use rand::RngCore;
         let mut key = [0u8; 32];
         OsRng.fill_bytes(&mut key);
-        std::fs::write(&key_path, key).context("Failed to write key file")?;
+        write_private_file(&key_path, &key).context("Failed to write key file")?;
         Ok(key)
     }
 }
@@ -67,7 +93,8 @@ pub fn save_config(app: &AppHandle, config: &AppConfig) -> Result<()> {
     };
 
     let json = serde_json::to_string(&encrypted).context("Failed to serialize encrypted config")?;
-    std::fs::write(config_path(app)?, json).context("Failed to write config file")?;
+    write_private_file(&config_path(app)?, json.as_bytes())
+        .context("Failed to write config file")?;
     Ok(())
 }
 
@@ -114,6 +141,10 @@ pub async fn save_config_cmd(
     xray_state: State<'_, XrayClientState>,
     config: AppConfig,
 ) -> Result<(), String> {
+    // Validate that the Jira URL (when provided) uses HTTPS.
+    if !config.jira_url.is_empty() && !config.jira_url.starts_with("https://") {
+        return Err("Jira URL must start with https://".to_owned());
+    }
     save_config(&app, &config).map_err(|e| e.to_string())?;
     // Credentials may have changed — drop the cached Xray client so the next
     // command rebuilds it with the new client_id / client_secret.

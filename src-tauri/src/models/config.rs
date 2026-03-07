@@ -1,7 +1,10 @@
 use serde::{Deserialize, Serialize};
 
 /// Plaintext config stored in memory after decryption.
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+///
+/// The `Debug` implementation redacts credential fields so they are never
+/// printed in logs, panic messages, or `dbg!()` output.
+#[derive(Clone, Serialize, Deserialize, Default)]
 pub struct AppConfig {
     /// Base URL of the Jira Cloud instance, e.g. "https://myorg.atlassian.net"
     pub jira_url: String,
@@ -25,6 +28,22 @@ pub struct AppConfig {
     /// Human-readable name for the execution project
     #[serde(default)]
     pub execution_project_name: String,
+}
+
+impl std::fmt::Debug for AppConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AppConfig")
+            .field("jira_url", &self.jira_url)
+            .field("jira_email", &self.jira_email)
+            .field("jira_api_token", &"[REDACTED]")
+            .field("xray_client_id", &self.xray_client_id)
+            .field("xray_client_secret", &"[REDACTED]")
+            .field("content_project_key", &self.content_project_key)
+            .field("content_project_name", &self.content_project_name)
+            .field("execution_project_key", &self.execution_project_key)
+            .field("execution_project_name", &self.execution_project_name)
+            .finish()
+    }
 }
 
 impl AppConfig {

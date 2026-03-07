@@ -115,6 +115,20 @@ pub async fn get_project_versions(
         .map_err(format_err)
 }
 
+/// Update the summary (name) of any Jira issue (Test Plan, Test Set, Test Execution, etc.).
+#[tauri::command]
+pub async fn update_issue_summary(
+    app: AppHandle,
+    issue_key: String,
+    summary: String,
+) -> Result<(), String> {
+    let client = make_jira_client(&app)?;
+    client
+        .update_issue_summary(&issue_key, &summary)
+        .await
+        .map_err(format_err)
+}
+
 /// Fetch all Bug issues with the given `affectedVersion` in the project.
 #[tauri::command]
 pub async fn get_bugs_by_version(

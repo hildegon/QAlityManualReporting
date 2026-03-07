@@ -274,6 +274,20 @@ export interface CreateTestResult {
   warnings?: string[];
 }
 
+// ── Create Test Plan ──────────────────────────────────────────────────────────
+
+/** The test plan object returned inside `CreateTestPlanResult`. */
+export interface CreatedTestPlan {
+  issue_id: string;
+  jira: { key: string; summary: string; status?: { name: string } };
+}
+
+/** Full response from the `create_test_plan` Tauri command. */
+export interface CreateTestPlanResult {
+  test_plan?: CreatedTestPlan;
+  warnings?: string[];
+}
+
 // ── UI helpers ────────────────────────────────────────────────────────────────
 
 export type TestStatusName = "PASS" | "FAIL" | "TODO" | "EXECUTING" | "BLOCKED" | string;

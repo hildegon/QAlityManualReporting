@@ -5,7 +5,6 @@ import { ErrorBoundary } from "@/components/common/ErrorBoundary";
 import { SettingsPage } from "@/pages/SettingsPage";
 import { TestExecutionsPage } from "@/pages/TestExecutionsPage";
 import { TestPlansPage } from "@/pages/TestPlansPage";
-import { TestSetsPage } from "@/pages/TestSetsPage";
 import { TestsPage } from "@/pages/TestsPage";
 import { CreateTestPage } from "@/pages/CreateTestPage";
 import { VersionsPage } from "@/pages/VersionsPage";
@@ -89,7 +88,6 @@ export default function App() {
               <Route index element={<Navigate to="/executions" replace />} />
               <Route path="/executions" element={<TestExecutionsPage />} />
               <Route path="/test-plans" element={<TestPlansPage />} />
-              <Route path="/test-sets" element={<TestSetsPage />} />
               <Route path="/tests" element={<TestsPage />} />
               <Route path="/versions" element={<VersionsPage />} />
               <Route path="/create-test" element={<CreateTestPage />} />

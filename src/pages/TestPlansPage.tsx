@@ -1,37 +1,508 @@
-import { useState } from "react";
-import { useTestPlans, useGetTestPlanTests } from "@/services/queries";
+import { useState, useRef, useCallback, useEffect, useMemo } from "react";
+import {
+  useTestPlans,
+  useGetTestPlanTests,
+  useGetTestSets,
+  useCreateTestPlan,
+  useAddTestsToTestPlan,
+  useProjectComponents,
+  useProjectVersions,
+  useRenameIssue,
+  queryKeys,
+} from "@/services/queries";
 import { useContentProjectKey } from "@/hooks/useProjectKey";
 import { Spinner } from "@/components/ui/spinner";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge, statusVariant } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { BookOpen, ChevronDown, ChevronRight, RefreshCw } from "lucide-react";
+import { Label } from "@/components/ui/label";
+import {
+  BookOpen,
+  CalendarDays,
+  ChevronDown,
+  ChevronRight,
+  GripVertical,
+  Layers,
+  Pencil,
+  Plus,
+  RefreshCw,
+  Search,
+  Tag,
+  X,
+} from "lucide-react";
 import { cn } from "@/components/ui/utils";
-import type { TestPlan } from "@/types";
+import * as Dialog from "@radix-ui/react-dialog";
+import { useQueryClient } from "@tanstack/react-query";
+import type { TestPlan, XrayTest, XrayTestSet } from "@/types";
+import * as api from "@/services/tauri";
 
-export function TestPlansPage() {
-  const projectKey = useContentProjectKey();
-  const { data: plans, isLoading, isError, error, refetch, isFetching } = useTestPlans(projectKey);
+// ── Custom mouse-based drag state ─────────────────────────────────────────────
+// HTML5 DnD does not work reliably in Tauri's WebView (macOS WKWebView
+// intercepts native drag events). We implement drag ourselves using
+// mousedown → mousemove → mouseup with a floating ghost element.
+
+interface DragState {
+  /** Issue IDs of the test sets being dragged. */
+  ids: string[];
+  /** Current mouse position (page coordinates). */
+  x: number;
+  y: number;
+}
+
+// ── Drag ghost ────────────────────────────────────────────────────────────────
+
+function DragGhost({ drag }: { drag: DragState }) {
+  return (
+    <div
+      className="pointer-events-none fixed z-50 flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-700 px-3 py-2 text-xs font-medium text-white shadow-lg"
+      style={{ left: drag.x + 12, top: drag.y - 14 }}
+    >
+      <GripVertical className="h-3 w-3 opacity-60" />
+      {drag.ids.length} set{drag.ids.length !== 1 ? "s" : ""}
+    </div>
+  );
+}
+
+// ── Test set row (drag source) ────────────────────────────────────────────────
+
+interface TestSetRowProps {
+  testSet: XrayTestSet;
+  selected: boolean;
+  onToggle: () => void;
+  onMouseDown: (e: React.MouseEvent) => void;
+}
+
+function TestSetRow({ testSet, selected, onToggle, onMouseDown }: TestSetRowProps) {
+  return (
+    <div
+      onMouseDown={onMouseDown}
+      onClick={onToggle}
+      className={cn(
+        "flex cursor-pointer select-none items-center gap-2.5 rounded-lg border px-3 py-2.5 transition-colors",
+        selected
+          ? "border-slate-700 bg-slate-700 text-white"
+          : "border-slate-200 bg-white text-slate-800 hover:border-slate-300 hover:bg-slate-50",
+      )}
+    >
+      <Layers className={cn("h-4 w-4 shrink-0", selected ? "text-white/60" : "text-slate-400")} />
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-sm font-medium">{testSet.jira.summary}</p>
+        <p
+          className={cn("mt-0.5 font-mono text-xs", selected ? "text-slate-300" : "text-slate-400")}
+        >
+          {testSet.jira.key}
+        </p>
+      </div>
+      <GripVertical
+        className={cn("h-4 w-4 shrink-0", selected ? "text-white/40" : "text-slate-300")}
+      />
+    </div>
+  );
+}
+
+// ── Left panel: all test sets ─────────────────────────────────────────────────
+
+interface TestSetsPanelProps {
+  projectKey: string;
+  selectedIds: Set<string>;
+  onToggle: (id: string) => void;
+  onSelectAll: (ids: string[]) => void;
+  onClearAll: () => void;
+  onBeginDrag: (ids: string[], e: React.MouseEvent) => void;
+  onRegisterReload: (fn: () => Promise<unknown>) => void;
+}
+
+function TestSetsSourcePanel({
+  projectKey,
+  selectedIds,
+  onToggle,
+  onSelectAll,
+  onClearAll,
+  onBeginDrag,
+  onRegisterReload,
+}: TestSetsPanelProps) {
+  const { data: testSets, isLoading, isError, error, refetch } = useGetTestSets(projectKey);
+  onRegisterReload(refetch);
 
   const [search, setSearch] = useState("");
-  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const q = search.trim().toLowerCase();
+  const filtered = useMemo(
+    () =>
+      (testSets ?? []).filter(
+        (ts) =>
+          !q || ts.jira.key.toLowerCase().includes(q) || ts.jira.summary.toLowerCase().includes(q),
+      ),
+    [testSets, q],
+  );
 
-  if (!projectKey) {
-    return <EmptyState message="Set a Project Key in Settings to view test plans." />;
+  const filteredIds = filtered.map((ts) => ts.issue_id);
+  const allFilteredSelected =
+    filteredIds.length > 0 && filteredIds.every((id) => selectedIds.has(id));
+
+  const mouseDownRef = useRef<{
+    testSetId: string;
+    startX: number;
+    startY: number;
+  } | null>(null);
+
+  function handleMouseDown(e: React.MouseEvent, testSet: XrayTestSet) {
+    if (e.button !== 0) return;
+    mouseDownRef.current = { testSetId: testSet.issue_id, startX: e.pageX, startY: e.pageY };
   }
+
+  useEffect(() => {
+    function handleMouseMove(e: MouseEvent) {
+      const md = mouseDownRef.current;
+      if (!md) return;
+      const dx = e.pageX - md.startX;
+      const dy = e.pageY - md.startY;
+      if (Math.abs(dx) + Math.abs(dy) > 5) {
+        const ids = selectedIds.has(md.testSetId) ? [...selectedIds] : [md.testSetId];
+        onBeginDrag(ids, e as unknown as React.MouseEvent);
+        mouseDownRef.current = null;
+      }
+    }
+    function handleMouseUp() {
+      mouseDownRef.current = null;
+    }
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("mouseup", handleMouseUp);
+    return () => {
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", handleMouseUp);
+    };
+  }, [selectedIds, onBeginDrag]);
 
   if (isLoading) {
     return (
-      <div className="space-y-2">
-        <div className="mb-4 flex items-center justify-between">
-          <Skeleton className="h-7 w-36" />
-          <Skeleton className="h-8 w-20" />
+      <div className="flex h-full flex-col gap-3">
+        <Skeleton className="h-8 w-full" />
+        {Array.from({ length: 6 }).map((_, i) => (
+          <div
+            key={i}
+            className="flex items-center gap-3 rounded border border-slate-100 px-3 py-2"
+          >
+            <Skeleton className="h-4 w-4 shrink-0 rounded" />
+            <Skeleton className="h-4 flex-1" />
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <div className="rounded-md bg-red-50 px-4 py-3 text-sm text-red-700">
+        <p className="font-medium">Failed to load test sets</p>
+        <pre className="mt-1 whitespace-pre-wrap font-mono text-xs">{String(error)}</pre>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex h-full flex-col gap-3">
+      <div className="relative">
+        <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+        <Input
+          className="pl-8"
+          placeholder="Filter test sets…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+      </div>
+
+      <div className="flex items-center justify-between text-xs text-slate-500">
+        <span>
+          {filtered.length} set{filtered.length !== 1 ? "s" : ""}
+          {selectedIds.size > 0 && (
+            <span className="ml-1.5 rounded-full bg-slate-700 px-1.5 py-0.5 text-white">
+              {selectedIds.size} selected
+            </span>
+          )}
+        </span>
+        {allFilteredSelected ? (
+          <button className="hover:text-slate-700" onClick={onClearAll}>
+            Deselect all
+          </button>
+        ) : (
+          <button className="hover:text-slate-700" onClick={() => onSelectAll(filteredIds)}>
+            Select all
+          </button>
+        )}
+      </div>
+
+      <div className="flex-1 space-y-1.5 overflow-y-auto">
+        {filtered.length === 0 ? (
+          <p className="py-6 text-center text-sm italic text-slate-400">
+            {q ? "No test sets match the filter." : `No test sets found in ${projectKey}.`}
+          </p>
+        ) : (
+          filtered.map((ts) => (
+            <TestSetRow
+              key={ts.issue_id}
+              testSet={ts}
+              selected={selectedIds.has(ts.issue_id)}
+              onToggle={() => onToggle(ts.issue_id)}
+              onMouseDown={(e) => handleMouseDown(e, ts)}
+            />
+          ))
+        )}
+      </div>
+
+      {selectedIds.size > 0 && (
+        <p className="rounded-lg border border-dashed border-slate-300 px-3 py-2 text-center text-xs text-slate-400">
+          Drag selected sets onto a test plan →
+        </p>
+      )}
+    </div>
+  );
+}
+
+// ── Test plan drop target ─────────────────────────────────────────────────────
+
+interface TestPlanDropTargetProps {
+  testPlan: TestPlan;
+  isExpanded: boolean;
+  isDragging: boolean;
+  isHoveredTarget: boolean;
+  dropRef: (el: HTMLDivElement | null) => void;
+  pendingPlanId: string | null;
+  onToggleExpand: () => void;
+  projectKey: string;
+}
+
+function TestPlanDropTarget({
+  testPlan,
+  isExpanded,
+  isDragging,
+  isHoveredTarget,
+  dropRef,
+  pendingPlanId,
+  onToggleExpand,
+  projectKey,
+}: TestPlanDropTargetProps) {
+  const { data: tests, isLoading: testsLoading } = useGetTestPlanTests(
+    isExpanded ? testPlan.issue_id : null,
+  );
+  const renameIssue = useRenameIssue();
+  const [memberSearch, setMemberSearch] = useState("");
+  const [isRenaming, setIsRenaming] = useState(false);
+  const [renameDraft, setRenameDraft] = useState("");
+  const isPending = pendingPlanId === testPlan.issue_id;
+
+  const filteredTests = useMemo(() => {
+    const q = memberSearch.trim().toLowerCase();
+    return (tests ?? []).filter(
+      (t) => !q || t.jira.key.toLowerCase().includes(q) || t.jira.summary.toLowerCase().includes(q),
+    );
+  }, [tests, memberSearch]);
+
+  return (
+    <div
+      ref={dropRef}
+      className={cn(
+        "overflow-hidden rounded-lg border transition-all duration-150",
+        isHoveredTarget
+          ? "border-slate-700 bg-slate-50 ring-2 ring-slate-700"
+          : isDragging
+            ? "border-slate-300 bg-white ring-1 ring-slate-200"
+            : "border-slate-200 bg-white",
+      )}
+    >
+      {/* Header */}
+      <div className="flex w-full items-center gap-3 px-4 py-3 hover:bg-slate-50">
+        <button className="flex flex-1 items-center gap-3 text-left" onClick={onToggleExpand}>
+          {isExpanded ? (
+            <ChevronDown className="h-4 w-4 shrink-0 text-slate-400" />
+          ) : (
+            <ChevronRight className="h-4 w-4 shrink-0 text-slate-400" />
+          )}
+          <BookOpen className="h-4 w-4 shrink-0 text-slate-400" />
+          <span className="w-28 shrink-0 font-mono text-xs text-slate-500">
+            {testPlan.jira.key}
+          </span>
+        </button>
+
+        {/* Summary — inline editable */}
+        {isRenaming ? (
+          <form
+            className="flex flex-1 items-center gap-1.5"
+            onSubmit={(e) => {
+              e.preventDefault();
+              const trimmed = renameDraft.trim();
+              if (!trimmed || trimmed === testPlan.jira.summary) {
+                setIsRenaming(false);
+                return;
+              }
+              renameIssue.mutate(
+                {
+                  issueKey: testPlan.jira.key,
+                  summary: trimmed,
+                  queryKey: queryKeys.testPlans(projectKey),
+                },
+                { onSettled: () => setIsRenaming(false) },
+              );
+            }}
+          >
+            <input
+              autoFocus
+              className="flex-1 rounded border border-slate-300 px-2 py-0.5 text-sm focus:border-slate-500 focus:outline-none"
+              value={renameDraft}
+              onChange={(e) => setRenameDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") setIsRenaming(false);
+              }}
+              disabled={renameIssue.isPending}
+            />
+            <button
+              type="submit"
+              className="rounded px-2 py-0.5 text-xs font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-40"
+              disabled={renameIssue.isPending}
+            >
+              {renameIssue.isPending ? "…" : "Save"}
+            </button>
+            <button
+              type="button"
+              className="rounded px-2 py-0.5 text-xs text-slate-400 hover:bg-slate-100"
+              onClick={() => setIsRenaming(false)}
+            >
+              Cancel
+            </button>
+          </form>
+        ) : (
+          <span
+            className="group flex flex-1 cursor-pointer items-center gap-1.5 truncate text-sm text-slate-800"
+            onClick={() => {
+              setIsRenaming(true);
+              setRenameDraft(testPlan.jira.summary);
+            }}
+          >
+            <span className="truncate">{testPlan.jira.summary}</span>
+            <Pencil className="h-3.5 w-3.5 shrink-0 text-slate-300 opacity-0 group-hover:opacity-100" />
+          </span>
+        )}
+
+        {isPending && <Spinner size="sm" />}
+        {testPlan.jira.status && (
+          <Badge variant={statusVariant(testPlan.jira.status.name)} className="shrink-0">
+            {testPlan.jira.status.name}
+          </Badge>
+        )}
+        {isHoveredTarget && (
+          <span className="shrink-0 rounded-full bg-slate-700 px-2 py-0.5 text-xs font-medium text-white">
+            Drop to add
+          </span>
+        )}
+        {isDragging && !isHoveredTarget && (
+          <span className="shrink-0 rounded-full border border-dashed border-slate-400 px-2 py-0.5 text-xs text-slate-400">
+            Drop here
+          </span>
+        )}
+      </div>
+
+      {/* Expanded tests list */}
+      {isExpanded && (
+        <div className="border-t border-slate-100 bg-slate-50/60 px-4 py-3">
+          {testsLoading ? (
+            <div className="flex items-center gap-2 py-2 text-sm text-slate-400">
+              <Spinner size="sm" />
+              Loading tests…
+            </div>
+          ) : (
+            <>
+              <div className="mb-2 flex items-center gap-3">
+                <span className="text-xs text-slate-400">
+                  {filteredTests.length}
+                  {filteredTests.length !== (tests?.length ?? 0) &&
+                    ` of ${tests?.length ?? 0}`}{" "}
+                  test{(tests?.length ?? 0) !== 1 ? "s" : ""}
+                </span>
+                <Input
+                  className="h-7 max-w-xs text-xs"
+                  placeholder="Filter…"
+                  value={memberSearch}
+                  onChange={(e) => setMemberSearch(e.target.value)}
+                />
+              </div>
+              {filteredTests.length === 0 ? (
+                <p className="py-2 text-xs italic text-slate-400">
+                  {memberSearch.trim()
+                    ? "No tests match the filter."
+                    : "This test plan contains no tests yet. Drag test sets here to add them."}
+                </p>
+              ) : (
+                <div className="overflow-hidden rounded-md border border-slate-200 bg-white">
+                  <table className="w-full text-sm">
+                    <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-400">
+                      <tr>
+                        <th className="px-3 py-2 text-left">Key</th>
+                        <th className="px-3 py-2 text-left">Summary</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {filteredTests.map((t: XrayTest) => (
+                        <tr key={t.issue_id} className="hover:bg-slate-50">
+                          <td className="px-3 py-2 font-mono text-xs text-slate-500">
+                            {t.jira.key}
+                          </td>
+                          <td className="px-3 py-2 text-slate-700">{t.jira.summary}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </>
+          )}
         </div>
+      )}
+    </div>
+  );
+}
+
+// ── Right panel: test plans ───────────────────────────────────────────────────
+
+interface TestPlansPanelProps {
+  projectKey: string;
+  isDragging: boolean;
+  hoveredPlanId: string | null;
+  dropTargetRefs: React.MutableRefObject<Map<string, HTMLDivElement>>;
+  pendingPlanId: string | null;
+  onRegisterReload: (fn: () => Promise<unknown>) => void;
+}
+
+function TestPlansDropPanel({
+  projectKey,
+  isDragging,
+  hoveredPlanId,
+  dropTargetRefs,
+  pendingPlanId,
+  onRegisterReload,
+}: TestPlansPanelProps) {
+  const { data: plans, isLoading, isError, error, refetch } = useTestPlans(projectKey);
+  onRegisterReload(refetch);
+  const [search, setSearch] = useState("");
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+
+  const q = search.trim().toLowerCase();
+  const filtered = useMemo(
+    () =>
+      (plans ?? []).filter(
+        (p) =>
+          !q || p.jira.key.toLowerCase().includes(q) || p.jira.summary.toLowerCase().includes(q),
+      ),
+    [plans, q],
+  );
+
+  if (isLoading) {
+    return (
+      <div className="flex h-full flex-col gap-3">
+        <Skeleton className="h-8 w-full" />
         {Array.from({ length: 5 }).map((_, i) => (
           <div
             key={i}
-            className="flex items-center gap-3 rounded-md border border-slate-100 px-3 py-2.5"
+            className="flex items-center gap-3 rounded border border-slate-100 px-3 py-2"
           >
             <Skeleton className="h-4 w-20 shrink-0" />
             <Skeleton className="h-4 flex-1" />
@@ -43,172 +514,670 @@ export function TestPlansPage() {
   }
 
   if (isError) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
     return (
-      <div className="space-y-3">
-        <div className="rounded-md bg-red-50 px-4 py-3 text-sm text-red-700">
-          <p className="mb-1 font-medium">Failed to load test plans</p>
-          <pre className="whitespace-pre-wrap break-words font-mono text-xs">{errorMessage}</pre>
-        </div>
-        <Button variant="outline" size="sm" onClick={() => void refetch()}>
-          <RefreshCw className="mr-1.5 h-4 w-4" />
-          Retry
-        </Button>
+      <div className="rounded-md bg-red-50 px-4 py-3 text-sm text-red-700">
+        <p className="font-medium">Failed to load test plans</p>
+        <pre className="mt-1 whitespace-pre-wrap font-mono text-xs">{String(error)}</pre>
       </div>
     );
   }
 
-  const q = search.trim().toLowerCase();
-  const filtered = (plans ?? []).filter(
-    (p) => !q || p.jira.key.toLowerCase().includes(q) || p.jira.summary.toLowerCase().includes(q),
-  );
-
-  const toggle = (id: string) => setExpandedId((prev) => (prev === id ? null : id));
-
   return (
-    <div>
-      <div className="mb-4 flex items-center justify-between">
-        <h1 className="text-xl font-semibold">
-          Test Plans
-          <span className="ml-2 text-sm font-normal text-slate-500">
-            {projectKey} · {filtered.length}
-            {filtered.length !== (plans?.length ?? 0) && <span> / {plans?.length ?? 0}</span>}
-          </span>
-        </h1>
-        <Button variant="outline" size="sm" onClick={() => void refetch()} disabled={isFetching}>
-          <RefreshCw className={`h-4 w-4 ${isFetching ? "animate-spin" : ""}`} />
-          Reload
-        </Button>
-      </div>
-
-      {/* Search filter */}
-      <div className="mb-3">
+    <div className="flex h-full flex-col gap-3">
+      <div className="relative">
+        <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
         <Input
-          className="max-w-xs"
-          placeholder="Filter by key or name…"
+          className="pl-8"
+          placeholder="Filter test plans…"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
       </div>
 
-      {!filtered.length ? (
-        <EmptyState
-          message={
-            q ? "No test plans match the current filter." : `No test plans found in ${projectKey}.`
-          }
-        />
-      ) : (
-        <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
-          {filtered.map((plan, idx) => {
-            const isExpanded = expandedId === plan.issue_id;
-            const isLast = idx === filtered.length - 1;
-            return (
-              <div key={plan.issue_id} className={cn(!isLast && "border-b border-slate-100")}>
-                {/* Row header — click to toggle */}
-                <button
-                  className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-slate-50"
-                  onClick={() => toggle(plan.issue_id)}
-                  aria-expanded={isExpanded}
-                >
-                  {isExpanded ? (
-                    <ChevronDown className="h-4 w-4 shrink-0 text-slate-400" />
-                  ) : (
-                    <ChevronRight className="h-4 w-4 shrink-0 text-slate-400" />
-                  )}
-                  <span className="w-28 shrink-0 font-mono text-xs text-slate-500">
-                    {plan.jira.key}
-                  </span>
-                  <span className="flex-1 text-sm text-slate-800">{plan.jira.summary}</span>
-                  {plan.jira.status && (
-                    <Badge variant={statusVariant(plan.jira.status.name)} className="shrink-0">
-                      {plan.jira.status.name}
-                    </Badge>
-                  )}
-                </button>
+      <p className="text-xs text-slate-500">
+        {filtered.length} plan{filtered.length !== 1 ? "s" : ""}
+        {isDragging && <span className="ml-2 text-slate-400">— drop a set to add its tests</span>}
+      </p>
 
-                {/* Expandable tests panel */}
-                {isExpanded && <TestPlanPanel testPlan={plan} />}
-              </div>
-            );
-          })}
-        </div>
-      )}
+      <div className="flex-1 space-y-2 overflow-y-auto">
+        {filtered.length === 0 ? (
+          <p className="py-6 text-center text-sm italic text-slate-400">
+            {q ? "No test plans match the filter." : `No test plans found in ${projectKey}.`}
+          </p>
+        ) : (
+          filtered.map((plan) => (
+            <TestPlanDropTarget
+              key={plan.issue_id}
+              testPlan={plan}
+              isExpanded={expandedId === plan.issue_id}
+              isDragging={isDragging}
+              isHoveredTarget={hoveredPlanId === plan.issue_id}
+              dropRef={(el) => {
+                if (el) dropTargetRefs.current.set(plan.issue_id, el);
+                else dropTargetRefs.current.delete(plan.issue_id);
+              }}
+              onToggleExpand={() =>
+                setExpandedId((prev) => (prev === plan.issue_id ? null : plan.issue_id))
+              }
+              pendingPlanId={pendingPlanId}
+              projectKey={projectKey}
+            />
+          ))
+        )}
+      </div>
     </div>
   );
 }
 
-// ── Expanded tests panel ──────────────────────────────────────────────────────
+// ── Toast ─────────────────────────────────────────────────────────────────────
 
-interface TestPlanPanelProps {
-  testPlan: TestPlan;
+interface ToastProps {
+  message: string;
+  type: "success" | "error";
+  onDismiss: () => void;
 }
 
-function TestPlanPanel({ testPlan }: TestPlanPanelProps) {
-  const { data: tests, isLoading, isError, error } = useGetTestPlanTests(testPlan.issue_id);
-  const [search, setSearch] = useState("");
-
-  const q = search.trim().toLowerCase();
-  const filtered = (tests ?? []).filter(
-    (t) => !q || t.jira.key.toLowerCase().includes(q) || t.jira.summary.toLowerCase().includes(q),
+function Toast({ message, type, onDismiss }: ToastProps) {
+  return (
+    <div
+      className={cn(
+        "fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-lg border px-4 py-3 text-sm font-medium shadow-lg",
+        type === "success"
+          ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+          : "border-red-200 bg-red-50 text-red-800",
+      )}
+    >
+      <div className="flex items-center gap-3">
+        {message}
+        <button onClick={onDismiss} className="text-xs opacity-60 hover:opacity-100">
+          ✕
+        </button>
+      </div>
+    </div>
   );
+}
+
+// ── Create plan dialog ────────────────────────────────────────────────────────
+
+interface CreatePlanDialogProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  projectKey: string;
+}
+
+function CreatePlanDialog({ open, onOpenChange, projectKey }: CreatePlanDialogProps) {
+  const [summary, setSummary] = useState("");
+  const [description, setDescription] = useState("");
+  const [component, setComponent] = useState("");
+  const [componentSearch, setComponentSearch] = useState("");
+  const [fixVersion, setFixVersion] = useState("");
+  const [versionSearch, setVersionSearch] = useState("");
+
+  const createPlan = useCreateTestPlan();
+
+  // Load components and versions only while dialog is open.
+  const { data: components, isLoading: componentsLoading } = useProjectComponents(
+    open ? projectKey : null,
+  );
+  const { data: versions, isLoading: versionsLoading } = useProjectVersions(
+    open ? projectKey : null,
+  );
+
+  const filteredComponents = useMemo(() => {
+    const q = componentSearch.trim().toLowerCase();
+    return (components ?? []).filter((c) => !q || c.name.toLowerCase().includes(q));
+  }, [components, componentSearch]);
+
+  const filteredVersions = useMemo(() => {
+    const q = versionSearch.trim().toLowerCase();
+    return (versions ?? []).filter((v) => !v.archived && (!q || v.name.toLowerCase().includes(q)));
+  }, [versions, versionSearch]);
+
+  const resetForm = () => {
+    setSummary("");
+    setDescription("");
+    setComponent("");
+    setComponentSearch("");
+    setFixVersion("");
+    setVersionSearch("");
+    createPlan.reset();
+  };
+
+  const handleOpenChange = (v: boolean) => {
+    if (!v) resetForm();
+    onOpenChange(v);
+  };
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!summary.trim()) return;
+    const vars: Parameters<typeof createPlan.mutate>[0] = { projectKey, summary: summary.trim() };
+    if (description.trim()) vars.description = description.trim();
+    if (component) vars.component = component;
+    if (fixVersion) vars.fixVersion = fixVersion;
+    createPlan.mutate(vars, {
+      onSuccess: () => {
+        handleOpenChange(false);
+      },
+    });
+  };
+
+  const isSubmitting = createPlan.isPending;
 
   return (
-    <div className="border-t border-slate-100 bg-slate-50/60 px-6 py-3">
-      {isLoading && (
-        <div className="flex items-center gap-2 py-2 text-sm text-slate-400">
-          <Spinner size="sm" />
-          Loading tests…
-        </div>
-      )}
-
-      {isError && <p className="py-2 text-sm text-red-600">{String(error)}</p>}
-
-      {!isLoading && !isError && (
-        <>
-          {/* Filter + count */}
-          <div className="mb-2 flex items-center gap-3">
-            <span className="text-xs text-slate-400">
-              {filtered.length}
-              {filtered.length !== (tests?.length ?? 0) && ` of ${tests?.length ?? 0}`} test
-              {(tests?.length ?? 0) !== 1 ? "s" : ""}
-            </span>
-            <Input
-              className="h-7 max-w-xs text-xs"
-              placeholder="Filter tests…"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
+    <Dialog.Root open={open} onOpenChange={handleOpenChange}>
+      <Dialog.Portal>
+        <Dialog.Overlay className="fixed inset-0 bg-black/30 backdrop-blur-sm" />
+        <Dialog.Content className="fixed left-1/2 top-1/2 flex max-h-[90vh] w-full max-w-lg -translate-x-1/2 -translate-y-1/2 flex-col rounded-xl bg-white shadow-xl">
+          {/* Header */}
+          <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
+            <Dialog.Title className="text-lg font-semibold">New Test Plan</Dialog.Title>
+            <Dialog.Close asChild>
+              <button
+                className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+                aria-label="Close"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </Dialog.Close>
           </div>
 
-          {filtered.length === 0 ? (
-            <p className="py-2 text-sm text-slate-400 italic">
-              {q ? "No tests match the filter." : "This test plan contains no tests."}
-            </p>
-          ) : (
-            <div className="overflow-hidden rounded-md border border-slate-200 bg-white">
-              <table className="w-full text-sm">
-                <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-400">
-                  <tr>
-                    <th className="px-3 py-2 text-left">Key</th>
-                    <th className="px-3 py-2 text-left">Summary</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {filtered.map((test) => (
-                    <tr key={test.issue_id} className="hover:bg-slate-50">
-                      <td className="px-3 py-2 font-mono text-xs text-slate-500">
-                        {test.jira.key}
-                      </td>
-                      <td className="px-3 py-2 text-slate-700">{test.jira.summary}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+          {/* Scrollable body */}
+          <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
+            <div className="flex-1 overflow-y-auto">
+              <div className="space-y-5 px-6 py-5">
+                {/* Project badge */}
+                <div className="flex items-center gap-2 text-sm text-slate-500">
+                  <BookOpen className="h-4 w-4 text-slate-400" />
+                  <span>
+                    Creating in project{" "}
+                    <span className="font-medium text-slate-700">{projectKey}</span>
+                  </span>
+                </div>
+
+                {/* Summary */}
+                <div className="space-y-1.5">
+                  <Label htmlFor="plan-summary">Summary *</Label>
+                  <Input
+                    id="plan-summary"
+                    placeholder="e.g. Regression — Sprint 42"
+                    value={summary}
+                    onChange={(e) => setSummary(e.target.value)}
+                    disabled={isSubmitting}
+                    autoFocus
+                    required
+                  />
+                </div>
+
+                {/* Description */}
+                <div className="space-y-1.5">
+                  <Label htmlFor="plan-desc">
+                    Description <span className="font-normal text-slate-400">(optional)</span>
+                  </Label>
+                  <Input
+                    id="plan-desc"
+                    placeholder="Scope, goals, or notes for this plan"
+                    value={description}
+                    onChange={(e) => setDescription(e.target.value)}
+                    disabled={isSubmitting}
+                  />
+                </div>
+
+                {/* Component picker */}
+                <div className="space-y-1.5">
+                  <Label>
+                    Component <span className="font-normal text-slate-400">(optional)</span>
+                  </Label>
+
+                  {/* Selected chip */}
+                  {component && (
+                    <span className="inline-flex items-center gap-1 rounded-full border border-slate-300 bg-slate-100 py-0.5 pl-2.5 pr-1.5 text-xs font-medium text-slate-700">
+                      <Tag className="h-3 w-3 text-slate-400" />
+                      {component}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setComponent("");
+                          setComponentSearch("");
+                        }}
+                        disabled={isSubmitting}
+                        className="ml-0.5 rounded-full text-slate-400 hover:text-slate-600 disabled:opacity-50"
+                        aria-label="Clear component"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </span>
+                  )}
+
+                  <div className="rounded-lg border border-slate-200 bg-white">
+                    <div className="flex items-center gap-2 border-b border-slate-100 px-3 py-2">
+                      <Search className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+                      <input
+                        type="text"
+                        placeholder="Filter components…"
+                        value={componentSearch}
+                        onChange={(e) => setComponentSearch(e.target.value)}
+                        disabled={isSubmitting}
+                        className="w-full bg-transparent text-sm text-slate-700 placeholder:text-slate-400 focus:outline-none disabled:cursor-not-allowed"
+                      />
+                      {componentSearch && (
+                        <button
+                          type="button"
+                          onClick={() => setComponentSearch("")}
+                          className="text-slate-400 hover:text-slate-600"
+                          aria-label="Clear filter"
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </button>
+                      )}
+                    </div>
+                    <div className="max-h-36 overflow-y-auto">
+                      {componentsLoading ? (
+                        <div className="flex items-center justify-center py-5">
+                          <Spinner size="sm" />
+                        </div>
+                      ) : filteredComponents.length === 0 ? (
+                        <p className="py-5 text-center text-xs text-slate-400">
+                          {(components ?? []).length === 0
+                            ? "No components found in this project."
+                            : "No components match your filter."}
+                        </p>
+                      ) : (
+                        filteredComponents.map((c) => (
+                          <label
+                            key={c.id}
+                            className={cn(
+                              "flex cursor-pointer items-center gap-3 px-3 py-2 text-sm transition-colors",
+                              component === c.name ? "bg-slate-50" : "hover:bg-slate-50",
+                              isSubmitting && "cursor-not-allowed opacity-60",
+                            )}
+                          >
+                            <input
+                              type="radio"
+                              checked={component === c.name}
+                              onChange={() =>
+                                setComponent((prev) => (prev === c.name ? "" : c.name))
+                              }
+                              disabled={isSubmitting}
+                              className="h-4 w-4 border-slate-300 accent-slate-800"
+                            />
+                            <Tag className="h-3 w-3 shrink-0 text-slate-400" />
+                            <span className="truncate text-slate-700">{c.name}</span>
+                          </label>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Fix version picker */}
+                <div className="space-y-1.5">
+                  <Label>
+                    Fix Version <span className="font-normal text-slate-400">(optional)</span>
+                  </Label>
+
+                  {/* Selected chip */}
+                  {fixVersion && (
+                    <span className="inline-flex items-center gap-1 rounded-full border border-slate-300 bg-slate-100 py-0.5 pl-2.5 pr-1.5 text-xs font-medium text-slate-700">
+                      <CalendarDays className="h-3 w-3 text-slate-400" />
+                      {fixVersion}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setFixVersion("");
+                          setVersionSearch("");
+                        }}
+                        disabled={isSubmitting}
+                        className="ml-0.5 rounded-full text-slate-400 hover:text-slate-600 disabled:opacity-50"
+                        aria-label="Clear version"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </span>
+                  )}
+
+                  <div className="rounded-lg border border-slate-200 bg-white">
+                    <div className="flex items-center gap-2 border-b border-slate-100 px-3 py-2">
+                      <Search className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+                      <input
+                        type="text"
+                        placeholder="Filter versions…"
+                        value={versionSearch}
+                        onChange={(e) => setVersionSearch(e.target.value)}
+                        disabled={isSubmitting}
+                        className="w-full bg-transparent text-sm text-slate-700 placeholder:text-slate-400 focus:outline-none disabled:cursor-not-allowed"
+                      />
+                      {versionSearch && (
+                        <button
+                          type="button"
+                          onClick={() => setVersionSearch("")}
+                          className="text-slate-400 hover:text-slate-600"
+                          aria-label="Clear filter"
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </button>
+                      )}
+                    </div>
+                    <div className="max-h-36 overflow-y-auto">
+                      {versionsLoading ? (
+                        <div className="flex items-center justify-center py-5">
+                          <Spinner size="sm" />
+                        </div>
+                      ) : filteredVersions.length === 0 ? (
+                        <p className="py-5 text-center text-xs text-slate-400">
+                          {(versions ?? []).filter((v) => !v.archived).length === 0
+                            ? "No active versions found in this project."
+                            : "No versions match your filter."}
+                        </p>
+                      ) : (
+                        filteredVersions.map((v) => (
+                          <label
+                            key={v.id}
+                            className={cn(
+                              "flex cursor-pointer items-center gap-3 px-3 py-2 text-sm transition-colors",
+                              fixVersion === v.name ? "bg-slate-50" : "hover:bg-slate-50",
+                              isSubmitting && "cursor-not-allowed opacity-60",
+                            )}
+                          >
+                            <input
+                              type="radio"
+                              checked={fixVersion === v.name}
+                              onChange={() =>
+                                setFixVersion((prev) => (prev === v.name ? "" : v.name))
+                              }
+                              disabled={isSubmitting}
+                              className="h-4 w-4 border-slate-300 accent-slate-800"
+                            />
+                            <CalendarDays className="h-3 w-3 shrink-0 text-slate-400" />
+                            <div className="min-w-0">
+                              <span className="truncate text-slate-700">{v.name}</span>
+                              {v.released && (
+                                <span className="ml-1.5 text-[10px] text-emerald-600">
+                                  released
+                                </span>
+                              )}
+                            </div>
+                          </label>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Error */}
+                {createPlan.isError && (
+                  <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                    {String(createPlan.error)}
+                  </p>
+                )}
+              </div>
             </div>
-          )}
-        </>
+
+            {/* Footer */}
+            <div className="flex items-center justify-end gap-2 border-t border-slate-200 px-6 py-4">
+              <Dialog.Close asChild>
+                <Button type="button" variant="outline" disabled={isSubmitting}>
+                  Cancel
+                </Button>
+              </Dialog.Close>
+              <Button type="submit" disabled={!summary.trim() || isSubmitting}>
+                {isSubmitting ? (
+                  <>
+                    <Spinner className="h-4 w-4" />
+                    Creating…
+                  </>
+                ) : (
+                  "Create Test Plan"
+                )}
+              </Button>
+            </div>
+          </form>
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
+  );
+}
+
+// ── Page ──────────────────────────────────────────────────────────────────────
+
+export function TestPlansPage() {
+  const projectKey = useContentProjectKey();
+  const addTestsToTestPlan = useAddTestsToTestPlan();
+  const queryClient = useQueryClient();
+
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [drag, setDrag] = useState<DragState | null>(null);
+  const [hoveredPlanId, setHoveredPlanId] = useState<string | null>(null);
+  const [pendingPlanId, setPendingPlanId] = useState<string | null>(null);
+  const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  const testSetsRefetchRef = useRef<(() => Promise<unknown>) | null>(null);
+  const plansRefetchRef = useRef<(() => Promise<unknown>) | null>(null);
+
+  /** Map from plan issueId → its DOM element for drop hit-testing. */
+  const dropTargetRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+
+  const handleReload = useCallback(async () => {
+    setIsRefreshing(true);
+    await Promise.all([testSetsRefetchRef.current?.(), plansRefetchRef.current?.()]);
+    setIsRefreshing(false);
+  }, []);
+
+  // ── Global mouse listeners for drag ──────────────────────────────────────
+  useEffect(() => {
+    if (!drag) return;
+
+    function handleMouseMove(e: MouseEvent) {
+      setDrag((prev) => (prev ? { ...prev, x: e.pageX, y: e.pageY } : null));
+
+      let foundId: string | null = null;
+      for (const [planId, el] of dropTargetRefs.current.entries()) {
+        const rect = el.getBoundingClientRect();
+        if (
+          e.clientX >= rect.left &&
+          e.clientX <= rect.right &&
+          e.clientY >= rect.top &&
+          e.clientY <= rect.bottom
+        ) {
+          foundId = planId;
+          break;
+        }
+      }
+      setHoveredPlanId(foundId);
+    }
+
+    function handleMouseUp() {
+      setDrag((currentDrag) => {
+        setHoveredPlanId((currentHoveredId) => {
+          if (currentDrag && currentHoveredId) {
+            handleDropSets(currentHoveredId, currentDrag.ids);
+          }
+          return null;
+        });
+        return null;
+      });
+    }
+
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("mouseup", handleMouseUp);
+    return () => {
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", handleMouseUp);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [drag !== null]);
+
+  if (!projectKey) {
+    return <EmptyState message="Set a Project Key in Settings to view test plans." />;
+  }
+
+  function showToast(message: string, type: "success" | "error") {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 3_500);
+  }
+
+  function handleToggle(id: string) {
+    if (drag) return;
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function handleSelectAll(ids: string[]) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      for (const id of ids) next.add(id);
+      return next;
+    });
+  }
+
+  function handleClearAll() {
+    setSelectedIds(new Set());
+  }
+
+  function handleBeginDrag(ids: string[], e: React.MouseEvent) {
+    setDrag({ ids, x: e.pageX, y: e.pageY });
+  }
+
+  /**
+   * Called when one or more test sets are dropped onto a test plan.
+   * Fetches the tests inside each set then calls addTestsToTestPlan.
+   */
+  async function handleDropSets(testPlanIssueId: string, testSetIssueIds: string[]) {
+    if (!projectKey) return;
+    setPendingPlanId(testPlanIssueId);
+    try {
+      // Resolve tests for all dropped sets in parallel.
+      const pages = await Promise.all(
+        testSetIssueIds.map((setId) =>
+          queryClient.fetchQuery<XrayTest[]>({
+            queryKey: queryKeys.testSetTests(setId),
+            queryFn: () => api.getTestSetTests(setId),
+            staleTime: 5 * 60 * 1_000,
+          }),
+        ),
+      );
+      const testIssueIds = [...new Set(pages.flat().map((t) => t.issue_id))];
+
+      if (testIssueIds.length === 0) {
+        showToast("The selected test set(s) contain no tests.", "error");
+        setPendingPlanId(null);
+        return;
+      }
+
+      addTestsToTestPlan.mutate(
+        { testPlanIssueId, testIssueIds, projectKey },
+        {
+          onSuccess: () => {
+            setPendingPlanId(null);
+            setSelectedIds((prev) => {
+              const next = new Set(prev);
+              for (const id of testSetIssueIds) next.delete(id);
+              return next;
+            });
+            showToast(
+              `Added ${testIssueIds.length} test${testIssueIds.length !== 1 ? "s" : ""} to plan.`,
+              "success",
+            );
+          },
+          onError: (err) => {
+            setPendingPlanId(null);
+            showToast(`Failed to add tests: ${String(err)}`, "error");
+          },
+        },
+      );
+    } catch (err) {
+      setPendingPlanId(null);
+      showToast(`Failed to fetch tests from set: ${String(err)}`, "error");
+    }
+  }
+
+  return (
+    <>
+      {/* Header */}
+      <div className="mb-4 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <BookOpen className="h-5 w-5 text-slate-400" />
+          <h1 className="text-xl font-semibold">
+            Test Plans
+            <span className="ml-2 text-sm font-normal text-slate-500">{projectKey}</span>
+          </h1>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => void handleReload()}
+            disabled={isRefreshing}
+            title="Reload test sets and plans"
+            className="rounded p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 disabled:opacity-40"
+          >
+            <RefreshCw className={cn("h-4 w-4", isRefreshing && "animate-spin")} />
+          </button>
+          <Button size="sm" onClick={() => setCreateOpen(true)}>
+            <Plus className="h-4 w-4" />
+            New plan
+          </Button>
+        </div>
+      </div>
+
+      {/* Two-panel layout */}
+      <div className="flex h-[calc(100vh-10rem)] gap-6">
+        {/* Left: test sets (drag sources) */}
+        <div className="flex min-w-0 flex-1 flex-col">
+          <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-400">
+            Test Sets
+          </p>
+          <div className="flex-1 overflow-hidden">
+            <TestSetsSourcePanel
+              projectKey={projectKey}
+              selectedIds={selectedIds}
+              onToggle={handleToggle}
+              onSelectAll={handleSelectAll}
+              onClearAll={handleClearAll}
+              onBeginDrag={handleBeginDrag}
+              onRegisterReload={(fn) => {
+                testSetsRefetchRef.current = fn;
+              }}
+            />
+          </div>
+        </div>
+
+        {/* Divider */}
+        <div className="w-px shrink-0 bg-slate-200" />
+
+        {/* Right: test plans (drop targets) */}
+        <div className="flex min-w-0 flex-1 flex-col">
+          <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-400">
+            Test Plans
+          </p>
+          <div className="flex-1 overflow-hidden">
+            <TestPlansDropPanel
+              projectKey={projectKey}
+              isDragging={drag !== null}
+              hoveredPlanId={hoveredPlanId}
+              dropTargetRefs={dropTargetRefs}
+              pendingPlanId={pendingPlanId}
+              onRegisterReload={(fn) => {
+                plansRefetchRef.current = fn;
+              }}
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* Floating drag ghost */}
+      {drag && <DragGhost drag={drag} />}
+
+      {toast && (
+        <Toast message={toast.message} type={toast.type} onDismiss={() => setToast(null)} />
       )}
-    </div>
+
+      <CreatePlanDialog open={createOpen} onOpenChange={setCreateOpen} projectKey={projectKey} />
+    </>
   );
 }
 
