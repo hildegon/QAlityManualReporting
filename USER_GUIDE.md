@@ -24,7 +24,13 @@ and writing results back to Xray — without needing a web server or browser ext
    - [Bulk status actions](#bulk-status-actions)
    - [Test steps](#test-steps)
 7. [Test Plans](#test-plans)
+   - [Adding tests to a test plan](#adding-tests-to-a-test-plan)
+   - [Removing a test from a test plan](#removing-a-test-from-a-test-plan)
+   - [Other actions](#other-actions)
 8. [Test Sets](#test-sets)
+   - [Adding tests to a test set](#adding-tests-to-a-test-set)
+   - [Removing a test from a test set](#removing-a-test-from-a-test-set)
+   - [Other actions](#other-actions-1)
 9. [Create Test](#create-test)
 10. [Rate Limiting](#rate-limiting)
 11. [Credential Storage](#credential-storage)
@@ -245,13 +251,33 @@ A **Load more** button also appears at the bottom if more pages remain.
 
 Navigate to **Test Plans** to see all Test Plan issues in your content project.
 
-Each plan is shown as an accordion row with its key, summary, and status badge.
+The page is split into two panels:
 
-Click the **chevron** to expand a plan and see its associated tests (key + summary).
-Use the **filter box** inside the expanded panel to search tests by key or summary.
+- **Left — Test Sets:** lists all test sets for the project. Use the search box to filter.
+- **Right — Test Plans:** lists all test plans as accordions with key, summary, and status badge.
 
-Use the **search box** at the top to filter the plan list itself.
-Click the **reload** button to refresh from Xray.
+### Adding tests to a test plan
+
+1. In the **left panel**, select one or more test sets by clicking their checkboxes.
+2. **Drag** the selected sets and **drop** them onto a test plan accordion in the right panel.
+   A floating ghost shows how many sets are being dragged. The target plan highlights on hover.
+3. On drop, all tests from the dragged sets are added to the plan. A toast confirms success or reports any error.
+
+> Only test sets that are not already members are added; duplicates are ignored by Xray.
+
+### Removing a test from a test plan
+
+1. Expand a test plan by clicking its **chevron**.
+2. Hover over any test row — a **trash icon** appears on the right.
+3. Click the trash icon to remove that test from the plan. A spinner replaces the icon while
+   the request is in flight; a toast confirms success or failure.
+
+### Other actions
+
+- Click **New Test Plan** (top right of the right panel) to create a new Test Plan issue
+  (requires a summary).
+- Use the **search box** inside an expanded plan to filter its tests by key or summary.
+- Click the **reload** button to refresh from Xray.
 
 ---
 
@@ -259,11 +285,32 @@ Click the **reload** button to refresh from Xray.
 
 Navigate to **Test Sets** to see all Test Set issues in your content project.
 
-The layout is the same accordion structure as Test Plans (without status badges, as test
-sets do not have a Jira workflow).
+The page is split into two panels:
+
+- **Left — Tests:** lists all tests for the project. Use the search box to filter.
+- **Right — Test Sets:** lists all test sets as accordions.
+
+### Adding tests to a test set
+
+1. In the **left panel**, select one or more tests by clicking their checkboxes.
+2. **Drag** the selected tests and **drop** them onto a test set accordion in the right panel.
+   A floating ghost shows how many tests are being dragged. The target set highlights on hover.
+3. On drop, the tests are added to the set. A toast confirms success or reports any error.
+
+> A hint label *"Drag selected tests onto a test set →"* appears above the test list
+> whenever one or more tests are selected.
+
+### Removing a test from a test set
+
+1. Expand a test set by clicking its **chevron**.
+2. Hover over any test row — a **trash icon** appears on the right.
+3. Click the trash icon to remove that test from the set. A spinner replaces the icon while
+   the request is in flight; a toast confirms success or failure.
+
+### Other actions
 
 - Click **New Test Set** to create a new Test Set issue (requires a summary).
-- Expand a set to view and filter its tests.
+- Use the **search box** inside an expanded set to filter its tests by key or summary.
 
 ---
 
