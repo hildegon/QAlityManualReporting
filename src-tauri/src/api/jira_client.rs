@@ -8,7 +8,7 @@ use crate::models::jira::{
     JiraTransition, JiraTransitionsResponse, JiraUserSearchResult, JiraVersion,
 };
 
-/// Validate that a Jira project key contains only safe characters (`[A-Z0-9_]+`). 
+/// Validate that a Jira project key contains only safe characters (`[A-Z0-9_]+`).
 fn validate_project_key(key: &str) -> Result<()> {
     if key.is_empty() {
         bail!("Project key must not be empty");

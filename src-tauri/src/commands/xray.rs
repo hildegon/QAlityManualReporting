@@ -283,6 +283,21 @@ pub async fn add_tests_to_test_set(
         .map_err(format_err)
 }
 
+/// Remove test issues from a test set.
+#[tauri::command]
+pub async fn remove_tests_from_test_set(
+    app: AppHandle,
+    state: State<'_, XrayClientState>,
+    test_set_issue_id: String,
+    test_issue_ids: Vec<String>,
+) -> Result<(), String> {
+    let client = get_xray_client(&app, &state).await?;
+    client
+        .remove_tests_from_test_set(&test_set_issue_id, &test_issue_ids)
+        .await
+        .map_err(format_err)
+}
+
 #[tauri::command]
 pub async fn authenticate_xray(
     app: AppHandle,
@@ -416,6 +431,21 @@ pub async fn add_tests_to_test_plan(
             test_plan_issue_id,
             test_issue_ids,
         })
+        .await
+        .map_err(format_err)
+}
+
+/// Remove test issues from a test plan.
+#[tauri::command]
+pub async fn remove_tests_from_test_plan(
+    app: AppHandle,
+    state: State<'_, XrayClientState>,
+    test_plan_issue_id: String,
+    test_issue_ids: Vec<String>,
+) -> Result<(), String> {
+    let client = get_xray_client(&app, &state).await?;
+    client
+        .remove_tests_from_test_plan(&test_plan_issue_id, &test_issue_ids)
         .await
         .map_err(format_err)
 }

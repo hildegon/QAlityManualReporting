@@ -812,6 +812,29 @@ impl XrayClient {
         Ok(())
     }
 
+    /// Remove one or more tests from an existing test set.
+    pub async fn remove_tests_from_test_set(
+        &self,
+        test_set_issue_id: &str,
+        test_issue_ids: &[String],
+    ) -> Result<()> {
+        let query = r#"
+            mutation RemoveTestsFromTestSet($issueId: String!, $testIssueIds: [String]!) {
+                removeTestsFromTestSet(issueId: $issueId, testIssueIds: $testIssueIds)
+            }
+        "#;
+        let _: serde_json::Value = self
+            .graphql(
+                query,
+                serde_json::json!({
+                    "issueId": test_set_issue_id,
+                    "testIssueIds": test_issue_ids,
+                }),
+            )
+            .await?;
+        Ok(())
+    }
+
     // ── Create Test Set ───────────────────────────────────────────────────────
 
     /// Create a new Test Set in Xray. Optionally link existing tests at creation time.
@@ -1023,6 +1046,29 @@ impl XrayClient {
                 serde_json::json!({
                     "issueId": input.test_plan_issue_id,
                     "testIssueIds": input.test_issue_ids,
+                }),
+            )
+            .await?;
+        Ok(())
+    }
+
+    /// Remove one or more tests from an existing test plan.
+    pub async fn remove_tests_from_test_plan(
+        &self,
+        test_plan_issue_id: &str,
+        test_issue_ids: &[String],
+    ) -> Result<()> {
+        let query = r#"
+            mutation RemoveTestsFromTestPlan($issueId: String!, $testIssueIds: [String]!) {
+                removeTestsFromTestPlan(issueId: $issueId, testIssueIds: $testIssueIds)
+            }
+        "#;
+        let _: serde_json::Value = self
+            .graphql(
+                query,
+                serde_json::json!({
+                    "issueId": test_plan_issue_id,
+                    "testIssueIds": test_issue_ids,
                 }),
             )
             .await?;

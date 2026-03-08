@@ -11,6 +11,7 @@ import {
   useTestSetMembership,
 } from "@/services/queries";
 import { parseRateLimitError } from "@/stores/uiStore";
+import { buildSlicesFromCounts } from "@/components/charts/StatusCharts";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Badge, statusVariant } from "@/components/ui/badge";
@@ -26,7 +27,6 @@ import {
   Loader2,
   MessageSquare,
   Pencil,
-  RotateCcw,
   Search,
   X,
 } from "lucide-react";
@@ -112,8 +112,8 @@ export function TestExecutionDetail({
   const [testSearch, setTestSearch] = useState("");
   const [sortByStatus, setSortByStatus] = useState(false);
   const [loadingAll, setLoadingAll] = useState(false);
-  /** Map of runId → status name captured just before a bulk-status operation. */
-  const [bulkUndoSnapshot, setBulkUndoSnapshot] = useState<Map<string, string> | null>(null);
+  /** Status name to filter by, or null to show all. */
+  const [statusFilter, setStatusFilter] = useState<string | null>(null);
   const parentRef = useRef<HTMLDivElement>(null);
 
   // Flatten all pages into a single runs array
@@ -154,7 +154,12 @@ export function TestExecutionDetail({
       );
     }
 
-    // 3. Status sort (stable — preserves original order within the same status group)
+    // 3. Status filter
+    if (statusFilter) {
+      result = result.filter((r) => r.status.name.toUpperCase() === statusFilter.toUpperCase());
+    }
+
+    // 4. Status sort (stable — preserves original order within the same status group)
     if (sortByStatus) {
       result = [...result].sort((a, b) => {
         const oa = STATUS_SORT_ORDER[a.status.name.toUpperCase()] ?? 99;
@@ -164,7 +169,7 @@ export function TestExecutionDetail({
     }
 
     return result;
-  }, [runs, testSetFilter, membership, testSearch, sortByStatus]);
+  }, [runs, testSetFilter, membership, testSearch, sortByStatus, statusFilter]);
 
   // Total count from the server (available from the first page)
   const totalFromServer = data?.pages[0]?.total ?? 0;
@@ -262,41 +267,6 @@ export function TestExecutionDetail({
 
   // ── Bulk operations ─────────────────────────────────────────────────────────
 
-  const handleBulkRunStatus = (newStatus: string) => {
-    // Snapshot the current status of every run that will actually change.
-    const snapshot = new Map<string, string>();
-    for (const run of filteredRuns) {
-      if (run.status.name.toUpperCase() !== newStatus.toUpperCase()) {
-        snapshot.set(run.id, run.status.name);
-      }
-    }
-    if (snapshot.size === 0) return;
-
-    // Store snapshot for undo — overrides any previous snapshot.
-    setBulkUndoSnapshot(snapshot);
-
-    // Fire the mutations.
-    for (const [runId] of snapshot) {
-      updateStatus.mutate({
-        testRunId: runId,
-        status: newStatus,
-        executionIssueId: execution.issue_id,
-      });
-    }
-  };
-
-  const handleBulkUndo = () => {
-    if (!bulkUndoSnapshot) return;
-    for (const [runId, previousStatus] of bulkUndoSnapshot) {
-      updateStatus.mutate({
-        testRunId: runId,
-        status: previousStatus,
-        executionIssueId: execution.issue_id,
-      });
-    }
-    setBulkUndoSnapshot(null);
-  };
-
   const handleBulkStepStatus = (run: TestRun, newStatus: string) => {
     if (!run.steps) return;
     for (const step of run.steps) {
@@ -313,16 +283,14 @@ export function TestExecutionDetail({
 
   // ── Progress summary (over filtered runs) ──────────────────────────────────
   const total = filteredRuns.length;
-  const counts = filteredRuns.reduce<Record<string, number>>((acc, run) => {
+  const rawCounts = filteredRuns.reduce<Record<string, number>>((acc, run) => {
     const name = run.status.name.toUpperCase();
     acc[name] = (acc[name] ?? 0) + 1;
     return acc;
   }, {});
-  const passed = counts["PASS"] ?? counts["PASSED"] ?? 0;
-  const failed = counts["FAIL"] ?? counts["FAILED"] ?? 0;
-  const blocked = counts["BLOCKED"] ?? 0;
-  const executing = counts["EXECUTING"] ?? 0;
-  const todo = total - passed - failed - blocked - executing;
+  // buildSlicesFromCounts merges aliases (PASSED→PASS, NOT RUN→TODO, etc.) and
+  // keeps N/A and any other custom status as its own distinct slice.
+  const summarySlices = buildSlicesFromCounts(rawCounts, total);
 
   return (
     <div className="flex h-full flex-col">
@@ -527,71 +495,65 @@ export function TestExecutionDetail({
                 {totalFromServer !== 1 ? "s" : ""}
               </span>
               <span className="text-slate-400">
-                {passed} passed · {failed} failed · {blocked} blocked · {executing} executing ·{" "}
-                {todo} todo
+                {summarySlices.map((sl, i) => (
+                  <span key={sl.key}>
+                    {i > 0 && " · "}
+                    <span style={{ color: sl.color }}>{sl.count}</span> {sl.label.toLowerCase()}
+                  </span>
+                ))}
               </span>
             </div>
-            {/* Progress bar */}
+            {/* Progress bar — one segment per status, each coloured by its palette entry */}
             <div className="flex h-2 w-full overflow-hidden rounded-full bg-slate-100">
-              {passed > 0 && (
-                <div className="bg-emerald-500" style={{ width: `${(passed / total) * 100}%` }} />
-              )}
-              {executing > 0 && (
-                <div className="bg-blue-400" style={{ width: `${(executing / total) * 100}%` }} />
-              )}
-              {blocked > 0 && (
-                <div className="bg-amber-400" style={{ width: `${(blocked / total) * 100}%` }} />
-              )}
-              {failed > 0 && (
-                <div className="bg-red-500" style={{ width: `${(failed / total) * 100}%` }} />
+              {summarySlices.map((sl) =>
+                sl.count > 0 ? (
+                  <div
+                    key={sl.key}
+                    style={{ width: `${sl.pct * 100}%`, backgroundColor: sl.color }}
+                  />
+                ) : null,
               )}
             </div>
           </div>
 
-          {/* Undo banner — shown after a bulk-status operation */}
-          {bulkUndoSnapshot && (
-            <div className="mb-3 flex items-center justify-between rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-              <span>
-                {bulkUndoSnapshot.size} test{bulkUndoSnapshot.size !== 1 ? "s" : ""} updated.
-              </span>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={handleBulkUndo}
-                  disabled={updateStatus.isPending}
-                  className="flex items-center gap-1 font-medium hover:text-amber-900 disabled:opacity-50"
-                >
-                  <RotateCcw className="h-3 w-3" />
-                  Undo
-                </button>
-                <button
-                  onClick={() => setBulkUndoSnapshot(null)}
-                  className="text-amber-500 hover:text-amber-700"
-                  aria-label="Dismiss"
-                >
-                  <X className="h-3.5 w-3.5" />
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* Bulk actions */}
+          {/* Status filter */}
           <div className="mb-3 flex items-center gap-2">
-            <span className="text-xs font-medium text-slate-500">Set all:</span>
-            {statuses.map((s) => (
+            <span className="text-xs font-medium text-slate-500">Filter:</span>
+            {statuses.map((s) => {
+              const isActive = statusFilter?.toUpperCase() === s.name.toUpperCase();
+              return (
+                <button
+                  key={s.name}
+                  title={isActive ? `Clear filter: ${s.name}` : `Show only ${s.name}`}
+                  onClick={() =>
+                    setStatusFilter((prev) =>
+                      prev?.toUpperCase() === s.name.toUpperCase() ? null : s.name,
+                    )
+                  }
+                  style={statusButtonStyle(s.color, isActive)}
+                  className={cn(
+                    "rounded border px-2 py-0.5 text-xs font-medium transition-colors",
+                    !s.color && isActive
+                      ? "border-slate-600 bg-slate-600 text-white"
+                      : !s.color
+                        ? "border-transparent bg-slate-100 text-slate-600 hover:bg-slate-200"
+                        : "",
+                  )}
+                >
+                  {s.name}
+                </button>
+              );
+            })}
+            {statusFilter && (
               <button
-                key={s.name}
-                title={`Mark all test runs as ${s.name}`}
-                onClick={() => handleBulkRunStatus(s.name)}
-                disabled={updateStatus.isPending}
-                style={statusButtonStyle(s.color, false)}
-                className={cn(
-                  "rounded border px-2 py-0.5 text-xs font-medium transition-colors",
-                  !s.color && "border-transparent bg-slate-100 text-slate-600 hover:bg-slate-200",
-                )}
+                onClick={() => setStatusFilter(null)}
+                className="ml-1 text-slate-400 hover:text-slate-600"
+                title="Clear filter"
+                aria-label="Clear status filter"
               >
-                {s.name}
+                <X className="h-3.5 w-3.5" />
               </button>
-            ))}
+            )}
           </div>
 
           <div className="rounded-lg border border-slate-200 bg-white shadow-sm">

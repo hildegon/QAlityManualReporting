@@ -16,8 +16,8 @@ use commands::{
         get_step_statuses, get_test_executions, get_test_executions_by_version,
         get_test_plan_tests, get_test_plans, get_test_runs, get_test_set_tests,
         get_test_set_tests_with_status, get_test_sets, get_tests, get_xray_statuses,
-        update_test_run_comment, update_test_run_status, update_test_run_step,
-        update_test_run_step_status,
+        remove_tests_from_test_plan, remove_tests_from_test_set, update_test_run_comment,
+        update_test_run_status, update_test_run_step, update_test_run_step_status,
     },
 };
 use state::XrayClientState;
@@ -64,9 +64,11 @@ pub fn run() {
             get_test_plan_tests,
             create_test,
             add_tests_to_test_set,
+            remove_tests_from_test_set,
             create_test_set,
             create_test_plan,
             add_tests_to_test_plan,
+            remove_tests_from_test_plan,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

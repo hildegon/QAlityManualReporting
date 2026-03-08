@@ -5,12 +5,18 @@ import {
   useGetTestSets,
   useCreateTestPlan,
   useAddTestsToTestPlan,
+  useRemoveTestsFromTestPlan,
   useProjectComponents,
   useProjectVersions,
   useRenameIssue,
   queryKeys,
 } from "@/services/queries";
 import { useContentProjectKey } from "@/hooks/useProjectKey";
+import { useDragAndDrop } from "@/hooks/useDragAndDrop";
+import type { DragState } from "@/hooks/useDragAndDrop";
+import { Toast, showToast } from "@/components/ui/toast";
+import type { ToastMessage } from "@/components/ui/toast";
+import { EmptyState } from "@/components/common/EmptyState";
 import { Spinner } from "@/components/ui/spinner";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge, statusVariant } from "@/components/ui/badge";
@@ -29,6 +35,7 @@ import {
   RefreshCw,
   Search,
   Tag,
+  Trash2,
   X,
 } from "lucide-react";
 import { cn } from "@/components/ui/utils";
@@ -36,19 +43,6 @@ import * as Dialog from "@radix-ui/react-dialog";
 import { useQueryClient } from "@tanstack/react-query";
 import type { TestPlan, XrayTest, XrayTestSet } from "@/types";
 import * as api from "@/services/tauri";
-
-// ── Custom mouse-based drag state ─────────────────────────────────────────────
-// HTML5 DnD does not work reliably in Tauri's WebView (macOS WKWebView
-// intercepts native drag events). We implement drag ourselves using
-// mousedown → mousemove → mouseup with a floating ghost element.
-
-interface DragState {
-  /** Issue IDs of the test sets being dragged. */
-  ids: string[];
-  /** Current mouse position (page coordinates). */
-  x: number;
-  y: number;
-}
 
 // ── Drag ghost ────────────────────────────────────────────────────────────────
 
@@ -266,10 +260,11 @@ interface TestPlanDropTargetProps {
   isExpanded: boolean;
   isDragging: boolean;
   isHoveredTarget: boolean;
-  dropRef: (el: HTMLDivElement | null) => void;
+  dropRef: (el: HTMLElement | null) => void;
   pendingPlanId: string | null;
   onToggleExpand: () => void;
   projectKey: string;
+  onToast: (msg: string, variant: "success" | "error") => void;
 }
 
 function TestPlanDropTarget({
@@ -281,10 +276,12 @@ function TestPlanDropTarget({
   pendingPlanId,
   onToggleExpand,
   projectKey,
+  onToast,
 }: TestPlanDropTargetProps) {
   const { data: tests, isLoading: testsLoading } = useGetTestPlanTests(
     isExpanded ? testPlan.issue_id : null,
   );
+  const removeTests = useRemoveTestsFromTestPlan();
   const renameIssue = useRenameIssue();
   const [memberSearch, setMemberSearch] = useState("");
   const [isRenaming, setIsRenaming] = useState(false);
@@ -438,15 +435,45 @@ function TestPlanDropTarget({
                       <tr>
                         <th className="px-3 py-2 text-left">Key</th>
                         <th className="px-3 py-2 text-left">Summary</th>
+                        <th className="px-3 py-2" />
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
                       {filteredTests.map((t: XrayTest) => (
-                        <tr key={t.issue_id} className="hover:bg-slate-50">
+                        <tr key={t.issue_id} className="group hover:bg-slate-50">
                           <td className="px-3 py-2 font-mono text-xs text-slate-500">
                             {t.jira.key}
                           </td>
                           <td className="px-3 py-2 text-slate-700">{t.jira.summary}</td>
+                          <td className="px-3 py-2 text-right">
+                            <button
+                              title="Remove from test plan"
+                              disabled={removeTests.isPending}
+                              onClick={() =>
+                                removeTests.mutate(
+                                  {
+                                    testPlanIssueId: testPlan.issue_id,
+                                    testIssueIds: [t.issue_id],
+                                    projectKey,
+                                  },
+                                  {
+                                    onSuccess: () =>
+                                      onToast(`Removed ${t.jira.key} from test plan.`, "success"),
+                                    onError: (err: unknown) =>
+                                      onToast(`Failed to remove test: ${String(err)}`, "error"),
+                                  },
+                                )
+                              }
+                              className="rounded p-1 text-slate-300 opacity-0 transition-opacity hover:bg-red-50 hover:text-red-500 group-hover:opacity-100 disabled:cursor-not-allowed disabled:opacity-40"
+                            >
+                              {removeTests.isPending &&
+                              removeTests.variables?.testIssueIds[0] === t.issue_id ? (
+                                <Spinner size="sm" />
+                              ) : (
+                                <Trash2 className="h-3.5 w-3.5" />
+                              )}
+                            </button>
+                          </td>
                         </tr>
                       ))}
                     </tbody>
@@ -467,9 +494,10 @@ interface TestPlansPanelProps {
   projectKey: string;
   isDragging: boolean;
   hoveredPlanId: string | null;
-  dropTargetRefs: React.MutableRefObject<Map<string, HTMLDivElement>>;
+  dropTargetRefs: React.MutableRefObject<Map<string, HTMLElement>>;
   pendingPlanId: string | null;
   onRegisterReload: (fn: () => Promise<unknown>) => void;
+  onToast: (msg: string, variant: "success" | "error") => void;
 }
 
 function TestPlansDropPanel({
@@ -479,6 +507,7 @@ function TestPlansDropPanel({
   dropTargetRefs,
   pendingPlanId,
   onRegisterReload,
+  onToast,
 }: TestPlansPanelProps) {
   const { data: plans, isLoading, isError, error, refetch } = useTestPlans(projectKey);
   onRegisterReload(refetch);
@@ -561,37 +590,10 @@ function TestPlansDropPanel({
               }
               pendingPlanId={pendingPlanId}
               projectKey={projectKey}
+              onToast={onToast}
             />
           ))
         )}
-      </div>
-    </div>
-  );
-}
-
-// ── Toast ─────────────────────────────────────────────────────────────────────
-
-interface ToastProps {
-  message: string;
-  type: "success" | "error";
-  onDismiss: () => void;
-}
-
-function Toast({ message, type, onDismiss }: ToastProps) {
-  return (
-    <div
-      className={cn(
-        "fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-lg border px-4 py-3 text-sm font-medium shadow-lg",
-        type === "success"
-          ? "border-emerald-200 bg-emerald-50 text-emerald-800"
-          : "border-red-200 bg-red-50 text-red-800",
-      )}
-    >
-      <div className="flex items-center gap-3">
-        {message}
-        <button onClick={onDismiss} className="text-xs opacity-60 hover:opacity-100">
-          ✕
-        </button>
       </div>
     </div>
   );
@@ -946,10 +948,8 @@ export function TestPlansPage() {
   const queryClient = useQueryClient();
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [drag, setDrag] = useState<DragState | null>(null);
-  const [hoveredPlanId, setHoveredPlanId] = useState<string | null>(null);
   const [pendingPlanId, setPendingPlanId] = useState<string | null>(null);
-  const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
+  const [toast, setToast] = useState<ToastMessage | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
@@ -957,7 +957,7 @@ export function TestPlansPage() {
   const plansRefetchRef = useRef<(() => Promise<unknown>) | null>(null);
 
   /** Map from plan issueId → its DOM element for drop hit-testing. */
-  const dropTargetRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+  const dropTargetRefs = useRef<Map<string, HTMLElement>>(new Map());
 
   const handleReload = useCallback(async () => {
     setIsRefreshing(true);
@@ -965,57 +965,74 @@ export function TestPlansPage() {
     setIsRefreshing(false);
   }, []);
 
-  // ── Global mouse listeners for drag ──────────────────────────────────────
-  useEffect(() => {
-    if (!drag) return;
+  /**
+   * Called when one or more test sets are dropped onto a test plan.
+   * Fetches the tests inside each set then calls addTestsToTestPlan.
+   * Note: useDragAndDrop calls onDrop(ids, targetId) — here ids = testSetIssueIds.
+   */
+  const handleDropSets = useCallback(
+    async (testSetIssueIds: string[], testPlanIssueId: string) => {
+      if (!projectKey) return;
+      setPendingPlanId(testPlanIssueId);
+      try {
+        // Resolve tests for all dropped sets in parallel.
+        const pages = await Promise.all(
+          testSetIssueIds.map((setId) =>
+            queryClient.fetchQuery<XrayTest[]>({
+              queryKey: queryKeys.testSetTests(setId),
+              queryFn: () => api.getTestSetTests(setId),
+              staleTime: 5 * 60 * 1_000,
+            }),
+          ),
+        );
+        const testIssueIds = [...new Set(pages.flat().map((t) => t.issue_id))];
 
-    function handleMouseMove(e: MouseEvent) {
-      setDrag((prev) => (prev ? { ...prev, x: e.pageX, y: e.pageY } : null));
-
-      let foundId: string | null = null;
-      for (const [planId, el] of dropTargetRefs.current.entries()) {
-        const rect = el.getBoundingClientRect();
-        if (
-          e.clientX >= rect.left &&
-          e.clientX <= rect.right &&
-          e.clientY >= rect.top &&
-          e.clientY <= rect.bottom
-        ) {
-          foundId = planId;
-          break;
+        if (testIssueIds.length === 0) {
+          showToast(setToast, "The selected test set(s) contain no tests.", "error");
+          setPendingPlanId(null);
+          return;
         }
+
+        addTestsToTestPlan.mutate(
+          { testPlanIssueId, testIssueIds, projectKey },
+          {
+            onSuccess: () => {
+              setPendingPlanId(null);
+              setSelectedIds((prev) => {
+                const next = new Set(prev);
+                for (const id of testSetIssueIds) next.delete(id);
+                return next;
+              });
+              showToast(
+                setToast,
+                `Added ${testIssueIds.length} test${testIssueIds.length !== 1 ? "s" : ""} to plan.`,
+                "success",
+              );
+            },
+            onError: (err) => {
+              setPendingPlanId(null);
+              showToast(setToast, `Failed to add tests: ${String(err)}`, "error");
+            },
+          },
+        );
+      } catch (err) {
+        setPendingPlanId(null);
+        showToast(setToast, `Failed to fetch tests from set: ${String(err)}`, "error");
       }
-      setHoveredPlanId(foundId);
-    }
+    },
+    [projectKey, queryClient, addTestsToTestPlan],
+  );
 
-    function handleMouseUp() {
-      setDrag((currentDrag) => {
-        setHoveredPlanId((currentHoveredId) => {
-          if (currentDrag && currentHoveredId) {
-            handleDropSets(currentHoveredId, currentDrag.ids);
-          }
-          return null;
-        });
-        return null;
-      });
-    }
-
-    window.addEventListener("mousemove", handleMouseMove);
-    window.addEventListener("mouseup", handleMouseUp);
-    return () => {
-      window.removeEventListener("mousemove", handleMouseMove);
-      window.removeEventListener("mouseup", handleMouseUp);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [drag !== null]);
+  const {
+    drag,
+    hoveredTargetId: hoveredPlanId,
+    startDrag,
+  } = useDragAndDrop(dropTargetRefs, handleDropSets);
 
   if (!projectKey) {
-    return <EmptyState message="Set a Project Key in Settings to view test plans." />;
-  }
-
-  function showToast(message: string, type: "success" | "error") {
-    setToast({ message, type });
-    setTimeout(() => setToast(null), 3_500);
+    return (
+      <EmptyState icon={BookOpen} message="Set a Project Key in Settings to view test plans." />
+    );
   }
 
   function handleToggle(id: string) {
@@ -1038,63 +1055,6 @@ export function TestPlansPage() {
 
   function handleClearAll() {
     setSelectedIds(new Set());
-  }
-
-  function handleBeginDrag(ids: string[], e: React.MouseEvent) {
-    setDrag({ ids, x: e.pageX, y: e.pageY });
-  }
-
-  /**
-   * Called when one or more test sets are dropped onto a test plan.
-   * Fetches the tests inside each set then calls addTestsToTestPlan.
-   */
-  async function handleDropSets(testPlanIssueId: string, testSetIssueIds: string[]) {
-    if (!projectKey) return;
-    setPendingPlanId(testPlanIssueId);
-    try {
-      // Resolve tests for all dropped sets in parallel.
-      const pages = await Promise.all(
-        testSetIssueIds.map((setId) =>
-          queryClient.fetchQuery<XrayTest[]>({
-            queryKey: queryKeys.testSetTests(setId),
-            queryFn: () => api.getTestSetTests(setId),
-            staleTime: 5 * 60 * 1_000,
-          }),
-        ),
-      );
-      const testIssueIds = [...new Set(pages.flat().map((t) => t.issue_id))];
-
-      if (testIssueIds.length === 0) {
-        showToast("The selected test set(s) contain no tests.", "error");
-        setPendingPlanId(null);
-        return;
-      }
-
-      addTestsToTestPlan.mutate(
-        { testPlanIssueId, testIssueIds, projectKey },
-        {
-          onSuccess: () => {
-            setPendingPlanId(null);
-            setSelectedIds((prev) => {
-              const next = new Set(prev);
-              for (const id of testSetIssueIds) next.delete(id);
-              return next;
-            });
-            showToast(
-              `Added ${testIssueIds.length} test${testIssueIds.length !== 1 ? "s" : ""} to plan.`,
-              "success",
-            );
-          },
-          onError: (err) => {
-            setPendingPlanId(null);
-            showToast(`Failed to add tests: ${String(err)}`, "error");
-          },
-        },
-      );
-    } catch (err) {
-      setPendingPlanId(null);
-      showToast(`Failed to fetch tests from set: ${String(err)}`, "error");
-    }
   }
 
   return (
@@ -1138,7 +1098,7 @@ export function TestPlansPage() {
               onToggle={handleToggle}
               onSelectAll={handleSelectAll}
               onClearAll={handleClearAll}
-              onBeginDrag={handleBeginDrag}
+              onBeginDrag={startDrag}
               onRegisterReload={(fn) => {
                 testSetsRefetchRef.current = fn;
               }}
@@ -1164,6 +1124,7 @@ export function TestPlansPage() {
               onRegisterReload={(fn) => {
                 plansRefetchRef.current = fn;
               }}
+              onToast={(msg, variant) => showToast(setToast, msg, variant)}
             />
           </div>
         </div>
@@ -1172,22 +1133,9 @@ export function TestPlansPage() {
       {/* Floating drag ghost */}
       {drag && <DragGhost drag={drag} />}
 
-      {toast && (
-        <Toast message={toast.message} type={toast.type} onDismiss={() => setToast(null)} />
-      )}
+      <Toast message={toast} />
 
       <CreatePlanDialog open={createOpen} onOpenChange={setCreateOpen} projectKey={projectKey} />
     </>
-  );
-}
-
-// ── Empty state ───────────────────────────────────────────────────────────────
-
-function EmptyState({ message }: { message: string }) {
-  return (
-    <div className="flex h-48 flex-col items-center justify-center gap-3 text-slate-400">
-      <BookOpen className="h-10 w-10 opacity-40" />
-      <p className="text-sm">{message}</p>
-    </div>
   );
 }

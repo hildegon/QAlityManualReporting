@@ -185,6 +185,18 @@ export const addTestsToTestPlan = (
   testIssueIds: string[],
 ): Promise<void> => invoke("add_tests_to_test_plan", { testPlanIssueId, testIssueIds });
 
+/** Remove test issues from a test set. */
+export const removeTestsFromTestSet = (
+  testSetIssueId: string,
+  testIssueIds: string[],
+): Promise<void> => invoke("remove_tests_from_test_set", { testSetIssueId, testIssueIds });
+
+/** Remove test issues from a test plan. */
+export const removeTestsFromTestPlan = (
+  testPlanIssueId: string,
+  testIssueIds: string[],
+): Promise<void> => invoke("remove_tests_from_test_plan", { testPlanIssueId, testIssueIds });
+
 /** Fetch all tests in a test set including each test's latest execution status. */
 export const getTestSetTestsWithStatus = (issueId: string): Promise<XrayTestWithStatus[]> =>
   invoke("get_test_set_tests_with_status", { issueId });
