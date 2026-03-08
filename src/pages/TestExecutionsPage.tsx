@@ -17,6 +17,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { parseRateLimitError } from "@/stores/uiStore";
 import { useVersionsStore } from "@/stores/versionsStore";
 import { cn } from "@/components/ui/utils";
+import { EmptyState } from "@/components/common/EmptyState";
 import { Spinner } from "@/components/ui/spinner";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge, statusVariant } from "@/components/ui/badge";
@@ -202,7 +203,10 @@ export function TestExecutionsPage() {
 
   if (!executionProjectKey) {
     return (
-      <EmptyState message="Set an Execution Project Key in Settings to view test executions." />
+      <EmptyState
+        icon={ListChecks}
+        message="Set an Execution Project Key in Settings to view test executions."
+      />
     );
   }
 
@@ -341,6 +345,7 @@ export function TestExecutionsPage() {
 
       {!filtered.length ? (
         <EmptyState
+          icon={ListChecks}
           message={
             q || !showDone
               ? "No executions match the current filters."
@@ -1005,15 +1010,6 @@ function CloneExecutionDialog({
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>
-  );
-}
-
-function EmptyState({ message }: { message: string }) {
-  return (
-    <div className="flex h-48 flex-col items-center justify-center gap-3 text-slate-400">
-      <ListChecks className="h-10 w-10 opacity-40" />
-      <p className="text-sm">{message}</p>
-    </div>
   );
 }
 

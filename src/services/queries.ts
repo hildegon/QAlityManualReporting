@@ -667,6 +667,26 @@ export function useAddTestsToTestSet() {
 
 // ── Create Test Plan ──────────────────────────────────────────────────────────
 
+export function useRemoveTestsFromTestSet() {
+  const queryClient = useQueryClient();
+  return useMutation<
+    void,
+    Error,
+    { testSetIssueId: string; testIssueIds: string[]; projectKey: string }
+  >({
+    mutationFn: ({ testSetIssueId, testIssueIds }) =>
+      api.removeTestsFromTestSet(testSetIssueId, testIssueIds),
+    onSuccess: (_data, { testSetIssueId, projectKey }) => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.testSetTests(testSetIssueId) });
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.testSetMemberships(projectKey),
+      });
+    },
+  });
+}
+
+// ── Create Test Plan ──────────────────────────────────────────────────────────
+
 export function useCreateTestPlan() {
   const queryClient = useQueryClient();
   return useMutation<
@@ -708,6 +728,24 @@ export function useAddTestsToTestPlan() {
       void queryClient.invalidateQueries({
         queryKey: queryKeys.testPlans(projectKey),
       });
+    },
+  });
+}
+
+// ── Remove Tests from Test Plan ───────────────────────────────────────────────
+
+export function useRemoveTestsFromTestPlan() {
+  const queryClient = useQueryClient();
+  return useMutation<
+    void,
+    Error,
+    { testPlanIssueId: string; testIssueIds: string[]; projectKey: string }
+  >({
+    mutationFn: ({ testPlanIssueId, testIssueIds }) =>
+      api.removeTestsFromTestPlan(testPlanIssueId, testIssueIds),
+    onSuccess: (_data, { testPlanIssueId, projectKey }) => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.testPlanTests(testPlanIssueId) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.testPlans(projectKey) });
     },
   });
 }

@@ -13,256 +13,29 @@ import {
   AlertTriangle,
   BookmarkCheck,
   BookmarkPlus,
-  CheckCircle2,
   CheckSquare2,
   ChevronDown,
   ChevronRight,
-  Circle,
   Clock,
   Layers,
-  MinusCircle,
   Pencil,
   RefreshCw,
   Search,
   Square,
   Trash2,
-  XCircle,
 } from "lucide-react";
 import { cn } from "@/components/ui/utils";
+import { EmptyState } from "@/components/common/EmptyState";
 import type { XrayTestSet, XrayTestWithStatus } from "@/types";
 import * as api from "@/services/tauri";
-
-// ── Status palette (mirrors VersionsPage) ─────────────────────────────────────
-
-interface StatusSlice {
-  key: string;
-  label: string;
-  color: string;
-  bgClass: string;
-  textClass: string;
-  borderClass: string;
-  lightBg: string;
-  icon: React.ComponentType<{ className?: string }>;
-}
-
-const STATUS_PALETTE: StatusSlice[] = [
-  {
-    key: "PASS",
-    label: "Passed",
-    color: "#10b981",
-    bgClass: "bg-emerald-500",
-    textClass: "text-emerald-600",
-    borderClass: "border-emerald-200",
-    lightBg: "bg-emerald-50",
-    icon: CheckCircle2,
-  },
-  {
-    key: "FAIL",
-    label: "Failed",
-    color: "#ef4444",
-    bgClass: "bg-red-500",
-    textClass: "text-red-600",
-    borderClass: "border-red-200",
-    lightBg: "bg-red-50",
-    icon: XCircle,
-  },
-  {
-    key: "BLOCKED",
-    label: "Blocked",
-    color: "#f59e0b",
-    bgClass: "bg-amber-400",
-    textClass: "text-amber-600",
-    borderClass: "border-amber-200",
-    lightBg: "bg-amber-50",
-    icon: MinusCircle,
-  },
-  {
-    key: "EXECUTING",
-    label: "Executing",
-    color: "#3b82f6",
-    bgClass: "bg-blue-500",
-    textClass: "text-blue-600",
-    borderClass: "border-blue-200",
-    lightBg: "bg-blue-50",
-    icon: Clock,
-  },
-  {
-    key: "TODO",
-    label: "To Do",
-    color: "#94a3b8",
-    bgClass: "bg-slate-300",
-    textClass: "text-slate-500",
-    borderClass: "border-slate-200",
-    lightBg: "bg-slate-50",
-    icon: Circle,
-  },
-];
-
-const STATUS_NOT_RUN = "NOT RUN";
-
-function findSlice(rawName: string): StatusSlice {
-  const upper = rawName.toUpperCase();
-  const exact = STATUS_PALETTE.find((s) => s.key === upper);
-  if (exact) return exact;
-  if (upper === "NOT RUN" || upper === "TODO") return STATUS_PALETTE.find((s) => s.key === "TODO")!;
-  if (upper.startsWith("PASS")) return STATUS_PALETTE[0]!;
-  if (upper.startsWith("FAIL")) return STATUS_PALETTE[1]!;
-  return {
-    key: upper,
-    label: rawName,
-    color: "#64748b",
-    bgClass: "bg-slate-400",
-    textClass: "text-slate-600",
-    borderClass: "border-slate-200",
-    lightBg: "bg-slate-50",
-    icon: Circle,
-  };
-}
-
-interface Slice extends StatusSlice {
-  count: number;
-  pct: number;
-}
-
-function buildSlices(tests: XrayTestWithStatus[]): Slice[] {
-  if (tests.length === 0) return [];
-  const merged: Record<string, number> = {};
-  for (const t of tests) {
-    const name = t.latest_status?.name ?? STATUS_NOT_RUN;
-    const sl = findSlice(name);
-    merged[sl.key] = (merged[sl.key] ?? 0) + 1;
-  }
-  const total = tests.length;
-  const knownOrder = STATUS_PALETTE.map((s) => s.key);
-  const allKeys = [
-    ...knownOrder.filter((k) => merged[k]),
-    ...Object.keys(merged)
-      .filter((k) => !knownOrder.includes(k) && merged[k])
-      .sort(),
-  ];
-  return allKeys.map((k) => {
-    const count = merged[k] ?? 0;
-    return { ...findSlice(k), count, pct: total > 0 ? count / total : 0 };
-  });
-}
-
-// ── SVG Donut chart ───────────────────────────────────────────────────────────
-
-const DONUT_SIZE = 148;
-const R = 54;
-const HOLE_R = 36;
-const CX = DONUT_SIZE / 2;
-const CY = DONUT_SIZE / 2;
-const CIRCUMFERENCE = 2 * Math.PI * R;
-const GAP = 1.5;
-
-function DonutChart({ slices, total, label }: { slices: Slice[]; total: number; label: string }) {
-  let cumPct = 0;
-  return (
-    <div className="shrink-0">
-      <svg width={DONUT_SIZE} height={DONUT_SIZE} viewBox={`0 0 ${DONUT_SIZE} ${DONUT_SIZE}`}>
-        <circle cx={CX} cy={CY} r={R} fill="none" stroke="#e2e8f0" strokeWidth={R - HOLE_R} />
-        {slices.map((sl) => {
-          const dashLen = Math.max(0, sl.pct * CIRCUMFERENCE - GAP);
-          const offset = -cumPct * CIRCUMFERENCE;
-          cumPct += sl.pct;
-          return (
-            <circle
-              key={sl.key}
-              cx={CX}
-              cy={CY}
-              r={R}
-              fill="none"
-              stroke={sl.color}
-              strokeWidth={R - HOLE_R}
-              strokeDasharray={`${dashLen} ${CIRCUMFERENCE}`}
-              strokeDashoffset={offset}
-              style={{ transform: "rotate(-90deg)", transformOrigin: `${CX}px ${CY}px` }}
-            >
-              <title>{`${sl.label}: ${sl.count} (${Math.round(sl.pct * 100)}%)`}</title>
-            </circle>
-          );
-        })}
-        <text
-          x={CX}
-          y={CY - 7}
-          textAnchor="middle"
-          style={{ fontSize: 24, fontWeight: 700, fill: "#1e293b" }}
-        >
-          {total}
-        </text>
-        <text
-          x={CX}
-          y={CY + 12}
-          textAnchor="middle"
-          style={{ fontSize: 10, fill: "#94a3b8", fontWeight: 500 }}
-        >
-          {label}
-        </text>
-      </svg>
-    </div>
-  );
-}
-
-// ── Stat cards ────────────────────────────────────────────────────────────────
-
-function StatCard({ sl }: { sl: Slice }) {
-  const Icon = sl.icon;
-  return (
-    <div className={cn("rounded-xl border p-3", sl.lightBg, sl.borderClass)}>
-      <div className="mb-1.5 flex items-center justify-between">
-        <span className="text-xs font-medium text-slate-500">{sl.label}</span>
-        <Icon className={cn("h-3.5 w-3.5", sl.textClass)} />
-      </div>
-      <p className={cn("text-2xl font-bold", sl.textClass)}>{sl.count}</p>
-      <p className="mt-0.5 text-xs text-slate-400">{Math.round(sl.pct * 100)}%</p>
-    </div>
-  );
-}
-
-// ── Stacked bar ───────────────────────────────────────────────────────────────
-
-function StackedBar({ slices }: { slices: Slice[] }) {
-  return (
-    <div className="space-y-2">
-      <div className="flex h-4 w-full overflow-hidden rounded-full bg-slate-100">
-        {slices.map((sl) => (
-          <div
-            key={sl.key}
-            className={cn("transition-all duration-500", sl.bgClass)}
-            style={{ width: `${sl.pct * 100}%` }}
-            title={`${sl.label}: ${sl.count} (${Math.round(sl.pct * 100)}%)`}
-          />
-        ))}
-      </div>
-      <div className="flex flex-wrap gap-x-4 gap-y-1">
-        {slices.map((sl) => (
-          <div key={sl.key} className="flex items-center gap-1.5 text-xs text-slate-500">
-            <span className={cn("h-2 w-2 shrink-0 rounded-full", sl.bgClass)} />
-            {sl.label} — {sl.count} ({Math.round(sl.pct * 100)}%)
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-// ── Mini stacked bar (for section header) ─────────────────────────────────────
-
-function MiniStackedBar({ slices }: { slices: Slice[] }) {
-  return (
-    <div className="flex h-2 w-24 overflow-hidden rounded-full bg-slate-200">
-      {slices.map((sl) => (
-        <div
-          key={sl.key}
-          className={cn(sl.bgClass)}
-          style={{ width: `${sl.pct * 100}%` }}
-          title={`${sl.label}: ${sl.count} (${Math.round(sl.pct * 100)}%)`}
-        />
-      ))}
-    </div>
-  );
-}
+import {
+  DonutChart,
+  StatCard,
+  StackedBar,
+  MiniStackedBar,
+  buildSlicesFromTests,
+  findSlice,
+} from "@/components/charts/StatusCharts";
 
 // ── Overall dashboard card ────────────────────────────────────────────────────
 
@@ -273,7 +46,7 @@ function OverallDashboard({
   allTests: XrayTestWithStatus[];
   selectedCount: number;
 }) {
-  const slices = useMemo(() => buildSlices(allTests), [allTests]);
+  const slices = useMemo(() => buildSlicesFromTests(allTests), [allTests]);
   const total = allTests.length;
   const passedSlice = slices.find((s) => s.key === "PASS");
   const failedSlice = slices.find((s) => s.key === "FAIL");
@@ -384,7 +157,7 @@ function TestSetSection({
   const rateLimitUntil = isError ? parseRateLimitError(error) : null;
   const errorMessage = isError ? (error instanceof Error ? error.message : String(error)) : null;
 
-  const slices = useMemo(() => buildSlices(tests ?? []), [tests]);
+  const slices = useMemo(() => buildSlicesFromTests(tests ?? []), [tests]);
 
   const filtered = useMemo(() => {
     if (!tests) return [];
@@ -496,7 +269,7 @@ function TestSetSection({
                     {test.jira.summary}
                   </span>
                   <StatusBadge
-                    name={test.latest_status?.name ?? STATUS_NOT_RUN}
+                    name={test.latest_status?.name ?? "NOT RUN"}
                     {...(test.latest_status?.color !== undefined
                       ? { color: test.latest_status.color }
                       : {})}
@@ -916,7 +689,9 @@ export function CoveragePage() {
   };
 
   if (!projectKey) {
-    return <EmptyState message="Set a Project Key in Settings to view test coverage." />;
+    return (
+      <EmptyState icon={Activity} message="Set a Project Key in Settings to view test coverage." />
+    );
   }
 
   return (
@@ -1106,17 +881,6 @@ export function CoveragePage() {
           </div>
         )}
       </div>
-    </div>
-  );
-}
-
-// ── Empty state ───────────────────────────────────────────────────────────────
-
-function EmptyState({ message }: { message: string }) {
-  return (
-    <div className="flex h-48 flex-col items-center justify-center gap-3 text-slate-400">
-      <Activity className="h-10 w-10 opacity-40" />
-      <p className="text-sm">{message}</p>
     </div>
   );
 }
