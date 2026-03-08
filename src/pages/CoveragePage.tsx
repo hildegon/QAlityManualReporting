@@ -1,14 +1,18 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef, useEffect } from "react";
 import { useQueries, useQueryClient } from "@tanstack/react-query";
 import { useGetTestSets, queryKeys } from "@/services/queries";
 import { useContentProjectKey } from "@/hooks/useProjectKey";
 import { parseRateLimitError } from "@/stores/uiStore";
+import { useCoveragePresetsStore } from "@/stores/coveragePresetsStore";
+import type { CoveragePreset } from "@/stores/coveragePresetsStore";
 import { Spinner } from "@/components/ui/spinner";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
 import {
   Activity,
   AlertTriangle,
+  BookmarkCheck,
+  BookmarkPlus,
   CheckCircle2,
   CheckSquare2,
   ChevronDown,
@@ -17,9 +21,11 @@ import {
   Clock,
   Layers,
   MinusCircle,
+  Pencil,
   RefreshCw,
   Search,
   Square,
+  Trash2,
   XCircle,
 } from "lucide-react";
 import { cn } from "@/components/ui/utils";
@@ -536,11 +542,251 @@ function StatusBadge({ name, color }: StatusBadgeProps) {
   );
 }
 
+// ── Presets bar ───────────────────────────────────────────────────────────────
+
+interface PresetsBarProps {
+  selectedSetIds: Set<string>;
+  onLoad: (preset: CoveragePreset) => void;
+  activePresetId: string | null;
+  isModified: boolean;
+  onSave: (name: string) => void;
+  onUpdate: () => void;
+  onDelete: (id: string) => void;
+  onRename: (id: string, name: string) => void;
+}
+
+function PresetsBar({
+  selectedSetIds,
+  onLoad,
+  activePresetId,
+  isModified,
+  onSave,
+  onUpdate,
+  onDelete,
+  onRename,
+}: PresetsBarProps) {
+  const presets = useCoveragePresetsStore((s) => s.presets);
+  const [saving, setSaving] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+  const nameInputRef = useRef<HTMLInputElement>(null);
+  const renameInputRef = useRef<HTMLInputElement>(null);
+
+  // Focus the save-name input when it appears.
+  useEffect(() => {
+    if (saving) nameInputRef.current?.focus();
+  }, [saving]);
+
+  // Focus the rename input when it appears.
+  useEffect(() => {
+    if (renamingId) renameInputRef.current?.focus();
+  }, [renamingId]);
+
+  const handleSaveConfirm = () => {
+    const name = newName.trim();
+    if (!name) return;
+    onSave(name);
+    setNewName("");
+    setSaving(false);
+  };
+
+  const handleRenameConfirm = (id: string) => {
+    const name = renameValue.trim();
+    if (name) onRename(id, name);
+    setRenamingId(null);
+    setRenameValue("");
+  };
+
+  const startRename = (preset: CoveragePreset) => {
+    setRenamingId(preset.id);
+    setRenameValue(preset.name);
+    setSaving(false);
+  };
+
+  const canSave = selectedSetIds.size > 0;
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between">
+        <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">Presets</p>
+
+        {/* Save / Update buttons */}
+        <div className="flex items-center gap-1.5">
+          {activePresetId && isModified && (
+            <button
+              onClick={onUpdate}
+              className="flex items-center gap-1 rounded px-2 py-0.5 text-xs font-medium text-amber-600 hover:bg-amber-50"
+              title="Update current preset with the current selection"
+            >
+              <BookmarkCheck className="h-3.5 w-3.5" />
+              Update
+            </button>
+          )}
+          {canSave && !saving && (
+            <button
+              onClick={() => {
+                setSaving(true);
+                setRenamingId(null);
+              }}
+              className="flex items-center gap-1 rounded px-2 py-0.5 text-xs font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-700"
+              title="Save current selection as a new preset"
+            >
+              <BookmarkPlus className="h-3.5 w-3.5" />
+              Save
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Inline name input for new preset */}
+      {saving && (
+        <div className="flex items-center gap-1.5">
+          <Input
+            ref={nameInputRef}
+            className="h-7 flex-1 text-xs"
+            placeholder="Preset name…"
+            value={newName}
+            onChange={(e) => setNewName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") handleSaveConfirm();
+              if (e.key === "Escape") {
+                setSaving(false);
+                setNewName("");
+              }
+            }}
+          />
+          <button
+            onClick={handleSaveConfirm}
+            disabled={!newName.trim()}
+            className="rounded px-2 py-1 text-xs font-semibold text-emerald-700 hover:bg-emerald-50 disabled:opacity-40"
+          >
+            Save
+          </button>
+          <button
+            onClick={() => {
+              setSaving(false);
+              setNewName("");
+            }}
+            className="rounded px-2 py-1 text-xs text-slate-400 hover:bg-slate-100"
+          >
+            Cancel
+          </button>
+        </div>
+      )}
+
+      {/* Preset chips */}
+      {presets.length === 0 && !saving && (
+        <p className="text-xs italic text-slate-400">
+          {canSave ? 'Click "Save" to create your first preset.' : "No presets yet."}
+        </p>
+      )}
+
+      {presets.length > 0 && (
+        <div className="space-y-1">
+          {presets.map((preset) => {
+            const isActive = preset.id === activePresetId;
+
+            if (renamingId === preset.id) {
+              return (
+                <div key={preset.id} className="flex items-center gap-1.5">
+                  <Input
+                    ref={renameInputRef}
+                    className="h-7 flex-1 text-xs"
+                    value={renameValue}
+                    onChange={(e) => setRenameValue(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") handleRenameConfirm(preset.id);
+                      if (e.key === "Escape") {
+                        setRenamingId(null);
+                        setRenameValue("");
+                      }
+                    }}
+                  />
+                  <button
+                    onClick={() => handleRenameConfirm(preset.id)}
+                    disabled={!renameValue.trim()}
+                    className="rounded px-2 py-1 text-xs font-semibold text-emerald-700 hover:bg-emerald-50 disabled:opacity-40"
+                  >
+                    OK
+                  </button>
+                  <button
+                    onClick={() => {
+                      setRenamingId(null);
+                      setRenameValue("");
+                    }}
+                    className="rounded px-2 py-1 text-xs text-slate-400 hover:bg-slate-100"
+                  >
+                    ✕
+                  </button>
+                </div>
+              );
+            }
+
+            return (
+              <div key={preset.id} className="group flex items-center gap-1">
+                <button
+                  onClick={() => onLoad(preset)}
+                  className={cn(
+                    "flex flex-1 items-center gap-1.5 truncate rounded-lg border px-2.5 py-1.5 text-left text-xs transition-colors",
+                    isActive && !isModified
+                      ? "border-slate-700 bg-slate-700 font-semibold text-white"
+                      : isActive && isModified
+                        ? "border-amber-400 bg-amber-50 font-semibold text-amber-800"
+                        : "border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50",
+                  )}
+                  title={`${preset.setIds.length} set${preset.setIds.length !== 1 ? "s" : ""}`}
+                >
+                  <span className="truncate">{preset.name}</span>
+                  <span
+                    className={cn(
+                      "ml-auto shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium",
+                      isActive && !isModified
+                        ? "bg-white/20 text-white"
+                        : isActive && isModified
+                          ? "bg-amber-200 text-amber-700"
+                          : "bg-slate-100 text-slate-400",
+                    )}
+                  >
+                    {preset.setIds.length}
+                  </span>
+                  {isActive && isModified && (
+                    <span className="shrink-0 text-[10px] font-normal text-amber-600">
+                      modified
+                    </span>
+                  )}
+                </button>
+
+                {/* Action icons (shown on hover) */}
+                <button
+                  onClick={() => startRename(preset)}
+                  className="shrink-0 rounded p-1 text-slate-300 opacity-0 transition-opacity hover:bg-slate-100 hover:text-slate-500 group-hover:opacity-100"
+                  title="Rename preset"
+                >
+                  <Pencil className="h-3 w-3" />
+                </button>
+                <button
+                  onClick={() => onDelete(preset.id)}
+                  className="shrink-0 rounded p-1 text-slate-300 opacity-0 transition-opacity hover:bg-red-50 hover:text-red-500 group-hover:opacity-100"
+                  title="Delete preset"
+                >
+                  <Trash2 className="h-3 w-3" />
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export function CoveragePage() {
   const projectKey = useContentProjectKey();
   const queryClient = useQueryClient();
+  const { savePreset, updatePreset, deletePreset, renamePreset } = useCoveragePresetsStore();
   const {
     data: testSets,
     isLoading: setsLoading,
@@ -553,6 +799,16 @@ export function CoveragePage() {
   const [testSearch, setTestSearch] = useState("");
   const [selectedSetIds, setSelectedSetIds] = useState<Set<string>>(new Set());
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [activePresetId, setActivePresetId] = useState<string | null>(null);
+  const [loadedPresetSetIds, setLoadedPresetSetIds] = useState<string[]>([]);
+
+  // Dirty detection: preset is "modified" when selection drifts from what was loaded.
+  const isModified = useMemo(() => {
+    if (!activePresetId) return false;
+    const current = [...selectedSetIds].sort().join(",");
+    const original = [...loadedPresetSetIds].sort().join(",");
+    return current !== original;
+  }, [activePresetId, selectedSetIds, loadedPresetSetIds]);
 
   // Filtered list of test sets for the selector panel.
   const filteredSets = useMemo(() => {
@@ -622,11 +878,42 @@ export function CoveragePage() {
     });
   };
 
-  const selectAll = () => {
-    setSelectedSetIds(new Set(filteredSets.map((ts) => ts.issue_id)));
+  const selectAll = () => setSelectedSetIds(new Set(filteredSets.map((ts) => ts.issue_id)));
+  const clearAll = () => setSelectedSetIds(new Set());
+
+  // ── Preset handlers ──────────────────────────────────────────────────────────
+
+  const handleLoadPreset = (preset: CoveragePreset) => {
+    setSelectedSetIds(new Set(preset.setIds));
+    setActivePresetId(preset.id);
+    setLoadedPresetSetIds(preset.setIds);
   };
 
-  const clearAll = () => setSelectedSetIds(new Set());
+  const handleSavePreset = (name: string) => {
+    const ids = [...selectedSetIds];
+    const preset = savePreset(name, ids);
+    setActivePresetId(preset.id);
+    setLoadedPresetSetIds(ids);
+  };
+
+  const handleUpdatePreset = () => {
+    if (!activePresetId) return;
+    const ids = [...selectedSetIds];
+    const existing = useCoveragePresetsStore
+      .getState()
+      .presets.find((p) => p.id === activePresetId);
+    if (!existing) return;
+    updatePreset(activePresetId, existing.name, ids);
+    setLoadedPresetSetIds(ids);
+  };
+
+  const handleDeletePreset = (id: string) => {
+    deletePreset(id);
+    if (activePresetId === id) {
+      setActivePresetId(null);
+      setLoadedPresetSetIds([]);
+    }
+  };
 
   if (!projectKey) {
     return <EmptyState message="Set a Project Key in Settings to view test coverage." />;
@@ -634,115 +921,131 @@ export function CoveragePage() {
 
   return (
     <div className="flex h-[calc(100vh-8rem)] gap-6">
-      {/* ── Left panel: set selector ── */}
-      <div className="flex w-72 shrink-0 flex-col gap-3">
-        {/* Header */}
-        <div className="flex items-center justify-between">
-          <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">Test Sets</p>
-          <button
-            onClick={() => void handleRefresh()}
-            disabled={setsFetching || isRefreshing}
-            className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 disabled:opacity-40"
-            title="Reload test sets"
-          >
-            <RefreshCw
-              className={cn("h-3.5 w-3.5", (setsFetching || isRefreshing) && "animate-spin")}
-            />
-          </button>
-        </div>
+      {/* ── Left panel: presets + set selector ── */}
+      <div className="flex w-72 shrink-0 flex-col gap-4">
+        {/* Presets */}
+        <PresetsBar
+          selectedSetIds={selectedSetIds}
+          onLoad={handleLoadPreset}
+          activePresetId={activePresetId}
+          isModified={isModified}
+          onSave={handleSavePreset}
+          onUpdate={handleUpdatePreset}
+          onDelete={handleDeletePreset}
+          onRename={(id, name) => renamePreset(id, name)}
+        />
 
-        {/* Search */}
-        <div className="relative">
-          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
-          <Input
-            className="pl-8 text-xs"
-            placeholder="Filter sets…"
-            value={setSearch}
-            onChange={(e) => setSetSearch(e.target.value)}
-          />
-        </div>
+        {/* Divider */}
+        <div className="h-px bg-slate-200" />
 
-        {/* Select / deselect all */}
-        <div className="flex items-center justify-between text-xs text-slate-500">
-          <span>
-            {selectedSetIds.size > 0 && (
-              <span className="mr-1.5 rounded-full bg-slate-700 px-1.5 py-0.5 text-white">
-                {selectedSetIds.size} selected
-              </span>
-            )}
-            {filteredSets.length} set{filteredSets.length !== 1 ? "s" : ""}
-          </span>
-          <div className="flex gap-2">
-            <button className="hover:text-slate-700" onClick={selectAll}>
-              All
-            </button>
-            {selectedSetIds.size > 0 && (
-              <button className="hover:text-slate-700" onClick={clearAll}>
-                Clear
-              </button>
-            )}
-          </div>
-        </div>
-
-        {/* Set list */}
-        <div className="flex-1 overflow-y-auto">
-          {setsLoading && (
-            <div className="space-y-2">
-              {Array.from({ length: 6 }).map((_, i) => (
-                <Skeleton key={i} className="h-9 w-full rounded-lg" />
-              ))}
-            </div>
-          )}
-          {setsError && (
-            <div className="rounded-md bg-red-50 px-3 py-2 text-xs text-red-700">
-              Failed to load test sets.{" "}
-              <button className="underline" onClick={() => void refetchSets()}>
-                Retry
-              </button>
-            </div>
-          )}
-          {!setsLoading && !setsError && filteredSets.length === 0 && (
-            <p className="py-4 text-center text-xs italic text-slate-400">
-              {setSearch.trim()
-                ? "No test sets match the filter."
-                : `No test sets found in ${projectKey}.`}
+        {/* Test sets */}
+        <div className="flex min-h-0 flex-1 flex-col gap-3">
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+              Test Sets
             </p>
-          )}
-          <div className="space-y-1">
-            {filteredSets.map((ts) => {
-              const selected = selectedSetIds.has(ts.issue_id);
-              return (
-                <button
-                  key={ts.issue_id}
-                  onClick={() => toggleSet(ts.issue_id)}
-                  className={cn(
-                    "flex w-full items-center gap-2 rounded-lg border px-3 py-2 text-left transition-colors",
-                    selected
-                      ? "border-slate-700 bg-slate-700 text-white"
-                      : "border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50",
-                  )}
-                >
-                  <span className="mt-0.5 shrink-0">
-                    {selected ? (
-                      <CheckSquare2 className="h-4 w-4 text-white" />
-                    ) : (
-                      <Square className="h-4 w-4 text-slate-300" />
-                    )}
-                  </span>
-                  <div className="min-w-0">
-                    <p className="truncate text-xs font-medium">{ts.jira.summary}</p>
-                    <p
-                      className={cn(
-                        "font-mono text-[10px]",
-                        selected ? "text-slate-300" : "text-slate-400",
-                      )}
-                    >
-                      {ts.jira.key}
-                    </p>
-                  </div>
+            <button
+              onClick={() => void handleRefresh()}
+              disabled={setsFetching || isRefreshing}
+              className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 disabled:opacity-40"
+              title="Reload test sets"
+            >
+              <RefreshCw
+                className={cn("h-3.5 w-3.5", (setsFetching || isRefreshing) && "animate-spin")}
+              />
+            </button>
+          </div>
+
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+            <Input
+              className="pl-8 text-xs"
+              placeholder="Filter sets…"
+              value={setSearch}
+              onChange={(e) => setSetSearch(e.target.value)}
+            />
+          </div>
+
+          <div className="flex items-center justify-between text-xs text-slate-500">
+            <span>
+              {selectedSetIds.size > 0 && (
+                <span className="mr-1.5 rounded-full bg-slate-700 px-1.5 py-0.5 text-white">
+                  {selectedSetIds.size} selected
+                </span>
+              )}
+              {filteredSets.length} set{filteredSets.length !== 1 ? "s" : ""}
+            </span>
+            <div className="flex gap-2">
+              <button className="hover:text-slate-700" onClick={selectAll}>
+                All
+              </button>
+              {selectedSetIds.size > 0 && (
+                <button className="hover:text-slate-700" onClick={clearAll}>
+                  Clear
                 </button>
-              );
-            })}
+              )}
+            </div>
+          </div>
+
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            {setsLoading && (
+              <div className="space-y-2">
+                {Array.from({ length: 6 }).map((_, i) => (
+                  <Skeleton key={i} className="h-9 w-full rounded-lg" />
+                ))}
+              </div>
+            )}
+            {setsError && (
+              <div className="rounded-md bg-red-50 px-3 py-2 text-xs text-red-700">
+                Failed to load test sets.{" "}
+                <button className="underline" onClick={() => void refetchSets()}>
+                  Retry
+                </button>
+              </div>
+            )}
+            {!setsLoading && !setsError && filteredSets.length === 0 && (
+              <p className="py-4 text-center text-xs italic text-slate-400">
+                {setSearch.trim()
+                  ? "No test sets match the filter."
+                  : `No test sets found in ${projectKey}.`}
+              </p>
+            )}
+            <div className="space-y-1">
+              {filteredSets.map((ts) => {
+                const selected = selectedSetIds.has(ts.issue_id);
+                return (
+                  <button
+                    key={ts.issue_id}
+                    onClick={() => toggleSet(ts.issue_id)}
+                    className={cn(
+                      "flex w-full items-center gap-2 rounded-lg border px-3 py-2 text-left transition-colors",
+                      selected
+                        ? "border-slate-700 bg-slate-700 text-white"
+                        : "border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50",
+                    )}
+                  >
+                    <span className="mt-0.5 shrink-0">
+                      {selected ? (
+                        <CheckSquare2 className="h-4 w-4 text-white" />
+                      ) : (
+                        <Square className="h-4 w-4 text-slate-300" />
+                      )}
+                    </span>
+                    <div className="min-w-0">
+                      <p className="truncate text-xs font-medium">{ts.jira.summary}</p>
+                      <p
+                        className={cn(
+                          "font-mono text-[10px]",
+                          selected ? "text-slate-300" : "text-slate-400",
+                        )}
+                      >
+                        {ts.jira.key}
+                      </p>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
           </div>
         </div>
       </div>
@@ -752,7 +1055,6 @@ export function CoveragePage() {
 
       {/* ── Right panel: coverage dashboard ── */}
       <div className="flex min-w-0 flex-1 flex-col gap-4 overflow-hidden">
-        {/* Header */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Activity className="h-5 w-5 text-slate-400" />
@@ -761,8 +1063,6 @@ export function CoveragePage() {
               <span className="ml-2 text-sm font-normal text-slate-500">{projectKey}</span>
             </h1>
           </div>
-
-          {/* Test filter */}
           <div className="relative w-56">
             <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
             <Input
@@ -774,7 +1074,6 @@ export function CoveragePage() {
           </div>
         </div>
 
-        {/* Empty state */}
         {selectedSets.length === 0 && (
           <div className="flex flex-1 flex-col items-center justify-center gap-3 text-slate-400">
             <Layers className="h-12 w-12 opacity-30" />
@@ -782,13 +1081,9 @@ export function CoveragePage() {
           </div>
         )}
 
-        {/* Dashboard + test set sections */}
         {selectedSets.length > 0 && (
           <div className="flex-1 space-y-4 overflow-y-auto pb-4">
-            {/* Overall dashboard */}
             <OverallDashboard allTests={allTests} selectedCount={selectedSets.length} />
-
-            {/* Per-set sections */}
             {selectedSets.map((ts) => {
               const q = queryBySetId.get(ts.issue_id);
               return (
