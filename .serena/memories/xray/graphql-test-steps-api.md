@@ -189,3 +189,27 @@ type UpdateTestRunStepStatusResult {
 - `removeEvidenceFromTestRunStep`
 - `addDefectsToTestRunStep`
 - `removeDefectsFromTestRunStep`
+
+## 10. Test Set / Test Plan membership mutations (IMPORTANT: scalar return types)
+
+### addTestsToTestSet / addTestsToTestPlan — return OBJECTS
+```graphql
+addTestsToTestSet(issueId: String!, testIssueIds: [String]!): AddTestsToTestSetResult
+addTestsToTestPlan(issueId: String!, testIssueIds: [String]!): AddTestsToPlanResult
+```
+These return objects with subfields: `{ addedTests warning }` — selection set IS required.
+
+### removeTestsFromTestSet / removeTestsFromTestPlan — return SCALAR String
+```graphql
+removeTestsFromTestSet(issueId: String!, testIssueIds: [String]!): String
+removeTestsFromTestPlan(issueId: String!, testIssueIds: [String]!): String
+```
+**These return a plain `String` scalar.** Do NOT select subfields — it will cause a 400 Bad Request:
+`"Field must not have a selection since type String has no subfields"`
+
+Correct usage (no selection set):
+```graphql
+mutation RemoveTestsFromTestSet($issueId: String!, $testIssueIds: [String]!) {
+    removeTestsFromTestSet(issueId: $issueId, testIssueIds: $testIssueIds)
+}
+```

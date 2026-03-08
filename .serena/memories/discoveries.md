@@ -12,7 +12,13 @@
 
 6. **Mutation names may also need verification** — `updateTestRunStatus` and `createTestExecution` need checking against actual Xray schema.
 
-7. **Rate limit optimization (completed):**
+7. **Xray `remove` mutations return a scalar `String`, NOT an object.** `removeTestsFromTestSet` and `removeTestsFromTestPlan` both return `String`. Selecting subfields (e.g. `{ removedTests warning }`) causes a 400 Bad Request: `"Field must not have a selection since type String has no subfields"`. By contrast, `addTestsToTestSet` and `addTestsToTestPlan` DO return objects with `addedTests`/`warning` subfields.
+
+8. **Two queries files must be kept in sync.** `src/services/queries.ts` (flat file) takes precedence over `src/services/queries/index.ts` (barrel) in TypeScript module resolution. Imports of `"@/services/queries"` resolve to the flat file, NOT the directory. New hooks must be added to `queries.ts` directly — AND also to `src/services/queries/xray.ts` (with re-export from `queries/index.ts`) to keep the modular tree consistent.
+
+9. **HTML5 DnD does not work in Tauri's macOS WKWebView.** Use the custom mouse-based drag via `useDragAndDrop` hook instead.
+
+10. **Rate limit optimization (completed):**
    - `useTestSetMembership` N+1 fixed via `get_all_test_set_memberships` Rust batch command.
    - `useVersionRunStats` staleTime increased from 30s → 5min.
    - `useTestRuns` staleTime increased from 30s → 2min.
