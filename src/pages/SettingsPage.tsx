@@ -6,7 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Spinner } from "@/components/ui/spinner";
-import { CheckCircle, XCircle } from "lucide-react";
+import { CheckCircle, ExternalLink, XCircle } from "lucide-react";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import type { AppConfig } from "@/types";
 
 const EMPTY_CONFIG: AppConfig = {
@@ -114,7 +115,21 @@ export function SettingsPage() {
               placeholder="you@company.com"
             />
           </Field>
-          <Field label="API Token" hint="Generate at id.atlassian.com/manage-profile/security">
+          <Field
+            label="API Token"
+            hint={
+              <button
+                type="button"
+                onClick={() =>
+                  void openUrl("https://id.atlassian.com/manage-profile/security/api-tokens")
+                }
+                className="inline-flex items-center gap-1 text-xs text-blue-500 hover:text-blue-700 hover:underline"
+              >
+                <ExternalLink className="h-3 w-3" />
+                Create an API token on Atlassian
+              </button>
+            }
+          >
             <Input
               type="password"
               value={form.jira_api_token}
@@ -144,7 +159,23 @@ export function SettingsPage() {
         </h2>
 
         <div className="space-y-4">
-          <Field label="Client ID">
+          <Field
+            label="Client ID"
+            hint={
+              <button
+                type="button"
+                onClick={() =>
+                  void openUrl(
+                    "https://docs.getxray.app/space/XRAYCLOUD/44568019/Global+Settings+-+API+Keys",
+                  )
+                }
+                className="inline-flex items-center gap-1 text-xs text-blue-500 hover:text-blue-700 hover:underline"
+              >
+                <ExternalLink className="h-3 w-3" />
+                Find your API keys in Xray Cloud settings
+              </button>
+            }
+          >
             <Input
               value={form.xray_client_id}
               onChange={handleChange("xray_client_id")}
@@ -225,7 +256,7 @@ function Field({
   children,
 }: {
   label: string;
-  hint?: string;
+  hint?: React.ReactNode;
   children: React.ReactNode;
 }) {
   return (
