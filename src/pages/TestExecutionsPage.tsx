@@ -15,13 +15,15 @@ import {
 import { useContentProjectKey, useExecutionProjectKey } from "@/hooks/useProjectKey";
 import { useQueryClient } from "@tanstack/react-query";
 import { parseRateLimitError } from "@/stores/uiStore";
+import { useVersionsStore } from "@/stores/versionsStore";
+import { cn } from "@/components/ui/utils";
 import { Spinner } from "@/components/ui/spinner";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge, statusVariant } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Copy, ListChecks, Pencil, Plus, RefreshCw, X } from "lucide-react";
+import { Copy, ListChecks, Pencil, Plus, RefreshCw, Star, X } from "lucide-react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { TestExecutionDetail } from "@/components/test-execution/TestExecutionDetail";
 import type { JiraUser, TestExecution, TestRunsPage, XrayTest } from "@/types";
@@ -34,9 +36,151 @@ function isDoneStatus(name: string) {
   return DONE_STATUSES.has(name.toLowerCase());
 }
 
+// ── ExecRow ───────────────────────────────────────────────────────────────────
+
+interface ExecRowProps {
+  exec: TestExecution;
+  isFavourite: boolean;
+  executionProjectKey: string;
+  renameKey: string | null;
+  renameDraft: string;
+  renameIsPending: boolean;
+  onSelect: () => void;
+  onStartRename: () => void;
+  onCancelRename: () => void;
+  onSaveRename: (trimmed: string) => void;
+  setRenameDraft: (v: string) => void;
+  onToggleFavourite: (e: React.MouseEvent) => void;
+  onEdit: (e: React.MouseEvent) => void;
+  onClone: (e: React.MouseEvent) => void;
+}
+
+function ExecRow({
+  exec,
+  isFavourite,
+  renameKey,
+  renameDraft,
+  renameIsPending,
+  onSelect,
+  onStartRename,
+  onCancelRename,
+  onSaveRename,
+  setRenameDraft,
+  onToggleFavourite,
+  onEdit,
+  onClone,
+}: ExecRowProps) {
+  return (
+    <tr
+      className={cn("group cursor-pointer hover:bg-slate-50", isFavourite && "bg-amber-50/40")}
+      onClick={onSelect}
+    >
+      {/* Favourite star */}
+      <td className="px-2 py-3" onClick={(e) => e.stopPropagation()}>
+        <button
+          aria-label={isFavourite ? "Remove from favourites" : "Add to favourites"}
+          onClick={onToggleFavourite}
+          className={cn(
+            "rounded p-0.5 transition-colors",
+            isFavourite
+              ? "text-amber-400 hover:text-amber-500"
+              : "text-slate-300 hover:text-amber-400",
+          )}
+        >
+          <Star
+            className="h-3.5 w-3.5"
+            fill={isFavourite ? "currentColor" : "none"}
+            strokeWidth={isFavourite ? 0 : 1.5}
+          />
+        </button>
+      </td>
+
+      <td className="px-4 py-3 font-mono text-xs text-slate-600">{exec.jira.key}</td>
+
+      <td className="px-4 py-3 text-slate-800" onClick={(e) => e.stopPropagation()}>
+        {renameKey === exec.jira.key ? (
+          <form
+            className="flex items-center gap-1.5"
+            onSubmit={(e) => {
+              e.preventDefault();
+              const trimmed = renameDraft.trim();
+              if (!trimmed || trimmed === exec.jira.summary) {
+                onCancelRename();
+                return;
+              }
+              onSaveRename(trimmed);
+            }}
+          >
+            <input
+              autoFocus
+              className="flex-1 rounded border border-slate-300 px-2 py-0.5 text-sm focus:border-slate-500 focus:outline-none"
+              value={renameDraft}
+              onChange={(e) => setRenameDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") onCancelRename();
+              }}
+              disabled={renameIsPending}
+            />
+            <button
+              type="submit"
+              className="rounded px-2 py-0.5 text-xs font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-40"
+              disabled={renameIsPending}
+            >
+              {renameIsPending ? "…" : "Save"}
+            </button>
+            <button
+              type="button"
+              className="rounded px-2 py-0.5 text-xs text-slate-400 hover:bg-slate-100"
+              onClick={onCancelRename}
+            >
+              Cancel
+            </button>
+          </form>
+        ) : (
+          <span
+            className="group/rename flex cursor-pointer items-center gap-1.5"
+            onClick={onStartRename}
+          >
+            {exec.jira.summary}
+            <Pencil className="h-3.5 w-3.5 shrink-0 text-slate-300 opacity-0 group-hover/rename:opacity-100" />
+          </span>
+        )}
+      </td>
+
+      <td className="px-4 py-3">
+        {exec.jira.status && (
+          <Badge variant={statusVariant(exec.jira.status.name)}>{exec.jira.status.name}</Badge>
+        )}
+      </td>
+
+      <td className="px-4 py-3 text-slate-500">{exec.jira.assignee?.display_name ?? "\u2014"}</td>
+
+      <td className="px-4 py-3">
+        <div className="flex items-center gap-1">
+          <button
+            className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+            title="Edit status / assignee"
+            onClick={onEdit}
+          >
+            <Pencil className="h-4 w-4" />
+          </button>
+          <button
+            className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+            title="Clone execution"
+            onClick={onClone}
+          >
+            <Copy className="h-4 w-4" />
+          </button>
+        </div>
+      </td>
+    </tr>
+  );
+}
+
 export function TestExecutionsPage() {
   const executionProjectKey = useExecutionProjectKey();
   const contentProjectKey = useContentProjectKey();
+  const { isExecutionFavourite, toggleExecutionFavourite } = useVersionsStore();
   const {
     data: executions,
     isLoading,
@@ -134,6 +278,19 @@ export function TestExecutionsPage() {
     (exec) => exec.jira.status && isDoneStatus(exec.jira.status.name),
   ).length;
 
+  const favouriteExecs = executionProjectKey
+    ? filtered.filter((e) => isExecutionFavourite(executionProjectKey, e.issue_id))
+    : [];
+  const regularExecs = executionProjectKey
+    ? filtered.filter((e) => !isExecutionFavourite(executionProjectKey, e.issue_id))
+    : filtered;
+
+  function handleToggleExecFavourite(e: React.MouseEvent, issueId: string) {
+    e.stopPropagation();
+    if (!executionProjectKey) return;
+    toggleExecutionFavourite(executionProjectKey, issueId);
+  }
+
   return (
     <div>
       <div className="mb-4 flex items-center justify-between">
@@ -195,6 +352,7 @@ export function TestExecutionsPage() {
           <table className="w-full text-sm">
             <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
               <tr>
+                <th className="w-8 px-2 py-3" />
                 <th className="px-4 py-3 text-left">Key</th>
                 <th className="px-4 py-3 text-left">Summary</th>
                 <th className="px-4 py-3 text-left">Status</th>
@@ -203,107 +361,93 @@ export function TestExecutionsPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {filtered.map((exec) => (
-                <tr
+              {favouriteExecs.length > 0 && (
+                <>
+                  {favouriteExecs.map((exec) => (
+                    <ExecRow
+                      key={exec.issue_id}
+                      exec={exec}
+                      isFavourite={true}
+                      executionProjectKey={executionProjectKey}
+                      renameKey={renameKey}
+                      renameDraft={renameDraft}
+                      renameIsPending={renameIssue.isPending}
+                      onSelect={() => setSelected(exec)}
+                      onStartRename={() => {
+                        setRenameKey(exec.jira.key);
+                        setRenameDraft(exec.jira.summary);
+                      }}
+                      onCancelRename={() => setRenameKey(null)}
+                      onSaveRename={(trimmed) => {
+                        renameIssue.mutate(
+                          {
+                            issueKey: exec.jira.key,
+                            summary: trimmed,
+                            queryKey: queryKeys.testExecutions(executionProjectKey),
+                          },
+                          { onSettled: () => setRenameKey(null) },
+                        );
+                      }}
+                      setRenameDraft={setRenameDraft}
+                      onToggleFavourite={(e) => handleToggleExecFavourite(e, exec.issue_id)}
+                      onEdit={(e) => {
+                        e.stopPropagation();
+                        setEditTarget(exec);
+                      }}
+                      onClone={(e) => {
+                        e.stopPropagation();
+                        setCloneTarget(exec);
+                      }}
+                    />
+                  ))}
+                  {regularExecs.length > 0 && (
+                    <tr>
+                      <td
+                        colSpan={6}
+                        className="bg-slate-50 px-4 py-1.5 text-xs font-semibold uppercase tracking-wider text-slate-400"
+                      >
+                        All executions
+                      </td>
+                    </tr>
+                  )}
+                </>
+              )}
+              {regularExecs.map((exec) => (
+                <ExecRow
                   key={exec.issue_id}
-                  className="cursor-pointer hover:bg-slate-50"
-                  onClick={() => setSelected(exec)}
-                >
-                  <td className="px-4 py-3 font-mono text-xs text-slate-600">{exec.jira.key}</td>
-                  <td className="px-4 py-3 text-slate-800" onClick={(e) => e.stopPropagation()}>
-                    {renameKey === exec.jira.key ? (
-                      <form
-                        className="flex items-center gap-1.5"
-                        onSubmit={(e) => {
-                          e.preventDefault();
-                          const trimmed = renameDraft.trim();
-                          if (!trimmed || trimmed === exec.jira.summary) {
-                            setRenameKey(null);
-                            return;
-                          }
-                          renameIssue.mutate(
-                            {
-                              issueKey: exec.jira.key,
-                              summary: trimmed,
-                              queryKey: queryKeys.testExecutions(executionProjectKey),
-                            },
-                            { onSettled: () => setRenameKey(null) },
-                          );
-                        }}
-                      >
-                        <input
-                          autoFocus
-                          className="flex-1 rounded border border-slate-300 px-2 py-0.5 text-sm focus:border-slate-500 focus:outline-none"
-                          value={renameDraft}
-                          onChange={(e) => setRenameDraft(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === "Escape") setRenameKey(null);
-                          }}
-                          disabled={renameIssue.isPending}
-                        />
-                        <button
-                          type="submit"
-                          className="rounded px-2 py-0.5 text-xs font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-40"
-                          disabled={renameIssue.isPending}
-                        >
-                          {renameIssue.isPending ? "…" : "Save"}
-                        </button>
-                        <button
-                          type="button"
-                          className="rounded px-2 py-0.5 text-xs text-slate-400 hover:bg-slate-100"
-                          onClick={() => setRenameKey(null)}
-                        >
-                          Cancel
-                        </button>
-                      </form>
-                    ) : (
-                      <span
-                        className="group flex cursor-pointer items-center gap-1.5"
-                        onClick={() => {
-                          setRenameKey(exec.jira.key);
-                          setRenameDraft(exec.jira.summary);
-                        }}
-                      >
-                        {exec.jira.summary}
-                        <Pencil className="h-3.5 w-3.5 shrink-0 text-slate-300 opacity-0 group-hover:opacity-100" />
-                      </span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3">
-                    {exec.jira.status && (
-                      <Badge variant={statusVariant(exec.jira.status.name)}>
-                        {exec.jira.status.name}
-                      </Badge>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 text-slate-500">
-                    {exec.jira.assignee?.display_name ?? "\u2014"}
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="flex items-center gap-1">
-                      <button
-                        className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
-                        title="Edit status / assignee"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setEditTarget(exec);
-                        }}
-                      >
-                        <Pencil className="h-4 w-4" />
-                      </button>
-                      <button
-                        className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
-                        title="Clone execution"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setCloneTarget(exec);
-                        }}
-                      >
-                        <Copy className="h-4 w-4" />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
+                  exec={exec}
+                  isFavourite={false}
+                  executionProjectKey={executionProjectKey}
+                  renameKey={renameKey}
+                  renameDraft={renameDraft}
+                  renameIsPending={renameIssue.isPending}
+                  onSelect={() => setSelected(exec)}
+                  onStartRename={() => {
+                    setRenameKey(exec.jira.key);
+                    setRenameDraft(exec.jira.summary);
+                  }}
+                  onCancelRename={() => setRenameKey(null)}
+                  onSaveRename={(trimmed) => {
+                    renameIssue.mutate(
+                      {
+                        issueKey: exec.jira.key,
+                        summary: trimmed,
+                        queryKey: queryKeys.testExecutions(executionProjectKey),
+                      },
+                      { onSettled: () => setRenameKey(null) },
+                    );
+                  }}
+                  setRenameDraft={setRenameDraft}
+                  onToggleFavourite={(e) => handleToggleExecFavourite(e, exec.issue_id)}
+                  onEdit={(e) => {
+                    e.stopPropagation();
+                    setEditTarget(exec);
+                  }}
+                  onClone={(e) => {
+                    e.stopPropagation();
+                    setCloneTarget(exec);
+                  }}
+                />
               ))}
             </tbody>
           </table>

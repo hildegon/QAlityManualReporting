@@ -669,8 +669,8 @@ function VersionCard({
                   ? "text-amber-300 hover:text-amber-100"
                   : "text-amber-400 hover:text-amber-500"
                 : isActive
-                  ? "text-white/30 hover:text-white/70"
-                  : "text-slate-200 hover:text-amber-400 opacity-0 group-hover:opacity-100",
+                  ? "text-white/40 hover:text-white/80"
+                  : "text-slate-300 hover:text-amber-400",
             )}
           >
             <Star
