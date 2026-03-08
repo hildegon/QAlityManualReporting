@@ -5,10 +5,29 @@ import { Spinner } from "@/components/ui/spinner";
 import { ChevronDown, FolderOpen, Search } from "lucide-react";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { cn } from "@/components/ui/utils";
+import type { JiraProject } from "@/types";
 
-export function ProjectSelector() {
+export type ProjectScope = "content" | "execution";
+
+interface ProjectSelectorProps {
+  /** Which independent project selection this instance controls. */
+  scope: ProjectScope;
+}
+
+export function ProjectSelector({ scope }: ProjectSelectorProps) {
   const { data: projects, isLoading, isError } = useJiraProjects();
-  const { activeProject, setActiveProject } = useProjectStore();
+  const {
+    activeContentProject,
+    activeExecutionProject,
+    setActiveContentProject,
+    setActiveExecutionProject,
+  } = useProjectStore();
+
+  const activeProject: JiraProject | null =
+    scope === "content" ? activeContentProject : activeExecutionProject;
+  const setActiveProject =
+    scope === "content" ? setActiveContentProject : setActiveExecutionProject;
+
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
