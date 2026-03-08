@@ -76,7 +76,7 @@ function TestSetRow({ testSet, selected, onToggle, onMouseDown }: TestSetRowProp
         "flex cursor-pointer select-none items-center gap-2.5 rounded-lg border px-3 py-2.5 transition-colors",
         selected
           ? "border-slate-700 bg-slate-700 text-white"
-          : "border-slate-200 bg-white text-slate-800 hover:border-slate-300 hover:bg-slate-50",
+          : "border-slate-200 bg-white text-slate-800 hover:border-slate-300 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200 dark:hover:border-slate-500 dark:hover:bg-slate-700",
       )}
     >
       <Layers className={cn("h-4 w-4 shrink-0", selected ? "text-white/60" : "text-slate-400")} />
@@ -175,7 +175,7 @@ function TestSetsSourcePanel({
         {Array.from({ length: 6 }).map((_, i) => (
           <div
             key={i}
-            className="flex items-center gap-3 rounded border border-slate-100 px-3 py-2"
+            className="flex items-center gap-3 rounded border border-slate-100 px-3 py-2 dark:border-slate-700"
           >
             <Skeleton className="h-4 w-4 shrink-0 rounded" />
             <Skeleton className="h-4 flex-1" />
@@ -187,7 +187,7 @@ function TestSetsSourcePanel({
 
   if (isError) {
     return (
-      <div className="rounded-md bg-red-50 px-4 py-3 text-sm text-red-700">
+      <div className="rounded-md bg-red-50 px-4 py-3 text-sm text-red-700 dark:bg-red-950 dark:text-red-300">
         <p className="font-medium">Failed to load test sets</p>
         <pre className="mt-1 whitespace-pre-wrap font-mono text-xs">{String(error)}</pre>
       </div>
@@ -245,7 +245,7 @@ function TestSetsSourcePanel({
       </div>
 
       {selectedIds.size > 0 && (
-        <p className="rounded-lg border border-dashed border-slate-300 px-3 py-2 text-center text-xs text-slate-400">
+        <p className="rounded-lg border border-dashed border-slate-300 px-3 py-2 text-center text-xs text-slate-400 dark:border-slate-500 dark:text-slate-400">
           Drag selected sets onto a test plan →
         </p>
       )}
@@ -301,14 +301,14 @@ function TestPlanDropTarget({
       className={cn(
         "overflow-hidden rounded-lg border transition-all duration-150",
         isHoveredTarget
-          ? "border-slate-700 bg-slate-50 ring-2 ring-slate-700"
+          ? "border-slate-700 bg-slate-50 ring-2 ring-slate-700 dark:border-slate-400 dark:bg-slate-700 dark:ring-slate-400"
           : isDragging
-            ? "border-slate-300 bg-white ring-1 ring-slate-200"
-            : "border-slate-200 bg-white",
+            ? "border-slate-300 bg-white ring-1 ring-slate-200 dark:border-slate-600 dark:bg-slate-800 dark:ring-slate-600"
+            : "border-slate-200 bg-white dark:border-slate-600 dark:bg-slate-800",
       )}
     >
       {/* Header */}
-      <div className="flex w-full items-center gap-3 px-4 py-3 hover:bg-slate-50">
+      <div className="flex w-full items-center gap-3 px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-700">
         <button className="flex flex-1 items-center gap-3 text-left" onClick={onToggleExpand}>
           {isExpanded ? (
             <ChevronDown className="h-4 w-4 shrink-0 text-slate-400" />
@@ -316,7 +316,7 @@ function TestPlanDropTarget({
             <ChevronRight className="h-4 w-4 shrink-0 text-slate-400" />
           )}
           <BookOpen className="h-4 w-4 shrink-0 text-slate-400" />
-          <span className="w-28 shrink-0 font-mono text-xs text-slate-500">
+          <span className="w-28 shrink-0 font-mono text-xs text-slate-500 dark:text-slate-400">
             {testPlan.jira.key}
           </span>
         </button>
@@ -344,7 +344,7 @@ function TestPlanDropTarget({
           >
             <input
               autoFocus
-              className="flex-1 rounded border border-slate-300 px-2 py-0.5 text-sm focus:border-slate-500 focus:outline-none"
+              className="flex-1 rounded border border-slate-300 px-2 py-0.5 text-sm focus:border-slate-500 focus:outline-none dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200 dark:focus:border-slate-400"
               value={renameDraft}
               onChange={(e) => setRenameDraft(e.target.value)}
               onKeyDown={(e) => {
@@ -354,14 +354,14 @@ function TestPlanDropTarget({
             />
             <button
               type="submit"
-              className="rounded px-2 py-0.5 text-xs font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-40"
+              className="rounded px-2 py-0.5 text-xs font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-40 dark:text-slate-300 dark:hover:bg-slate-600"
               disabled={renameIssue.isPending}
             >
               {renameIssue.isPending ? "…" : "Save"}
             </button>
             <button
               type="button"
-              className="rounded px-2 py-0.5 text-xs text-slate-400 hover:bg-slate-100"
+              className="rounded px-2 py-0.5 text-xs text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-600"
               onClick={() => setIsRenaming(false)}
             >
               Cancel
@@ -369,7 +369,7 @@ function TestPlanDropTarget({
           </form>
         ) : (
           <span
-            className="group flex flex-1 cursor-pointer items-center gap-1.5 truncate text-sm text-slate-800"
+            className="group flex flex-1 cursor-pointer items-center gap-1.5 truncate text-sm text-slate-800 dark:text-slate-200"
             onClick={() => {
               setIsRenaming(true);
               setRenameDraft(testPlan.jira.summary);
@@ -392,7 +392,7 @@ function TestPlanDropTarget({
           </span>
         )}
         {isDragging && !isHoveredTarget && (
-          <span className="shrink-0 rounded-full border border-dashed border-slate-400 px-2 py-0.5 text-xs text-slate-400">
+          <span className="shrink-0 rounded-full border border-dashed border-slate-400 px-2 py-0.5 text-xs text-slate-400 dark:border-slate-500 dark:text-slate-400">
             Drop here
           </span>
         )}
@@ -400,7 +400,7 @@ function TestPlanDropTarget({
 
       {/* Expanded tests list */}
       {isExpanded && (
-        <div className="border-t border-slate-100 bg-slate-50/60 px-4 py-3">
+        <div className="border-t border-slate-100 bg-slate-50/60 px-4 py-3 dark:border-slate-700 dark:bg-slate-700/40">
           {testsLoading ? (
             <div className="flex items-center gap-2 py-2 text-sm text-slate-400">
               <Spinner size="sm" />
@@ -429,22 +429,27 @@ function TestPlanDropTarget({
                     : "This test plan contains no tests yet. Drag test sets here to add them."}
                 </p>
               ) : (
-                <div className="overflow-hidden rounded-md border border-slate-200 bg-white">
+                <div className="overflow-hidden rounded-md border border-slate-200 bg-white dark:border-slate-600 dark:bg-slate-800">
                   <table className="w-full text-sm">
-                    <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-400">
+                    <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-400 dark:bg-slate-700 dark:text-slate-400">
                       <tr>
                         <th className="px-3 py-2 text-left">Key</th>
                         <th className="px-3 py-2 text-left">Summary</th>
                         <th className="px-3 py-2" />
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-slate-100">
+                    <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
                       {filteredTests.map((t: XrayTest) => (
-                        <tr key={t.issue_id} className="group hover:bg-slate-50">
-                          <td className="px-3 py-2 font-mono text-xs text-slate-500">
+                        <tr
+                          key={t.issue_id}
+                          className="group hover:bg-slate-50 dark:hover:bg-slate-700"
+                        >
+                          <td className="px-3 py-2 font-mono text-xs text-slate-500 dark:text-slate-500">
                             {t.jira.key}
                           </td>
-                          <td className="px-3 py-2 text-slate-700">{t.jira.summary}</td>
+                          <td className="px-3 py-2 text-slate-700 dark:text-slate-300">
+                            {t.jira.summary}
+                          </td>
                           <td className="px-3 py-2 text-right">
                             <button
                               title="Remove from test plan"
@@ -464,7 +469,7 @@ function TestPlanDropTarget({
                                   },
                                 )
                               }
-                              className="rounded p-1 text-slate-300 opacity-0 transition-opacity hover:bg-red-50 hover:text-red-500 group-hover:opacity-100 disabled:cursor-not-allowed disabled:opacity-40"
+                              className="rounded p-1 text-slate-300 opacity-0 transition-opacity hover:bg-red-50 hover:text-red-500 group-hover:opacity-100 disabled:cursor-not-allowed disabled:opacity-40 dark:hover:bg-red-900/40 dark:hover:text-red-400"
                             >
                               {removeTests.isPending &&
                               removeTests.variables?.testIssueIds[0] === t.issue_id ? (
@@ -531,7 +536,7 @@ function TestPlansDropPanel({
         {Array.from({ length: 5 }).map((_, i) => (
           <div
             key={i}
-            className="flex items-center gap-3 rounded border border-slate-100 px-3 py-2"
+            className="flex items-center gap-3 rounded border border-slate-100 px-3 py-2 dark:border-slate-700"
           >
             <Skeleton className="h-4 w-20 shrink-0" />
             <Skeleton className="h-4 flex-1" />
@@ -544,7 +549,7 @@ function TestPlansDropPanel({
 
   if (isError) {
     return (
-      <div className="rounded-md bg-red-50 px-4 py-3 text-sm text-red-700">
+      <div className="rounded-md bg-red-50 px-4 py-3 text-sm text-red-700 dark:bg-red-950 dark:text-red-300">
         <p className="font-medium">Failed to load test plans</p>
         <pre className="mt-1 whitespace-pre-wrap font-mono text-xs">{String(error)}</pre>
       </div>
@@ -670,13 +675,13 @@ function CreatePlanDialog({ open, onOpenChange, projectKey }: CreatePlanDialogPr
     <Dialog.Root open={open} onOpenChange={handleOpenChange}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 bg-black/30 backdrop-blur-sm" />
-        <Dialog.Content className="fixed left-1/2 top-1/2 flex max-h-[90vh] w-full max-w-lg -translate-x-1/2 -translate-y-1/2 flex-col rounded-xl bg-white shadow-xl">
+        <Dialog.Content className="fixed left-1/2 top-1/2 flex max-h-[90vh] w-full max-w-lg -translate-x-1/2 -translate-y-1/2 flex-col rounded-xl bg-white shadow-xl dark:bg-slate-800">
           {/* Header */}
-          <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
+          <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4 dark:border-slate-700">
             <Dialog.Title className="text-lg font-semibold">New Test Plan</Dialog.Title>
             <Dialog.Close asChild>
               <button
-                className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+                className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-700 dark:text-slate-400"
                 aria-label="Close"
               >
                 <X className="h-4 w-4" />
@@ -689,11 +694,13 @@ function CreatePlanDialog({ open, onOpenChange, projectKey }: CreatePlanDialogPr
             <div className="flex-1 overflow-y-auto">
               <div className="space-y-5 px-6 py-5">
                 {/* Project badge */}
-                <div className="flex items-center gap-2 text-sm text-slate-500">
+                <div className="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400">
                   <BookOpen className="h-4 w-4 text-slate-400" />
                   <span>
                     Creating in project{" "}
-                    <span className="font-medium text-slate-700">{projectKey}</span>
+                    <span className="font-medium text-slate-700 dark:text-slate-200">
+                      {projectKey}
+                    </span>
                   </span>
                 </div>
 
@@ -733,7 +740,7 @@ function CreatePlanDialog({ open, onOpenChange, projectKey }: CreatePlanDialogPr
 
                   {/* Selected chip */}
                   {component && (
-                    <span className="inline-flex items-center gap-1 rounded-full border border-slate-300 bg-slate-100 py-0.5 pl-2.5 pr-1.5 text-xs font-medium text-slate-700">
+                    <span className="inline-flex items-center gap-1 rounded-full border border-slate-300 bg-slate-100 py-0.5 pl-2.5 pr-1.5 text-xs font-medium text-slate-700 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200">
                       <Tag className="h-3 w-3 text-slate-400" />
                       {component}
                       <button
@@ -751,8 +758,8 @@ function CreatePlanDialog({ open, onOpenChange, projectKey }: CreatePlanDialogPr
                     </span>
                   )}
 
-                  <div className="rounded-lg border border-slate-200 bg-white">
-                    <div className="flex items-center gap-2 border-b border-slate-100 px-3 py-2">
+                  <div className="rounded-lg border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-800">
+                    <div className="flex items-center gap-2 border-b border-slate-100 px-3 py-2 dark:border-slate-700">
                       <Search className="h-3.5 w-3.5 shrink-0 text-slate-400" />
                       <input
                         type="text"
@@ -760,7 +767,7 @@ function CreatePlanDialog({ open, onOpenChange, projectKey }: CreatePlanDialogPr
                         value={componentSearch}
                         onChange={(e) => setComponentSearch(e.target.value)}
                         disabled={isSubmitting}
-                        className="w-full bg-transparent text-sm text-slate-700 placeholder:text-slate-400 focus:outline-none disabled:cursor-not-allowed"
+                        className="w-full bg-transparent text-sm text-slate-700 placeholder:text-slate-400 focus:outline-none disabled:cursor-not-allowed dark:text-slate-200 dark:placeholder:text-slate-500"
                       />
                       {componentSearch && (
                         <button
@@ -790,7 +797,9 @@ function CreatePlanDialog({ open, onOpenChange, projectKey }: CreatePlanDialogPr
                             key={c.id}
                             className={cn(
                               "flex cursor-pointer items-center gap-3 px-3 py-2 text-sm transition-colors",
-                              component === c.name ? "bg-slate-50" : "hover:bg-slate-50",
+                              component === c.name
+                                ? "bg-slate-50 dark:bg-slate-700"
+                                : "hover:bg-slate-50 dark:hover:bg-slate-700",
                               isSubmitting && "cursor-not-allowed opacity-60",
                             )}
                           >
@@ -804,7 +813,9 @@ function CreatePlanDialog({ open, onOpenChange, projectKey }: CreatePlanDialogPr
                               className="h-4 w-4 border-slate-300 accent-slate-800"
                             />
                             <Tag className="h-3 w-3 shrink-0 text-slate-400" />
-                            <span className="truncate text-slate-700">{c.name}</span>
+                            <span className="truncate text-slate-700 dark:text-slate-200">
+                              {c.name}
+                            </span>
                           </label>
                         ))
                       )}
@@ -820,7 +831,7 @@ function CreatePlanDialog({ open, onOpenChange, projectKey }: CreatePlanDialogPr
 
                   {/* Selected chip */}
                   {fixVersion && (
-                    <span className="inline-flex items-center gap-1 rounded-full border border-slate-300 bg-slate-100 py-0.5 pl-2.5 pr-1.5 text-xs font-medium text-slate-700">
+                    <span className="inline-flex items-center gap-1 rounded-full border border-slate-300 bg-slate-100 py-0.5 pl-2.5 pr-1.5 text-xs font-medium text-slate-700 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200">
                       <CalendarDays className="h-3 w-3 text-slate-400" />
                       {fixVersion}
                       <button
@@ -838,8 +849,8 @@ function CreatePlanDialog({ open, onOpenChange, projectKey }: CreatePlanDialogPr
                     </span>
                   )}
 
-                  <div className="rounded-lg border border-slate-200 bg-white">
-                    <div className="flex items-center gap-2 border-b border-slate-100 px-3 py-2">
+                  <div className="rounded-lg border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-800">
+                    <div className="flex items-center gap-2 border-b border-slate-100 px-3 py-2 dark:border-slate-700">
                       <Search className="h-3.5 w-3.5 shrink-0 text-slate-400" />
                       <input
                         type="text"
@@ -847,7 +858,7 @@ function CreatePlanDialog({ open, onOpenChange, projectKey }: CreatePlanDialogPr
                         value={versionSearch}
                         onChange={(e) => setVersionSearch(e.target.value)}
                         disabled={isSubmitting}
-                        className="w-full bg-transparent text-sm text-slate-700 placeholder:text-slate-400 focus:outline-none disabled:cursor-not-allowed"
+                        className="w-full bg-transparent text-sm text-slate-700 placeholder:text-slate-400 focus:outline-none disabled:cursor-not-allowed dark:text-slate-200 dark:placeholder:text-slate-500"
                       />
                       {versionSearch && (
                         <button
@@ -877,7 +888,9 @@ function CreatePlanDialog({ open, onOpenChange, projectKey }: CreatePlanDialogPr
                             key={v.id}
                             className={cn(
                               "flex cursor-pointer items-center gap-3 px-3 py-2 text-sm transition-colors",
-                              fixVersion === v.name ? "bg-slate-50" : "hover:bg-slate-50",
+                              fixVersion === v.name
+                                ? "bg-slate-50 dark:bg-slate-700"
+                                : "hover:bg-slate-50 dark:hover:bg-slate-700",
                               isSubmitting && "cursor-not-allowed opacity-60",
                             )}
                           >
@@ -892,7 +905,9 @@ function CreatePlanDialog({ open, onOpenChange, projectKey }: CreatePlanDialogPr
                             />
                             <CalendarDays className="h-3 w-3 shrink-0 text-slate-400" />
                             <div className="min-w-0">
-                              <span className="truncate text-slate-700">{v.name}</span>
+                              <span className="truncate text-slate-700 dark:text-slate-200">
+                                {v.name}
+                              </span>
                               {v.released && (
                                 <span className="ml-1.5 text-[10px] text-emerald-600">
                                   released
@@ -908,7 +923,7 @@ function CreatePlanDialog({ open, onOpenChange, projectKey }: CreatePlanDialogPr
 
                 {/* Error */}
                 {createPlan.isError && (
-                  <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                  <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">
                     {String(createPlan.error)}
                   </p>
                 )}
@@ -916,7 +931,7 @@ function CreatePlanDialog({ open, onOpenChange, projectKey }: CreatePlanDialogPr
             </div>
 
             {/* Footer */}
-            <div className="flex items-center justify-end gap-2 border-t border-slate-200 px-6 py-4">
+            <div className="flex items-center justify-end gap-2 border-t border-slate-200 px-6 py-4 dark:border-slate-700">
               <Dialog.Close asChild>
                 <Button type="button" variant="outline" disabled={isSubmitting}>
                   Cancel
@@ -1073,7 +1088,7 @@ export function TestPlansPage() {
             onClick={() => void handleReload()}
             disabled={isRefreshing}
             title="Reload test sets and plans"
-            className="rounded p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 disabled:opacity-40"
+            className="rounded p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 disabled:opacity-40 dark:hover:bg-slate-700 dark:text-slate-400"
           >
             <RefreshCw className={cn("h-4 w-4", isRefreshing && "animate-spin")} />
           </button>
@@ -1107,7 +1122,7 @@ export function TestPlansPage() {
         </div>
 
         {/* Divider */}
-        <div className="w-px shrink-0 bg-slate-200" />
+        <div className="w-px shrink-0 bg-slate-200 dark:bg-slate-700" />
 
         {/* Right: test plans (drop targets) */}
         <div className="flex min-w-0 flex-1 flex-col">

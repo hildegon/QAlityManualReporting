@@ -47,23 +47,30 @@ export function RateLimitBanner() {
     totalWindow > 0 ? Math.max(0, Math.min(100, (remaining / totalWindow) * 100)) : 0;
 
   return (
-    <div role="alert" aria-live="polite" className="border-b border-amber-300 bg-amber-50">
-      <div className="flex items-center gap-3 px-4 py-2.5 text-sm text-amber-800">
-        <AlertTriangle className="h-4 w-4 shrink-0 text-amber-500" aria-hidden="true" />
+    <div
+      role="alert"
+      aria-live="polite"
+      className="border-b border-amber-300 bg-amber-50 dark:border-amber-700 dark:bg-amber-900/30"
+    >
+      <div className="flex items-center gap-3 px-4 py-2.5 text-sm text-amber-800 dark:text-amber-300">
+        <AlertTriangle
+          className="h-4 w-4 shrink-0 text-amber-500 dark:text-amber-400"
+          aria-hidden="true"
+        />
         <span className="flex-1">
           API rate limit reached. Requests will resume automatically in{" "}
           <span className="font-semibold">{formatRemaining(remaining)}</span>
         </span>
         <button
           onClick={() => setRateLimit(null)}
-          className="rounded px-2 py-0.5 text-xs font-medium text-amber-700 hover:bg-amber-100"
+          className="rounded px-2 py-0.5 text-xs font-medium text-amber-700 hover:bg-amber-100 dark:text-amber-400 dark:hover:bg-amber-800/40"
           aria-label="Dismiss rate-limit notice"
         >
           Dismiss
         </button>
       </div>
       {/* Draining progress bar */}
-      <div className="h-1 w-full bg-amber-200" aria-hidden="true">
+      <div className="h-1 w-full bg-amber-200 dark:bg-amber-800" aria-hidden="true">
         <div
           className="h-full bg-amber-500 transition-[width] duration-250 ease-linear"
           style={{ width: `${progressPct}%` }}

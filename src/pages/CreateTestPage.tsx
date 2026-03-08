@@ -184,8 +184,7 @@ export function CreateTestPage() {
               try {
                 await api.addTestsToTestSet(setId, [newIssueId]);
               } catch (err) {
-                const setLabel =
-                  testSets?.find((ts) => ts.issue_id === setId)?.jira.key ?? setId;
+                const setLabel = testSets?.find((ts) => ts.issue_id === setId)?.jira.key ?? setId;
                 errors.push(`Failed to add to ${setLabel}: ${String(err)}`);
               }
             }
@@ -226,16 +225,18 @@ export function CreateTestPage() {
     <div className="mx-auto max-w-3xl space-y-6">
       {/* Page header */}
       <div>
-        <h1 className="text-lg font-semibold text-slate-900">Create Manual Test</h1>
-        <p className="mt-0.5 text-sm text-slate-500">
+        <h1 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
+          Create Manual Test
+        </h1>
+        <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
           Creates a Manual test in Xray for project{" "}
-          <span className="font-medium text-slate-700">{projectKey}</span>.
+          <span className="font-medium text-slate-700 dark:text-slate-200">{projectKey}</span>.
         </p>
       </div>
 
       {/* Success banner */}
       {createdKey && (
-        <div className="flex items-center gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+        <div className="flex items-center gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
           <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" />
           <span>
             Test <span className="font-semibold">{createdKey}</span> created successfully.
@@ -255,7 +256,7 @@ export function CreateTestPage() {
       {linkErrors.map((msg, i) => (
         <div
           key={i}
-          className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800"
+          className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-300"
         >
           <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
           <span>{msg}</span>
@@ -264,7 +265,7 @@ export function CreateTestPage() {
 
       {/* Create-error banner */}
       {createTest.isError && (
-        <div className="flex items-start gap-2 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+        <div className="flex items-start gap-2 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-300">
           <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-red-600" />
           <span>{String(createTest.error)}</span>
         </div>
@@ -288,8 +289,7 @@ export function CreateTestPage() {
         {/* Component */}
         <div className="space-y-1.5">
           <Label>
-            Component{" "}
-            <span className="font-normal text-slate-400">(optional)</span>
+            Component <span className="font-normal text-slate-400">(optional)</span>
           </Label>
 
           {jiraConfigured ? (
@@ -297,7 +297,7 @@ export function CreateTestPage() {
             <div className="space-y-2">
               {/* Selected chip */}
               {componentName && (
-                <span className="inline-flex items-center gap-1 rounded-full border border-slate-300 bg-slate-100 py-0.5 pl-2.5 pr-1.5 text-xs font-medium text-slate-700">
+                <span className="inline-flex items-center gap-1 rounded-full border border-slate-300 bg-slate-100 py-0.5 pl-2.5 pr-1.5 text-xs font-medium text-slate-700 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200">
                   <Tag className="h-3 w-3 text-slate-400" />
                   {componentName}
                   <button
@@ -313,8 +313,8 @@ export function CreateTestPage() {
               )}
 
               {/* Filterable panel */}
-              <div className="rounded-lg border border-slate-200 bg-white">
-                <div className="flex items-center gap-2 border-b border-slate-100 px-3 py-2">
+              <div className="rounded-lg border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-800">
+                <div className="flex items-center gap-2 border-b border-slate-100 px-3 py-2 dark:border-slate-700">
                   <Search className="h-3.5 w-3.5 shrink-0 text-slate-400" />
                   <input
                     type="text"
@@ -322,7 +322,7 @@ export function CreateTestPage() {
                     value={componentSearch}
                     onChange={(e) => setComponentSearch(e.target.value)}
                     disabled={isSubmitting}
-                    className="w-full bg-transparent text-sm text-slate-700 placeholder:text-slate-400 focus:outline-none disabled:cursor-not-allowed"
+                    className="w-full bg-transparent text-sm text-slate-700 placeholder:text-slate-400 focus:outline-none disabled:cursor-not-allowed dark:text-slate-200 dark:placeholder:text-slate-500"
                   />
                   {componentSearch && (
                     <button
@@ -354,16 +354,14 @@ export function CreateTestPage() {
                         name={c.name}
                         selected={componentName === c.name}
                         disabled={isSubmitting}
-                        onSelect={() =>
-                          setComponentName((prev) => (prev === c.name ? "" : c.name))
-                        }
+                        onSelect={() => setComponentName((prev) => (prev === c.name ? "" : c.name))}
                       />
                     ))
                   )}
                 </div>
               </div>
 
-              <p className="text-xs text-slate-400">
+              <p className="text-xs text-slate-400 dark:text-slate-500">
                 Assigned as a Jira component on the created test issue.
               </p>
             </div>
@@ -376,7 +374,7 @@ export function CreateTestPage() {
                 onChange={(e) => setComponentName(e.target.value)}
                 disabled={isSubmitting}
               />
-              <p className="text-xs text-slate-400">
+              <p className="text-xs text-slate-400 dark:text-slate-500">
                 Configure Jira credentials in Settings for component autocomplete.
               </p>
             </div>
@@ -386,8 +384,7 @@ export function CreateTestPage() {
         {/* Test Sets picker */}
         <div className="space-y-2">
           <Label>
-            Test Sets{" "}
-            <span className="font-normal text-slate-400">(optional)</span>
+            Test Sets <span className="font-normal text-slate-400">(optional)</span>
           </Label>
 
           {/* Selected chips */}
@@ -396,7 +393,7 @@ export function CreateTestPage() {
               {selectedSets.map((ts) => (
                 <span
                   key={ts.issue_id}
-                  className="inline-flex items-center gap-1 rounded-full border border-slate-300 bg-slate-100 py-0.5 pl-2.5 pr-1.5 text-xs font-medium text-slate-700"
+                  className="inline-flex items-center gap-1 rounded-full border border-slate-300 bg-slate-100 py-0.5 pl-2.5 pr-1.5 text-xs font-medium text-slate-700 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200"
                 >
                   <Layers className="h-3 w-3 text-slate-400" />
                   {ts.jira.key}
@@ -415,8 +412,8 @@ export function CreateTestPage() {
           )}
 
           {/* Filterable list */}
-          <div className="rounded-lg border border-slate-200 bg-white">
-            <div className="flex items-center gap-2 border-b border-slate-100 px-3 py-2">
+          <div className="rounded-lg border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-800">
+            <div className="flex items-center gap-2 border-b border-slate-100 px-3 py-2 dark:border-slate-700">
               <Search className="h-3.5 w-3.5 shrink-0 text-slate-400" />
               <input
                 type="text"
@@ -424,7 +421,7 @@ export function CreateTestPage() {
                 value={setSearch}
                 onChange={(e) => setSetSearch(e.target.value)}
                 disabled={isSubmitting}
-                className="w-full bg-transparent text-sm text-slate-700 placeholder:text-slate-400 focus:outline-none disabled:cursor-not-allowed"
+                className="w-full bg-transparent text-sm text-slate-700 placeholder:text-slate-400 focus:outline-none disabled:cursor-not-allowed dark:text-slate-200 dark:placeholder:text-slate-500"
               />
               {setSearch && (
                 <button
@@ -463,7 +460,7 @@ export function CreateTestPage() {
             </div>
           </div>
 
-          <p className="text-xs text-slate-400">
+          <p className="text-xs text-slate-400 dark:text-slate-500">
             The new test will be added to every checked test set after it is created.
           </p>
         </div>
@@ -471,7 +468,7 @@ export function CreateTestPage() {
         {/* Steps */}
         <div className="space-y-3">
           <div className="flex items-center justify-between">
-            <span className="text-sm font-medium text-slate-700">
+            <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
               Test Steps ({steps.length})
             </span>
             <Button
@@ -504,15 +501,15 @@ export function CreateTestPage() {
             ))}
           </div>
 
-          <p className="text-xs text-slate-400">
+          <p className="text-xs text-slate-400 dark:text-slate-500">
             Steps with an empty action will be omitted when saving.
           </p>
         </div>
 
         {/* Actions */}
-        <div className="space-y-3 border-t border-slate-200 pt-4">
+        <div className="space-y-3 border-t border-slate-200 pt-4 dark:border-slate-700">
           {/* Continue creating checkbox */}
-          <label className="flex cursor-pointer items-center gap-2.5 text-sm text-slate-700">
+          <label className="flex cursor-pointer items-center gap-2.5 text-sm text-slate-700 dark:text-slate-300">
             <input
               type="checkbox"
               checked={keepContext}
@@ -557,7 +554,7 @@ function TestSetRow({ testSet, selected, disabled, onToggle }: TestSetRowProps) 
     <label
       className={cn(
         "flex cursor-pointer items-center gap-3 px-3 py-2 text-sm transition-colors",
-        selected ? "bg-slate-50" : "hover:bg-slate-50",
+        selected ? "bg-slate-50 dark:bg-slate-700" : "hover:bg-slate-50 dark:hover:bg-slate-700",
         disabled && "cursor-not-allowed opacity-60",
       )}
     >
@@ -568,8 +565,10 @@ function TestSetRow({ testSet, selected, disabled, onToggle }: TestSetRowProps) 
         disabled={disabled}
         className="h-4 w-4 rounded border-slate-300 text-slate-900 accent-slate-800"
       />
-      <span className="shrink-0 font-mono text-xs text-slate-500">{testSet.jira.key}</span>
-      <span className="truncate text-slate-700">{testSet.jira.summary}</span>
+      <span className="shrink-0 font-mono text-xs text-slate-500 dark:text-slate-400">
+        {testSet.jira.key}
+      </span>
+      <span className="truncate text-slate-700 dark:text-slate-300">{testSet.jira.summary}</span>
     </label>
   );
 }
@@ -588,7 +587,7 @@ function ComponentRow({ name, selected, disabled, onSelect }: ComponentRowProps)
     <label
       className={cn(
         "flex cursor-pointer items-center gap-3 px-3 py-2 text-sm transition-colors",
-        selected ? "bg-slate-50" : "hover:bg-slate-50",
+        selected ? "bg-slate-50 dark:bg-slate-700" : "hover:bg-slate-50 dark:hover:bg-slate-700",
         disabled && "cursor-not-allowed opacity-60",
       )}
     >
@@ -600,7 +599,7 @@ function ComponentRow({ name, selected, disabled, onSelect }: ComponentRowProps)
         className="h-4 w-4 border-slate-300 text-slate-900 accent-slate-800"
       />
       <Tag className="h-3 w-3 shrink-0 text-slate-400" />
-      <span className="truncate text-slate-700">{name}</span>
+      <span className="truncate text-slate-700 dark:text-slate-300">{name}</span>
     </label>
   );
 }
@@ -631,12 +630,12 @@ function StepRow({
   return (
     <div
       className={cn(
-        "rounded-lg border border-slate-200 bg-white shadow-sm",
+        "rounded-lg border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800",
         disabled && "opacity-60",
       )}
     >
       {/* Step header */}
-      <div className="flex items-center gap-2 border-b border-slate-100 px-3 py-2">
+      <div className="flex items-center gap-2 border-b border-slate-100 px-3 py-2 dark:border-slate-700">
         <div className="flex shrink-0 flex-col items-center gap-0.5">
           <button
             type="button"
@@ -659,7 +658,7 @@ function StepRow({
           </button>
         </div>
 
-        <span className="shrink-0 text-xs font-semibold text-slate-500">
+        <span className="shrink-0 text-xs font-semibold text-slate-500 dark:text-slate-400">
           Step {index + 1}
           {total > 1 ? ` / ${total}` : ""}
         </span>
@@ -682,43 +681,41 @@ function StepRow({
       {/* Step fields */}
       <div className="grid grid-cols-1 gap-3 p-3 sm:grid-cols-3">
         <div className="space-y-1 sm:col-span-3">
-          <Label className="text-xs text-slate-500">Action *</Label>
+          <Label className="text-xs text-slate-500 dark:text-slate-400">Action *</Label>
           <textarea
             value={step.action}
             onChange={(e) => onChange("action", e.target.value)}
             disabled={disabled}
             placeholder="What to do in this step"
             rows={2}
-            className="w-full resize-none rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm shadow-sm placeholder:text-slate-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 disabled:cursor-not-allowed disabled:opacity-50"
+            className="w-full resize-none rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm shadow-sm placeholder:text-slate-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200 dark:placeholder:text-slate-500 dark:focus-visible:ring-slate-500"
           />
         </div>
 
         <div className="space-y-1">
-          <Label className="text-xs text-slate-500">Test Data</Label>
+          <Label className="text-xs text-slate-500 dark:text-slate-400">Test Data</Label>
           <textarea
             value={step.data ?? ""}
             onChange={(e) => onChange("data", e.target.value)}
             disabled={disabled}
             placeholder="Input / test data (optional)"
             rows={2}
-            className="w-full resize-none rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm shadow-sm placeholder:text-slate-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 disabled:cursor-not-allowed disabled:opacity-50"
+            className="w-full resize-none rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm shadow-sm placeholder:text-slate-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200 dark:placeholder:text-slate-500 dark:focus-visible:ring-slate-500"
           />
         </div>
 
         <div className="space-y-1 sm:col-span-2">
-          <Label className="text-xs text-slate-500">Expected Result</Label>
+          <Label className="text-xs text-slate-500 dark:text-slate-400">Expected Result</Label>
           <textarea
             value={step.result ?? ""}
             onChange={(e) => onChange("result", e.target.value)}
             disabled={disabled}
             placeholder="Expected outcome (optional)"
             rows={2}
-            className="w-full resize-none rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm shadow-sm placeholder:text-slate-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 disabled:cursor-not-allowed disabled:opacity-50"
+            className="w-full resize-none rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm shadow-sm placeholder:text-slate-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200 dark:placeholder:text-slate-500 dark:focus-visible:ring-slate-500"
           />
         </div>
       </div>
     </div>
   );
 }
-
-

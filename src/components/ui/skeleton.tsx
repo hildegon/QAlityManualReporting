@@ -12,5 +12,10 @@ interface SkeletonProps {
  * <Skeleton className="h-4 w-48 rounded" />
  */
 export function Skeleton({ className }: SkeletonProps) {
-  return <div aria-hidden="true" className={cn("animate-pulse rounded bg-slate-200", className)} />;
+  return (
+    <div
+      aria-hidden="true"
+      className={cn("animate-pulse rounded bg-slate-200 dark:bg-slate-700", className)}
+    />
+  );
 }

@@ -63,25 +63,25 @@ function OverallDashboard({
 
   const healthColor =
     total === 0
-      ? "text-slate-400 bg-slate-50 border-slate-200"
+      ? "text-slate-400 bg-slate-50 border-slate-200 dark:text-slate-400 dark:bg-slate-800/50 dark:border-slate-600"
       : passRate === 1
-        ? "text-emerald-600 bg-emerald-50 border-emerald-200"
+        ? "text-emerald-600 bg-emerald-50 border-emerald-200 dark:text-emerald-400 dark:bg-emerald-900/40 dark:border-emerald-800"
         : passRate !== null && passRate >= 0.8
-          ? "text-blue-600 bg-blue-50 border-blue-200"
+          ? "text-blue-600 bg-blue-50 border-blue-200 dark:text-blue-400 dark:bg-blue-900/40 dark:border-blue-800"
           : failedSlice && failedSlice.count > 0
-            ? "text-red-600 bg-red-50 border-red-200"
-            : "text-slate-500 bg-slate-50 border-slate-200";
+            ? "text-red-600 bg-red-50 border-red-200 dark:text-red-400 dark:bg-red-900/40 dark:border-red-800"
+            : "text-slate-500 bg-slate-50 border-slate-200 dark:text-slate-400 dark:bg-slate-800/50 dark:border-slate-600";
 
   if (total === 0) return null;
 
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-800">
       <div className="mb-4 flex items-start justify-between gap-4">
         <div>
           <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">
             Overall coverage
           </p>
-          <h2 className="mt-0.5 text-lg font-bold text-slate-900">
+          <h2 className="mt-0.5 text-lg font-bold text-slate-900 dark:text-slate-100">
             {selectedCount} set{selectedCount !== 1 ? "s" : ""} selected
           </h2>
         </div>
@@ -119,12 +119,14 @@ function OverallDashboard({
           </>
         )}
 
-        <div className="flex flex-wrap gap-x-6 gap-y-1 border-t border-slate-100 pt-3 text-xs text-slate-400">
+        <div className="flex flex-wrap gap-x-6 gap-y-1 border-t border-slate-100 pt-3 text-xs text-slate-400 dark:border-slate-700">
           <span>
-            Test sets: <span className="font-medium text-slate-600">{selectedCount}</span>
+            Test sets:{" "}
+            <span className="font-medium text-slate-600 dark:text-slate-300">{selectedCount}</span>
           </span>
           <span>
-            Total tests: <span className="font-medium text-slate-600">{total}</span>
+            Total tests:{" "}
+            <span className="font-medium text-slate-600 dark:text-slate-300">{total}</span>
           </span>
         </div>
       </div>
@@ -169,10 +171,10 @@ function TestSetSection({
   }, [tests, testSearch]);
 
   return (
-    <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+    <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
       {/* Section header */}
       <button
-        className="flex w-full items-center gap-3 bg-slate-50 px-4 py-3 text-left hover:bg-slate-100"
+        className="flex w-full items-center gap-3 bg-slate-50 px-4 py-3 text-left hover:bg-slate-100 dark:bg-slate-700/50 dark:hover:bg-slate-700"
         onClick={() => setCollapsed((c) => !c)}
       >
         {collapsed ? (
@@ -181,8 +183,10 @@ function TestSetSection({
           <ChevronDown className="h-4 w-4 shrink-0 text-slate-400" />
         )}
         <Layers className="h-4 w-4 shrink-0 text-slate-400" />
-        <span className="w-28 shrink-0 font-mono text-xs text-slate-500">{testSet.jira.key}</span>
-        <span className="flex-1 truncate text-sm font-semibold text-slate-700">
+        <span className="w-28 shrink-0 font-mono text-xs text-slate-500 dark:text-slate-400">
+          {testSet.jira.key}
+        </span>
+        <span className="flex-1 truncate text-sm font-semibold text-slate-700 dark:text-slate-200">
           {testSet.jira.summary}
         </span>
         {isLoading && <Spinner size="sm" />}
@@ -199,7 +203,7 @@ function TestSetSection({
         <div>
           {/* Per-set dashboard strip */}
           {!isLoading && !isError && tests && tests.length > 0 && (
-            <div className="border-b border-slate-100 px-5 py-4">
+            <div className="border-b border-slate-100 px-5 py-4 dark:border-slate-700">
               <div className="flex flex-wrap items-center gap-5">
                 <DonutChart slices={slices} total={tests.length} label="tests" />
                 <div className="flex-1 space-y-3" style={{ minWidth: 200 }}>
@@ -219,7 +223,7 @@ function TestSetSection({
             </div>
           )}
 
-          <div className="divide-y divide-slate-100">
+          <div className="divide-y divide-slate-100 dark:divide-slate-700">
             {isLoading && (
               <div className="flex items-center gap-2 px-4 py-3 text-sm text-slate-400">
                 <Spinner size="sm" />
@@ -227,7 +231,7 @@ function TestSetSection({
               </div>
             )}
             {isError && (
-              <div className="flex items-start gap-2 px-4 py-3 text-sm text-red-600">
+              <div className="flex items-start gap-2 px-4 py-3 text-sm text-red-600 dark:text-red-400">
                 {rateLimitUntil !== null ? (
                   <Clock className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
                 ) : (
@@ -235,7 +239,7 @@ function TestSetSection({
                 )}
                 <div className="flex-1">
                   {rateLimitUntil !== null ? (
-                    <span className="text-amber-700">
+                    <span className="text-amber-700 dark:text-amber-400">
                       Rate limited — please wait before retrying.
                     </span>
                   ) : (
@@ -243,7 +247,7 @@ function TestSetSection({
                   )}
                 </div>
                 <button
-                  className="shrink-0 rounded px-2 py-0.5 text-xs font-medium text-red-600 hover:bg-red-50"
+                  className="shrink-0 rounded px-2 py-0.5 text-xs font-medium text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/30"
                   onClick={onRetry}
                 >
                   Retry
@@ -260,12 +264,12 @@ function TestSetSection({
               filtered.map((test) => (
                 <div
                   key={test.issue_id}
-                  className="flex items-center gap-3 px-4 py-2.5 hover:bg-slate-50"
+                  className="flex items-center gap-3 px-4 py-2.5 hover:bg-slate-50 dark:hover:bg-slate-700"
                 >
                   <span className="w-28 shrink-0 font-mono text-xs text-slate-400">
                     {test.jira.key}
                   </span>
-                  <span className="flex-1 truncate text-sm text-slate-700">
+                  <span className="flex-1 truncate text-sm text-slate-700 dark:text-slate-300">
                     {test.jira.summary}
                   </span>
                   <StatusBadge
@@ -389,7 +393,7 @@ function PresetsBar({
           {activePresetId && isModified && (
             <button
               onClick={onUpdate}
-              className="flex items-center gap-1 rounded px-2 py-0.5 text-xs font-medium text-amber-600 hover:bg-amber-50"
+              className="flex items-center gap-1 rounded px-2 py-0.5 text-xs font-medium text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-900/40"
               title="Update current preset with the current selection"
             >
               <BookmarkCheck className="h-3.5 w-3.5" />
@@ -402,7 +406,7 @@ function PresetsBar({
                 setSaving(true);
                 setRenamingId(null);
               }}
-              className="flex items-center gap-1 rounded px-2 py-0.5 text-xs font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-700"
+              className="flex items-center gap-1 rounded px-2 py-0.5 text-xs font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-700"
               title="Save current selection as a new preset"
             >
               <BookmarkPlus className="h-3.5 w-3.5" />
@@ -450,7 +454,7 @@ function PresetsBar({
 
       {/* Preset chips */}
       {presets.length === 0 && !saving && (
-        <p className="text-xs italic text-slate-400">
+        <p className="text-xs italic text-slate-400 dark:text-slate-500">
           {canSave ? 'Click "Save" to create your first preset.' : "No presets yet."}
         </p>
       )}
@@ -505,8 +509,8 @@ function PresetsBar({
                     isActive && !isModified
                       ? "border-slate-700 bg-slate-700 font-semibold text-white"
                       : isActive && isModified
-                        ? "border-amber-400 bg-amber-50 font-semibold text-amber-800"
-                        : "border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50",
+                        ? "border-amber-400 bg-amber-50 font-semibold text-amber-800 dark:bg-amber-900/40 dark:text-amber-300 dark:border-amber-700"
+                        : "border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:border-slate-500 dark:hover:bg-slate-700",
                   )}
                   title={`${preset.setIds.length} set${preset.setIds.length !== 1 ? "s" : ""}`}
                 >
@@ -517,8 +521,8 @@ function PresetsBar({
                       isActive && !isModified
                         ? "bg-white/20 text-white"
                         : isActive && isModified
-                          ? "bg-amber-200 text-amber-700"
-                          : "bg-slate-100 text-slate-400",
+                          ? "bg-amber-200 text-amber-700 dark:bg-amber-800 dark:text-amber-300"
+                          : "bg-slate-100 text-slate-400 dark:bg-slate-700 dark:text-slate-400",
                     )}
                   >
                     {preset.setIds.length}
@@ -533,14 +537,14 @@ function PresetsBar({
                 {/* Action icons (shown on hover) */}
                 <button
                   onClick={() => startRename(preset)}
-                  className="shrink-0 rounded p-1 text-slate-300 opacity-0 transition-opacity hover:bg-slate-100 hover:text-slate-500 group-hover:opacity-100"
+                  className="shrink-0 rounded p-1 text-slate-300 opacity-0 transition-opacity hover:bg-slate-100 hover:text-slate-500 group-hover:opacity-100 dark:hover:bg-slate-700 dark:text-slate-400"
                   title="Rename preset"
                 >
                   <Pencil className="h-3 w-3" />
                 </button>
                 <button
                   onClick={() => onDelete(preset.id)}
-                  className="shrink-0 rounded p-1 text-slate-300 opacity-0 transition-opacity hover:bg-red-50 hover:text-red-500 group-hover:opacity-100"
+                  className="shrink-0 rounded p-1 text-slate-300 opacity-0 transition-opacity hover:bg-red-50 hover:text-red-500 group-hover:opacity-100 dark:hover:bg-red-900/30 dark:text-slate-400"
                   title="Delete preset"
                 >
                   <Trash2 className="h-3 w-3" />
@@ -711,7 +715,7 @@ export function CoveragePage() {
         />
 
         {/* Divider */}
-        <div className="h-px bg-slate-200" />
+        <div className="h-px bg-slate-200 dark:bg-slate-700" />
 
         {/* Test sets */}
         <div className="flex min-h-0 flex-1 flex-col gap-3">
@@ -722,7 +726,7 @@ export function CoveragePage() {
             <button
               onClick={() => void handleRefresh()}
               disabled={setsFetching || isRefreshing}
-              className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 disabled:opacity-40"
+              className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 disabled:opacity-40 dark:hover:bg-slate-700"
               title="Reload test sets"
             >
               <RefreshCw
@@ -751,11 +755,17 @@ export function CoveragePage() {
               {filteredSets.length} set{filteredSets.length !== 1 ? "s" : ""}
             </span>
             <div className="flex gap-2">
-              <button className="hover:text-slate-700" onClick={selectAll}>
+              <button
+                className="hover:text-slate-700 dark:hover:text-slate-200"
+                onClick={selectAll}
+              >
                 All
               </button>
               {selectedSetIds.size > 0 && (
-                <button className="hover:text-slate-700" onClick={clearAll}>
+                <button
+                  className="hover:text-slate-700 dark:hover:text-slate-200"
+                  onClick={clearAll}
+                >
                   Clear
                 </button>
               )}
@@ -771,9 +781,9 @@ export function CoveragePage() {
               </div>
             )}
             {setsError && (
-              <div className="rounded-md bg-red-50 px-3 py-2 text-xs text-red-700">
+              <div className="rounded-md bg-red-50 px-3 py-2 text-xs text-red-700 dark:bg-red-950 dark:text-red-300">
                 Failed to load test sets.{" "}
-                <button className="underline" onClick={() => void refetchSets()}>
+                <button className="underline dark:text-red-400" onClick={() => void refetchSets()}>
                   Retry
                 </button>
               </div>
@@ -796,7 +806,7 @@ export function CoveragePage() {
                       "flex w-full items-center gap-2 rounded-lg border px-3 py-2 text-left transition-colors",
                       selected
                         ? "border-slate-700 bg-slate-700 text-white"
-                        : "border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50",
+                        : "border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:border-slate-500 dark:hover:bg-slate-700",
                     )}
                   >
                     <span className="mt-0.5 shrink-0">
@@ -826,16 +836,18 @@ export function CoveragePage() {
       </div>
 
       {/* Divider */}
-      <div className="w-px shrink-0 bg-slate-200" />
+      <div className="w-px shrink-0 bg-slate-200 dark:bg-slate-700" />
 
       {/* ── Right panel: coverage dashboard ── */}
       <div className="flex min-w-0 flex-1 flex-col gap-4 overflow-hidden">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Activity className="h-5 w-5 text-slate-400" />
-            <h1 className="text-xl font-semibold">
+            <h1 className="text-xl font-semibold dark:text-slate-100">
               Coverage
-              <span className="ml-2 text-sm font-normal text-slate-500">{projectKey}</span>
+              <span className="ml-2 text-sm font-normal text-slate-500 dark:text-slate-400">
+                {projectKey}
+              </span>
             </h1>
           </div>
           <div className="relative w-56">
@@ -850,7 +862,7 @@ export function CoveragePage() {
         </div>
 
         {selectedSets.length === 0 && (
-          <div className="flex flex-1 flex-col items-center justify-center gap-3 text-slate-400">
+          <div className="flex flex-1 flex-col items-center justify-center gap-3 text-slate-400 dark:text-slate-500">
             <Layers className="h-12 w-12 opacity-30" />
             <p className="text-sm">Select test sets on the left to view coverage.</p>
           </div>

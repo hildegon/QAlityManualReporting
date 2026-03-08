@@ -39,17 +39,21 @@ export function ModalShell({
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 bg-black/30 backdrop-blur-sm" />
         <Dialog.Content
-          className={`fixed left-1/2 top-1/2 flex ${maxHeight} w-full ${maxWidth} -translate-x-1/2 -translate-y-1/2 flex-col rounded-xl bg-white shadow-xl`}
+          className={`fixed left-1/2 top-1/2 flex ${maxHeight} w-full ${maxWidth} -translate-x-1/2 -translate-y-1/2 flex-col rounded-xl bg-white shadow-xl dark:bg-slate-800`}
         >
           {/* Header */}
-          <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
+          <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4 dark:border-slate-700">
             <div>
               <Dialog.Title className="text-lg font-semibold">{title}</Dialog.Title>
-              {subtitle && <p className="mt-0.5 font-mono text-xs text-slate-500">{subtitle}</p>}
+              {subtitle && (
+                <p className="mt-0.5 font-mono text-xs text-slate-500 dark:text-slate-400">
+                  {subtitle}
+                </p>
+              )}
             </div>
             <Dialog.Close asChild>
-              <button className="rounded p-1 hover:bg-slate-100">
-                <X className="h-4 w-4 text-slate-500" />
+              <button className="rounded p-1 hover:bg-slate-100 dark:hover:bg-slate-700">
+                <X className="h-4 w-4 text-slate-500 dark:text-slate-400" />
               </button>
             </Dialog.Close>
           </div>
