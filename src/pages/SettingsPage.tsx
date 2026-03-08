@@ -94,8 +94,8 @@ export function SettingsPage() {
       <h1 className="mb-6 text-xl font-semibold">Settings</h1>
 
       {/* Jira section */}
-      <section className="mb-8 rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
-        <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-slate-500">
+      <section className="mb-8 rounded-lg border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+        <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
           Jira Cloud
         </h2>
 
@@ -123,7 +123,7 @@ export function SettingsPage() {
                 onClick={() =>
                   void openUrl("https://id.atlassian.com/manage-profile/security/api-tokens")
                 }
-                className="inline-flex items-center gap-1 text-xs text-blue-500 hover:text-blue-700 hover:underline"
+                className="inline-flex items-center gap-1 text-xs text-blue-500 hover:text-blue-700 hover:underline dark:text-blue-400 dark:hover:text-blue-300"
               >
                 <ExternalLink className="h-3 w-3" />
                 Create an API token on Atlassian
@@ -153,8 +153,8 @@ export function SettingsPage() {
       </section>
 
       {/* Xray section */}
-      <section className="mb-8 rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
-        <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-slate-500">
+      <section className="mb-8 rounded-lg border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+        <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
           Xray Cloud
         </h2>
 
@@ -169,7 +169,7 @@ export function SettingsPage() {
                     "https://docs.getxray.app/space/XRAYCLOUD/44568019/Global+Settings+-+API+Keys",
                   )
                 }
-                className="inline-flex items-center gap-1 text-xs text-blue-500 hover:text-blue-700 hover:underline"
+                className="inline-flex items-center gap-1 text-xs text-blue-500 hover:text-blue-700 hover:underline dark:text-blue-400 dark:hover:text-blue-300"
               >
                 <ExternalLink className="h-3 w-3" />
                 Find your API keys in Xray Cloud settings
@@ -238,14 +238,18 @@ export function SettingsPage() {
       </section>
 
       {errorMsg && (
-        <p className="mb-4 rounded-md bg-red-50 px-4 py-3 text-sm text-red-700">{errorMsg}</p>
+        <p className="mb-4 rounded-md bg-red-50 px-4 py-3 text-sm text-red-700 dark:bg-red-950 dark:text-red-300">
+          {errorMsg}
+        </p>
       )}
 
       <Button onClick={handleSave} disabled={saveConfig.isPending}>
         {saveConfig.isPending ? <Spinner size="sm" /> : "Save settings"}
       </Button>
 
-      {saveConfig.isSuccess && <p className="mt-3 text-sm text-emerald-600">Settings saved.</p>}
+      {saveConfig.isSuccess && (
+        <p className="mt-3 text-sm text-emerald-600 dark:text-emerald-400">Settings saved.</p>
+      )}
     </div>
   );
 }
@@ -263,7 +267,7 @@ function Field({
     <div className="space-y-1.5">
       <Label>{label}</Label>
       {children}
-      {hint && <p className="text-xs text-slate-400">{hint}</p>}
+      {hint && <p className="text-xs text-slate-400 dark:text-slate-500">{hint}</p>}
     </div>
   );
 }
@@ -277,7 +281,7 @@ function ValidationIndicator({
 }) {
   if (state === "success") {
     return (
-      <span className="flex items-center gap-1 text-sm text-emerald-600">
+      <span className="flex items-center gap-1 text-sm text-emerald-600 dark:text-emerald-400">
         <CheckCircle className="h-4 w-4" />
         {successLabel}
       </span>

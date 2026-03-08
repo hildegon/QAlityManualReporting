@@ -6,6 +6,20 @@ interface Toast {
   type: "success" | "error" | "info";
 }
 
+type Theme = "light" | "dark";
+
+const THEME_KEY = "qality-theme";
+
+function loadTheme(): Theme {
+  try {
+    const stored = localStorage.getItem(THEME_KEY);
+    if (stored === "dark" || stored === "light") return stored;
+  } catch {
+    // localStorage unavailable
+  }
+  return "light";
+}
+
 interface UiState {
   toasts: Toast[];
   addToast: (message: string, type?: Toast["type"]) => void;
@@ -15,6 +29,10 @@ interface UiState {
   /** Epoch-millisecond timestamp at which the current rate-limit block started, or null. */
   rateLimitStart: number | null;
   setRateLimit: (untilMs: number | null) => void;
+  /** Current colour theme. */
+  theme: Theme;
+  /** Toggle between light and dark, persisting the choice to localStorage. */
+  toggleTheme: () => void;
 }
 
 export const useUiStore = create<UiState>((set) => ({
@@ -35,6 +53,17 @@ export const useUiStore = create<UiState>((set) => ({
       // Capture start time only when a new limit is set; clear it when dismissed.
       rateLimitStart: untilMs !== null ? (state.rateLimitStart ?? Date.now()) : null,
     })),
+  theme: loadTheme(),
+  toggleTheme: () =>
+    set((state) => {
+      const next: Theme = state.theme === "light" ? "dark" : "light";
+      try {
+        localStorage.setItem(THEME_KEY, next);
+      } catch {
+        // localStorage unavailable
+      }
+      return { theme: next };
+    }),
 }));
 
 /**

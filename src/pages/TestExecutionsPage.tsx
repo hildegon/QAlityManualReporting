@@ -73,7 +73,10 @@ function ExecRow({
 }: ExecRowProps) {
   return (
     <tr
-      className={cn("group cursor-pointer hover:bg-slate-50", isFavourite && "bg-amber-50/40")}
+      className={cn(
+        "group cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-700/50",
+        isFavourite && "bg-amber-50/40 dark:bg-amber-900/20",
+      )}
       onClick={onSelect}
     >
       {/* Favourite star */}
@@ -96,9 +99,14 @@ function ExecRow({
         </button>
       </td>
 
-      <td className="px-4 py-3 font-mono text-xs text-slate-600">{exec.jira.key}</td>
+      <td className="px-4 py-3 font-mono text-xs text-slate-600 dark:text-slate-400">
+        {exec.jira.key}
+      </td>
 
-      <td className="px-4 py-3 text-slate-800" onClick={(e) => e.stopPropagation()}>
+      <td
+        className="px-4 py-3 text-slate-800 dark:text-slate-200"
+        onClick={(e) => e.stopPropagation()}
+      >
         {renameKey === exec.jira.key ? (
           <form
             className="flex items-center gap-1.5"
@@ -114,7 +122,7 @@ function ExecRow({
           >
             <input
               autoFocus
-              className="flex-1 rounded border border-slate-300 px-2 py-0.5 text-sm focus:border-slate-500 focus:outline-none"
+              className="flex-1 rounded border border-slate-300 px-2 py-0.5 text-sm focus:border-slate-500 focus:outline-none dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200"
               value={renameDraft}
               onChange={(e) => setRenameDraft(e.target.value)}
               onKeyDown={(e) => {
@@ -124,14 +132,14 @@ function ExecRow({
             />
             <button
               type="submit"
-              className="rounded px-2 py-0.5 text-xs font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-40"
+              className="rounded px-2 py-0.5 text-xs font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-40 dark:text-slate-300 dark:hover:bg-slate-600"
               disabled={renameIsPending}
             >
               {renameIsPending ? "…" : "Save"}
             </button>
             <button
               type="button"
-              className="rounded px-2 py-0.5 text-xs text-slate-400 hover:bg-slate-100"
+              className="rounded px-2 py-0.5 text-xs text-slate-400 hover:bg-slate-100 dark:text-slate-500 dark:hover:bg-slate-600"
               onClick={onCancelRename}
             >
               Cancel
@@ -154,19 +162,21 @@ function ExecRow({
         )}
       </td>
 
-      <td className="px-4 py-3 text-slate-500">{exec.jira.assignee?.display_name ?? "\u2014"}</td>
+      <td className="px-4 py-3 text-slate-500 dark:text-slate-400">
+        {exec.jira.assignee?.display_name ?? "\u2014"}
+      </td>
 
       <td className="px-4 py-3">
         <div className="flex items-center gap-1">
           <button
-            className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+            className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-700 dark:text-slate-400"
             title="Edit status / assignee"
             onClick={onEdit}
           >
             <Pencil className="h-4 w-4" />
           </button>
           <button
-            className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+            className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-700 dark:text-slate-400"
             title="Clone execution"
             onClick={onClone}
           >
@@ -239,7 +249,7 @@ export function TestExecutionsPage() {
     if (rateLimitUntil !== null) {
       const seconds = Math.max(0, Math.ceil((rateLimitUntil - Date.now()) / 1_000));
       return (
-        <div className="rounded-md bg-amber-50 px-4 py-3 text-sm text-amber-800">
+        <div className="rounded-md bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:bg-amber-900/30 dark:text-amber-300">
           <p className="font-medium">Rate limited by Xray</p>
           <p className="mt-0.5 text-xs">
             Too many requests. Please wait{seconds > 0 ? ` ~${seconds}s` : ""} and try again.
@@ -249,7 +259,7 @@ export function TestExecutionsPage() {
     }
     return (
       <div className="space-y-3">
-        <div className="rounded-md bg-red-50 px-4 py-3 text-sm text-red-700">
+        <div className="rounded-md bg-red-50 px-4 py-3 text-sm text-red-700 dark:bg-red-950 dark:text-red-300">
           <p className="mb-1 font-medium">Failed to load test executions</p>
           <pre className="whitespace-pre-wrap break-words font-mono text-xs">{String(error)}</pre>
         </div>
@@ -327,7 +337,7 @@ export function TestExecutionsPage() {
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
-        <label className="flex cursor-pointer select-none items-center gap-2 text-sm text-slate-600">
+        <label className="flex cursor-pointer select-none items-center gap-2 text-sm text-slate-600 dark:text-slate-400">
           <input
             type="checkbox"
             className="h-4 w-4 accent-blue-600"
@@ -336,7 +346,7 @@ export function TestExecutionsPage() {
           />
           Show done
           {!showDone && hiddenDoneCount > 0 && (
-            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-500">
+            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-500 dark:bg-slate-700 dark:text-slate-400">
               {hiddenDoneCount} hidden
             </span>
           )}
@@ -353,9 +363,9 @@ export function TestExecutionsPage() {
           }
         />
       ) : (
-        <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+        <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
           <table className="w-full text-sm">
-            <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+            <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500 dark:bg-slate-700/50 dark:text-slate-400">
               <tr>
                 <th className="w-8 px-2 py-3" />
                 <th className="px-4 py-3 text-left">Key</th>
@@ -365,7 +375,7 @@ export function TestExecutionsPage() {
                 <th className="px-4 py-3 text-left">Actions</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100">
+            <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
               {favouriteExecs.length > 0 && (
                 <>
                   {favouriteExecs.map((exec) => (
@@ -409,7 +419,7 @@ export function TestExecutionsPage() {
                     <tr>
                       <td
                         colSpan={6}
-                        className="bg-slate-50 px-4 py-1.5 text-xs font-semibold uppercase tracking-wider text-slate-400"
+                        className="bg-slate-50 px-4 py-1.5 text-xs font-semibold uppercase tracking-wider text-slate-400 dark:bg-slate-700/40 dark:text-slate-400"
                       >
                         All executions
                       </td>
@@ -611,13 +621,13 @@ function CreateExecutionDialog({
     >
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 bg-black/30 backdrop-blur-sm" />
-        <Dialog.Content className="fixed left-1/2 top-1/2 flex max-h-[90vh] w-full max-w-xl -translate-x-1/2 -translate-y-1/2 flex-col rounded-xl bg-white shadow-xl">
+        <Dialog.Content className="fixed left-1/2 top-1/2 flex max-h-[90vh] w-full max-w-xl -translate-x-1/2 -translate-y-1/2 flex-col rounded-xl bg-white shadow-xl dark:bg-slate-800">
           {/* Header */}
-          <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
+          <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4 dark:border-slate-700">
             <Dialog.Title className="text-lg font-semibold">New Test Execution</Dialog.Title>
             <Dialog.Close asChild>
-              <button className="rounded p-1 hover:bg-slate-100">
-                <X className="h-4 w-4 text-slate-500" />
+              <button className="rounded p-1 hover:bg-slate-100 dark:hover:bg-slate-700">
+                <X className="h-4 w-4 text-slate-500 dark:text-slate-400" />
               </button>
             </Dialog.Close>
           </div>
@@ -659,7 +669,7 @@ function CreateExecutionDialog({
                   ) : (
                     <select
                       id="exec-plan"
-                      className="w-full rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      className="w-full rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200"
                       value={testPlanId}
                       onChange={(e) => setTestPlanId(e.target.value)}
                     >
@@ -687,7 +697,7 @@ function CreateExecutionDialog({
                         value={testSetSearch}
                         onChange={(e) => setTestSetSearch(e.target.value)}
                       />
-                      <div className="max-h-40 overflow-y-auto rounded-md border border-slate-200">
+                      <div className="max-h-40 overflow-y-auto rounded-md border border-slate-200 dark:border-slate-700">
                         {filteredTestSets.length === 0 ? (
                           <p className="px-3 py-4 text-center text-sm text-slate-400">
                             {testSetSearch
@@ -695,7 +705,7 @@ function CreateExecutionDialog({
                               : "No test sets found."}
                           </p>
                         ) : (
-                          <ul className="divide-y divide-slate-100">
+                          <ul className="divide-y divide-slate-100 dark:divide-slate-700">
                             {filteredTestSets.map((ts) => {
                               const isAdding = addingSetId === ts.issue_id;
                               return (
@@ -751,18 +761,18 @@ function CreateExecutionDialog({
                       <Spinner size="sm" /> Loading tests…
                     </div>
                   ) : (
-                    <div className="max-h-48 overflow-y-auto rounded-md border border-slate-200">
+                    <div className="max-h-48 overflow-y-auto rounded-md border border-slate-200 dark:border-slate-700">
                       {filteredTests.length === 0 ? (
                         <p className="px-3 py-4 text-center text-sm text-slate-400">
                           {testSearch ? "No tests match your search." : "No tests found."}
                         </p>
                       ) : (
-                        <ul className="divide-y divide-slate-100">
+                        <ul className="divide-y divide-slate-100 dark:divide-slate-700">
                           {filteredTests.map((test) => {
                             const checked = selectedTestIds.has(test.issue_id);
                             return (
                               <li key={test.issue_id}>
-                                <label className="flex cursor-pointer items-start gap-3 px-3 py-2 hover:bg-slate-50">
+                                <label className="flex cursor-pointer items-start gap-3 px-3 py-2 hover:bg-slate-50 dark:hover:bg-slate-700">
                                   <input
                                     type="checkbox"
                                     className="mt-0.5 h-4 w-4 shrink-0 accent-blue-600"
@@ -790,9 +800,9 @@ function CreateExecutionDialog({
             </div>
 
             {/* Footer */}
-            <div className="space-y-3 border-t border-slate-200 px-6 py-4">
+            <div className="space-y-3 border-t border-slate-200 px-6 py-4 dark:border-slate-700">
               {createExecution.isError && (
-                <div className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
+                <div className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950 dark:text-red-300">
                   <p className="font-medium">Failed to create test execution</p>
                   <pre className="mt-1 whitespace-pre-wrap break-words font-mono text-xs">
                     {String(createExecution.error)}
@@ -916,18 +926,20 @@ function CloneExecutionDialog({
     >
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 bg-black/30 backdrop-blur-sm" />
-        <Dialog.Content className="fixed left-1/2 top-1/2 flex max-h-[85vh] w-full max-w-lg -translate-x-1/2 -translate-y-1/2 flex-col rounded-xl bg-white shadow-xl">
+        <Dialog.Content className="fixed left-1/2 top-1/2 flex max-h-[85vh] w-full max-w-lg -translate-x-1/2 -translate-y-1/2 flex-col rounded-xl bg-white shadow-xl dark:bg-slate-800">
           {/* Header */}
-          <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
+          <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4 dark:border-slate-700">
             <div>
               <Dialog.Title className="text-lg font-semibold">Clone Execution</Dialog.Title>
               {source && (
-                <p className="mt-0.5 font-mono text-xs text-slate-500">{source.jira.key}</p>
+                <p className="mt-0.5 font-mono text-xs text-slate-500 dark:text-slate-400">
+                  {source.jira.key}
+                </p>
               )}
             </div>
             <Dialog.Close asChild>
-              <button className="rounded p-1 hover:bg-slate-100">
-                <X className="h-4 w-4 text-slate-500" />
+              <button className="rounded p-1 hover:bg-slate-100 dark:hover:bg-slate-700">
+                <X className="h-4 w-4 text-slate-500 dark:text-slate-400" />
               </button>
             </Dialog.Close>
           </div>
@@ -981,9 +993,9 @@ function CloneExecutionDialog({
             </div>
 
             {/* Footer */}
-            <div className="space-y-3 border-t border-slate-200 px-6 py-4">
+            <div className="space-y-3 border-t border-slate-200 px-6 py-4 dark:border-slate-700">
               {createExecution.isError && (
-                <div className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
+                <div className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950 dark:text-red-300">
                   <p className="font-medium">Failed to clone execution</p>
                   <pre className="mt-1 whitespace-pre-wrap break-words font-mono text-xs">
                     {String(createExecution.error)}
@@ -1093,16 +1105,20 @@ function EditExecutionDialog({
     >
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 bg-black/30 backdrop-blur-sm" />
-        <Dialog.Content className="fixed left-1/2 top-1/2 flex max-h-[85vh] w-full max-w-md -translate-x-1/2 -translate-y-1/2 flex-col rounded-xl bg-white shadow-xl">
+        <Dialog.Content className="fixed left-1/2 top-1/2 flex max-h-[85vh] w-full max-w-md -translate-x-1/2 -translate-y-1/2 flex-col rounded-xl bg-white shadow-xl dark:bg-slate-800">
           {/* Header */}
-          <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
+          <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4 dark:border-slate-700">
             <div>
               <Dialog.Title className="text-lg font-semibold">Edit Execution</Dialog.Title>
-              {issueKey && <p className="mt-0.5 font-mono text-xs text-slate-500">{issueKey}</p>}
+              {issueKey && (
+                <p className="mt-0.5 font-mono text-xs text-slate-500 dark:text-slate-400">
+                  {issueKey}
+                </p>
+              )}
             </div>
             <Dialog.Close asChild>
-              <button className="rounded p-1 hover:bg-slate-100">
-                <X className="h-4 w-4 text-slate-500" />
+              <button className="rounded p-1 hover:bg-slate-100 dark:hover:bg-slate-700">
+                <X className="h-4 w-4 text-slate-500 dark:text-slate-400" />
               </button>
             </Dialog.Close>
           </div>
@@ -1111,7 +1127,9 @@ function EditExecutionDialog({
           <div className="flex-1 overflow-y-auto px-6 py-4 space-y-6">
             {/* ── Status transitions ── */}
             <div className="space-y-2">
-              <h3 className="text-sm font-medium text-slate-700">Transition Status</h3>
+              <h3 className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                Transition Status
+              </h3>
               {transitionsLoading ? (
                 <div className="flex items-center gap-2 text-sm text-slate-400">
                   <Spinner size="sm" /> Loading transitions…
@@ -1125,7 +1143,7 @@ function EditExecutionDialog({
                       key={t.id}
                       disabled={isMutating}
                       onClick={() => handleTransition(t.id)}
-                      className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-sm text-slate-700 transition-colors hover:border-blue-400 hover:bg-blue-50 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+                      className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-sm text-slate-700 transition-colors hover:border-blue-400 hover:bg-blue-50 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-300 dark:hover:border-blue-500 dark:hover:bg-blue-900/30 dark:hover:text-blue-300"
                     >
                       {t.name}
                     </button>
@@ -1136,10 +1154,10 @@ function EditExecutionDialog({
 
             {/* ── Assignee ── */}
             <div className="space-y-2">
-              <h3 className="text-sm font-medium text-slate-700">Assignee</h3>
-              <p className="text-xs text-slate-500">
+              <h3 className="text-sm font-medium text-slate-700 dark:text-slate-300">Assignee</h3>
+              <p className="text-xs text-slate-500 dark:text-slate-400">
                 Current:{" "}
-                <span className="font-medium text-slate-700">
+                <span className="font-medium text-slate-700 dark:text-slate-300">
                   {execution?.jira.assignee?.display_name ?? "Unassigned"}
                 </span>
               </p>
@@ -1152,7 +1170,7 @@ function EditExecutionDialog({
               />
 
               {debouncedQuery.length >= 2 && (
-                <div className="rounded-md border border-slate-200 bg-white">
+                <div className="rounded-md border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-800">
                   {usersLoading ? (
                     <div className="flex items-center gap-2 px-3 py-3 text-sm text-slate-400">
                       <Spinner size="sm" /> Searching…
@@ -1160,11 +1178,11 @@ function EditExecutionDialog({
                   ) : !userResults?.length ? (
                     <p className="px-3 py-3 text-sm text-slate-400">No users found.</p>
                   ) : (
-                    <ul className="divide-y divide-slate-100">
+                    <ul className="divide-y divide-slate-100 dark:divide-slate-700">
                       {userResults.map((user) => (
                         <li key={user.account_id}>
                           <button
-                            className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-slate-50 disabled:opacity-50"
+                            className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-slate-50 disabled:opacity-50 dark:hover:bg-slate-700"
                             disabled={isMutating}
                             onClick={() => handleAssign(user)}
                           >
@@ -1175,7 +1193,9 @@ function EditExecutionDialog({
                                 className="h-5 w-5 rounded-full"
                               />
                             )}
-                            <span className="text-slate-800">{user.display_name}</span>
+                            <span className="text-slate-800 dark:text-slate-300">
+                              {user.display_name}
+                            </span>
                           </button>
                         </li>
                       ))}
@@ -1199,7 +1219,7 @@ function EditExecutionDialog({
 
             {/* Error display */}
             {mutationError && (
-              <div className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
+              <div className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950 dark:text-red-300">
                 <p className="font-medium">Operation failed</p>
                 <pre className="mt-1 whitespace-pre-wrap break-words font-mono text-xs">
                   {String(mutationError)}
@@ -1209,7 +1229,7 @@ function EditExecutionDialog({
           </div>
 
           {/* Footer */}
-          <div className="border-t border-slate-200 px-6 py-3 flex justify-end">
+          <div className="border-t border-slate-200 px-6 py-3 flex justify-end dark:border-slate-700">
             <Dialog.Close asChild>
               <Button type="button" variant="outline" onClick={resetLocal} disabled={isMutating}>
                 {isMutating ? <Spinner size="sm" /> : "Close"}

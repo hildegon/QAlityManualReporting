@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { ProjectSelector } from "./ProjectSelector";
 import { RateLimitBanner } from "./RateLimitBanner";
+import { ThemeToggle } from "./ThemeToggle";
 import { useConfig } from "@/services/queries";
 import { cn } from "@/components/ui/utils";
 
@@ -42,15 +43,17 @@ export function AppShell() {
   })();
 
   return (
-    <div className="flex h-screen flex-col bg-slate-50 text-slate-900">
+    <div className="flex h-screen flex-col bg-slate-50 text-slate-900 dark:bg-slate-900 dark:text-slate-100">
       {/* Top navigation bar */}
-      <header className="flex h-12 shrink-0 items-center justify-between border-b border-slate-200 bg-white px-4 shadow-sm">
+      <header className="flex h-12 shrink-0 items-center justify-between border-b border-slate-200 bg-white px-4 shadow-sm dark:border-slate-700 dark:bg-slate-800">
         <div className="flex items-center gap-4">
-          <span className="text-sm font-semibold tracking-tight text-slate-800">QAlity</span>
+          <span className="text-sm font-semibold tracking-tight text-slate-800 dark:text-slate-100">
+            QAlity
+          </span>
           {isJiraConfigured ? (
             <ProjectSelector />
           ) : projectLabel ? (
-            <span className="rounded-md border border-slate-200 px-3 py-1.5 text-sm text-slate-600">
+            <span className="rounded-md border border-slate-200 px-3 py-1.5 text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300">
               {projectLabel}
             </span>
           ) : null}
@@ -65,8 +68,8 @@ export function AppShell() {
                 cn(
                   "flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm transition-colors",
                   isActive
-                    ? "bg-slate-100 font-medium text-slate-900"
-                    : "text-slate-500 hover:bg-slate-50 hover:text-slate-700",
+                    ? "bg-slate-100 font-medium text-slate-900 dark:bg-slate-700 dark:text-slate-100"
+                    : "text-slate-500 hover:bg-slate-50 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-slate-700 dark:hover:text-slate-200",
                 )
               }
             >
@@ -74,6 +77,7 @@ export function AppShell() {
               {label}
             </NavLink>
           ))}
+          <ThemeToggle />
         </nav>
       </header>
 

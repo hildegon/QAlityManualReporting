@@ -298,7 +298,7 @@ export function TestExecutionDetail({
       <div className="mb-4 flex items-start gap-3">
         <button
           onClick={onBack}
-          className="mt-0.5 rounded p-1 hover:bg-slate-100"
+          className="mt-0.5 rounded p-1 hover:bg-slate-100 dark:hover:bg-slate-700"
           aria-label="Back to executions"
         >
           <ArrowLeft className="h-4 w-4 text-slate-500" />
@@ -343,7 +343,7 @@ export function TestExecutionDetail({
           if (rateLimitUntil !== null) {
             const seconds = Math.max(0, Math.ceil((rateLimitUntil - Date.now()) / 1_000));
             return (
-              <div className="rounded-md bg-amber-50 px-4 py-3 text-sm text-amber-800">
+              <div className="rounded-md bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:bg-amber-900/40 dark:text-amber-300">
                 <p className="font-medium">Rate limited by Xray</p>
                 <p className="mt-0.5 text-xs">
                   Too many requests. Please wait{seconds > 0 ? ` ~${seconds}s` : ""} and try again.
@@ -352,7 +352,7 @@ export function TestExecutionDetail({
             );
           }
           return (
-            <div className="rounded-md bg-red-50 px-4 py-3 text-sm text-red-700">
+            <div className="rounded-md bg-red-50 px-4 py-3 text-sm text-red-700 dark:bg-red-950 dark:text-red-300">
               <p className="mb-1 font-medium">Failed to load test runs</p>
               <pre className="whitespace-pre-wrap break-words font-mono text-xs">
                 {String(error)}
@@ -378,10 +378,12 @@ export function TestExecutionDetail({
                 with this execution (testSetCounts is empty). */}
             {testSets.length > 0 &&
               (hasNextPage || isFetchingNextPage || testSetCounts.size > 0) && (
-                <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 shadow-sm">
+                <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 shadow-sm dark:border-slate-700 dark:bg-slate-800">
                   <div className="mb-1.5 flex items-center gap-1.5">
                     <Layers className="h-3.5 w-3.5 shrink-0 text-slate-400" />
-                    <span className="text-xs font-medium text-slate-500">Test Set</span>
+                    <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
+                      Test Set
+                    </span>
                   </div>
                   <div className="flex flex-wrap gap-1.5">
                     {/* "All" pill */}
@@ -391,7 +393,7 @@ export function TestExecutionDetail({
                         "rounded-full border px-2.5 py-0.5 text-xs font-medium transition-colors",
                         testSetFilter === FILTER_ALL
                           ? "border-slate-800 bg-slate-800 text-white"
-                          : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50",
+                          : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:border-slate-500 dark:hover:bg-slate-700",
                       )}
                     >
                       All ({runs.length})
@@ -409,7 +411,7 @@ export function TestExecutionDetail({
                             "rounded-full border px-2.5 py-0.5 text-xs font-medium transition-colors",
                             testSetFilter === FILTER_NONE
                               ? "border-slate-800 bg-slate-800 text-white"
-                              : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50",
+                              : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:border-slate-500 dark:hover:bg-slate-700",
                           )}
                         >
                           No set ({noSetCount})
@@ -438,7 +440,7 @@ export function TestExecutionDetail({
                             "max-w-[18rem] truncate rounded-full border px-2.5 py-0.5 text-xs font-medium transition-colors",
                             isActive
                               ? "border-slate-800 bg-slate-800 text-white"
-                              : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50",
+                              : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:border-slate-500 dark:hover:bg-slate-700",
                           )}
                         >
                           {ts.jira.summary} ({count})
@@ -451,14 +453,14 @@ export function TestExecutionDetail({
 
             {/* Key / name search + sort toggle */}
             <div className="flex items-center gap-2">
-              <div className="flex flex-1 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 shadow-sm">
+              <div className="flex flex-1 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 shadow-sm dark:border-slate-700 dark:bg-slate-800">
                 <Search className="h-3.5 w-3.5 shrink-0 text-slate-400" />
                 <input
                   type="text"
                   placeholder="Filter by key or name…"
                   value={testSearch}
                   onChange={(e) => setTestSearch(e.target.value)}
-                  className="flex-1 bg-transparent text-sm text-slate-700 placeholder:text-slate-400 focus:outline-none"
+                  className="flex-1 bg-transparent text-sm text-slate-700 placeholder:text-slate-400 focus:outline-none dark:text-slate-200 dark:placeholder:text-slate-500"
                 />
                 {testSearch && (
                   <button
@@ -477,7 +479,7 @@ export function TestExecutionDetail({
                   "flex items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-medium shadow-sm transition-colors",
                   sortByStatus
                     ? "border-slate-800 bg-slate-800 text-white"
-                    : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50",
+                    : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:border-slate-500 dark:hover:bg-slate-700",
                 )}
               >
                 <ArrowUpDown className="h-3.5 w-3.5" />
@@ -487,8 +489,8 @@ export function TestExecutionDetail({
           </div>
 
           {/* Progress summary */}
-          <div className="mb-4 rounded-lg border border-slate-200 bg-white px-4 py-3 shadow-sm">
-            <div className="mb-2 flex items-center justify-between text-xs text-slate-500">
+          <div className="mb-4 rounded-lg border border-slate-200 bg-white px-4 py-3 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+            <div className="mb-2 flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
               <span className="font-medium">
                 {total}
                 {totalFromServer > total ? ` of ${totalFromServer}` : ""} test
@@ -504,7 +506,7 @@ export function TestExecutionDetail({
               </span>
             </div>
             {/* Progress bar — one segment per status, each coloured by its palette entry */}
-            <div className="flex h-2 w-full overflow-hidden rounded-full bg-slate-100">
+            <div className="flex h-2 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-700">
               {summarySlices.map((sl) =>
                 sl.count > 0 ? (
                   <div
@@ -518,7 +520,7 @@ export function TestExecutionDetail({
 
           {/* Status filter */}
           <div className="mb-3 flex items-center gap-2">
-            <span className="text-xs font-medium text-slate-500">Filter:</span>
+            <span className="text-xs font-medium text-slate-500 dark:text-slate-400">Filter:</span>
             {statuses.map((s) => {
               const isActive = statusFilter?.toUpperCase() === s.name.toUpperCase();
               return (
@@ -536,7 +538,7 @@ export function TestExecutionDetail({
                     !s.color && isActive
                       ? "border-slate-600 bg-slate-600 text-white"
                       : !s.color
-                        ? "border-transparent bg-slate-100 text-slate-600 hover:bg-slate-200"
+                        ? "border-transparent bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600"
                         : "",
                   )}
                 >
@@ -556,9 +558,9 @@ export function TestExecutionDetail({
             )}
           </div>
 
-          <div className="rounded-lg border border-slate-200 bg-white shadow-sm">
+          <div className="rounded-lg border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
             {/* Table header */}
-            <div className="grid grid-cols-[auto_2fr_1fr_auto_auto] gap-4 border-b border-slate-100 bg-slate-50 px-4 py-2.5 text-xs font-medium uppercase tracking-wide text-slate-500">
+            <div className="grid grid-cols-[auto_2fr_1fr_auto_auto] gap-4 border-b border-slate-100 bg-slate-50 px-4 py-2.5 text-xs font-medium uppercase tracking-wide text-slate-500 dark:border-slate-700 dark:bg-slate-700/60 dark:text-slate-400">
               <span className="w-5"></span>
               <span>Test</span>
               <span>Status</span>
@@ -592,14 +594,14 @@ export function TestExecutionDetail({
                         transform: `translateY(${virtualRow.start}px)`,
                       }}
                     >
-                      <div className="grid grid-cols-[auto_2fr_1fr_auto_auto] items-center gap-4 border-b border-slate-50 px-4 py-3 last:border-0 hover:bg-slate-50/50">
+                      <div className="grid grid-cols-[auto_2fr_1fr_auto_auto] items-center gap-4 border-b border-slate-50 px-4 py-3 last:border-0 hover:bg-slate-50/50 dark:border-slate-700 dark:hover:bg-slate-700/40">
                         {/* Expand toggle */}
                         <button
                           onClick={() => hasSteps && toggleExpanded(run.id)}
                           className={cn(
                             "flex h-5 w-5 items-center justify-center rounded",
                             hasSteps
-                              ? "text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+                              ? "text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-700 dark:hover:text-slate-300"
                               : "cursor-default text-transparent",
                           )}
                           aria-label={isExpanded ? "Collapse steps" : "Expand steps"}
@@ -621,11 +623,13 @@ export function TestExecutionDetail({
 
                         {/* Test identity */}
                         <div className="min-w-0">
-                          <p className="truncate text-sm text-slate-800">{run.test.jira.summary}</p>
+                          <p className="truncate text-sm text-slate-800 dark:text-slate-200">
+                            {run.test.jira.summary}
+                          </p>
                           <p className="font-mono text-xs text-slate-400">
                             {run.test.jira.key}
                             {hasSteps && (
-                              <span className="ml-2 text-slate-300">
+                              <span className="ml-2 text-slate-300 dark:text-slate-600">
                                 {isCucumber
                                   ? "Cucumber"
                                   : `${run.steps!.length} step${run.steps!.length !== 1 ? "s" : ""}`}
@@ -653,7 +657,7 @@ export function TestExecutionDetail({
                                   !s.color &&
                                     (isActive
                                       ? "border-transparent bg-slate-800 text-white"
-                                      : "border-transparent bg-slate-100 text-slate-600 hover:bg-slate-200"),
+                                      : "border-transparent bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600"),
                                 )}
                               >
                                 {s.name}
@@ -686,10 +690,10 @@ export function TestExecutionDetail({
 
                       {/* Inline comment editor */}
                       {activeComment === run.id && (
-                        <div className="flex items-center gap-2 border-b border-slate-100 bg-slate-50 px-4 py-2">
+                        <div className="flex items-center gap-2 border-b border-slate-100 bg-slate-50 px-4 py-2 dark:border-slate-700 dark:bg-slate-700/40">
                           <input
                             autoFocus
-                            className="flex-1 rounded border border-slate-200 bg-white px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400"
+                            className="flex-1 rounded border border-slate-200 bg-white px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200 dark:focus:ring-slate-500"
                             placeholder="Add a comment..."
                             value={commentValue}
                             onChange={(e) => setCommentValue(e.target.value)}
@@ -738,7 +742,7 @@ export function TestExecutionDetail({
             </div>
 
             {/* Footer with count + load controls */}
-            <div className="flex items-center justify-between border-t border-slate-100 px-4 py-2 text-xs text-slate-400">
+            <div className="flex items-center justify-between border-t border-slate-100 px-4 py-2 text-xs text-slate-400 dark:border-slate-700 dark:text-slate-500">
               <span>
                 {filteredRuns.length < runs.length
                   ? `${filteredRuns.length} of ${runs.length}`
@@ -753,7 +757,7 @@ export function TestExecutionDetail({
                   <button
                     onClick={() => void fetchNextPage()}
                     disabled={isFetchingNextPage || loadingAll}
-                    className="flex items-center gap-1 rounded px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-100 disabled:opacity-50"
+                    className="flex items-center gap-1 rounded px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-100 disabled:opacity-50 dark:text-slate-400 dark:hover:bg-slate-700"
                   >
                     {isFetchingNextPage && !loadingAll ? (
                       <>
@@ -781,7 +785,7 @@ export function TestExecutionDetail({
                       pump();
                     }}
                     disabled={isFetchingNextPage || loadingAll}
-                    className="flex items-center gap-1 rounded px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-100 disabled:opacity-50"
+                    className="flex items-center gap-1 rounded px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-100 disabled:opacity-50 dark:text-slate-400 dark:hover:bg-slate-700"
                   >
                     {loadingAll ? (
                       <>
@@ -807,10 +811,12 @@ export function TestExecutionDetail({
 /** Keyword → Tailwind colour classes for the keyword chip. */
 function gherkinKeywordStyle(keyword: string): string {
   const k = keyword.trim().toLowerCase();
-  if (k === "given") return "bg-purple-100 text-purple-700";
-  if (k === "when") return "bg-blue-100 text-blue-700";
-  if (k === "then") return "bg-emerald-100 text-emerald-700";
-  return "bg-slate-100 text-slate-500"; // And / But / *
+  if (k === "given")
+    return "bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300";
+  if (k === "when") return "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300";
+  if (k === "then")
+    return "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300";
+  return "bg-slate-100 text-slate-500 dark:bg-slate-700 dark:text-slate-400"; // And / But / *
 }
 
 /** Keywords that introduce a step line in Gherkin. */
@@ -863,14 +869,14 @@ function GherkinPanel({ gherkin, results }: GherkinPanelProps) {
   if (rows.length === 0 && !hasResults) {
     // No definition and no results yet — show a placeholder.
     return (
-      <div className="border-b border-slate-100 bg-slate-50/60 px-6 py-3">
+      <div className="border-b border-slate-100 bg-slate-50/60 px-6 py-3 dark:border-slate-700 dark:bg-slate-700/40">
         <p className="text-xs text-slate-400 italic">No Gherkin steps available.</p>
       </div>
     );
   }
 
   return (
-    <div className="border-b border-slate-100 bg-slate-50/60">
+    <div className="border-b border-slate-100 bg-slate-50/60 dark:border-slate-700 dark:bg-slate-700/40">
       <div className="px-6 py-2">
         <div className="mb-2 flex items-center justify-between">
           <p className="text-xs font-medium uppercase tracking-wide text-slate-400">
@@ -879,7 +885,10 @@ function GherkinPanel({ gherkin, results }: GherkinPanelProps) {
         </div>
         <div className="space-y-1">
           {rows.map((step, index) => (
-            <div key={index} className="rounded-md border border-slate-200 bg-white px-3 py-2">
+            <div
+              key={index}
+              className="rounded-md border border-slate-200 bg-white px-3 py-2 dark:border-slate-600 dark:bg-slate-800"
+            >
               <div className="flex items-start gap-3">
                 {/* Keyword chip */}
                 {step.keyword && (
@@ -894,7 +903,9 @@ function GherkinPanel({ gherkin, results }: GherkinPanelProps) {
                 )}
 
                 {/* Step text */}
-                <p className="min-w-0 flex-1 text-sm text-slate-700">{step.sentence}</p>
+                <p className="min-w-0 flex-1 text-sm text-slate-700 dark:text-slate-300">
+                  {step.sentence}
+                </p>
 
                 {/* Step status badge (read-only) */}
                 {step.status && (
@@ -984,7 +995,7 @@ function StepsPanel({
   };
 
   return (
-    <div className="border-b border-slate-100 bg-slate-50/60">
+    <div className="border-b border-slate-100 bg-slate-50/60 dark:border-slate-700 dark:bg-slate-700/40">
       <div className="px-6 py-2">
         <div className="mb-2 flex items-center justify-between">
           <p className="text-xs font-medium uppercase tracking-wide text-slate-400">
@@ -1002,7 +1013,8 @@ function StepsPanel({
                 style={statusButtonStyle(s.color, false)}
                 className={cn(
                   "rounded border px-1.5 py-0.5 text-[10px] font-medium transition-colors",
-                  !s.color && "border-transparent bg-slate-100 text-slate-600 hover:bg-slate-200",
+                  !s.color &&
+                    "border-transparent bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600",
                 )}
               >
                 {s.name}
@@ -1032,26 +1044,32 @@ function StepsPanel({
                 role="row"
                 aria-label={`Step ${index + 1}: ${step.action ?? "No action"}`}
                 onKeyDown={(e) => handleStepKeyDown(e, index)}
-                className="rounded-md border border-slate-200 bg-white px-3 py-2 focus:outline-none focus:ring-2 focus:ring-slate-400"
+                className="rounded-md border border-slate-200 bg-white px-3 py-2 focus:outline-none focus:ring-2 focus:ring-slate-400 dark:border-slate-600 dark:bg-slate-800 dark:focus:ring-slate-500"
               >
                 <div className="flex items-start gap-3">
                   {/* Step number */}
-                  <span className="mt-0.5 flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full bg-slate-100 text-xs font-medium text-slate-500">
+                  <span className="mt-0.5 flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full bg-slate-100 text-xs font-medium text-slate-500 dark:bg-slate-700 dark:text-slate-400">
                     {index + 1}
                   </span>
 
                   {/* Step content */}
                   <div className="min-w-0 flex-1">
-                    {step.action && <p className="text-sm text-slate-700">{step.action}</p>}
+                    {step.action && (
+                      <p className="text-sm text-slate-700 dark:text-slate-300">{step.action}</p>
+                    )}
                     {step.data && (
                       <p className="mt-0.5 text-xs text-slate-400">
-                        <span className="font-medium text-slate-500">Data: </span>
+                        <span className="font-medium text-slate-500 dark:text-slate-400">
+                          Data:{" "}
+                        </span>
                         {step.data}
                       </p>
                     )}
                     {step.result && (
                       <p className="mt-0.5 text-xs text-slate-400">
-                        <span className="font-medium text-slate-500">Expected: </span>
+                        <span className="font-medium text-slate-500 dark:text-slate-400">
+                          Expected:{" "}
+                        </span>
                         {step.result}
                       </p>
                     )}
@@ -1061,7 +1079,7 @@ function StepsPanel({
                       <div className="mt-1 flex items-center gap-1">
                         <input
                           autoFocus
-                          className="flex-1 rounded border border-slate-200 bg-white px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-slate-400"
+                          className="flex-1 rounded border border-slate-200 bg-white px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-slate-400 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200"
                           placeholder="Actual result..."
                           value={editValue}
                           onChange={(e) => setEditValue(e.target.value)}
@@ -1093,9 +1111,13 @@ function StepsPanel({
                         className="mt-0.5 group flex cursor-pointer items-center gap-1 text-xs text-slate-400 hover:text-slate-600"
                         onClick={() => startEditing(step, "actualResult")}
                       >
-                        <span className="font-medium text-slate-500">Actual: </span>
+                        <span className="font-medium text-slate-500 dark:text-slate-400">
+                          Actual:{" "}
+                        </span>
                         {step.actual_result || (
-                          <span className="italic text-slate-300">click to add</span>
+                          <span className="italic text-slate-300 dark:text-slate-600">
+                            click to add
+                          </span>
                         )}
                         <Pencil className="ml-1 hidden h-3 w-3 group-hover:inline-block" />
                       </p>
@@ -1106,7 +1128,7 @@ function StepsPanel({
                       <div className="mt-1 flex items-center gap-1">
                         <input
                           autoFocus
-                          className="flex-1 rounded border border-slate-200 bg-white px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-slate-400"
+                          className="flex-1 rounded border border-slate-200 bg-white px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-slate-400 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200"
                           placeholder="Step comment..."
                           value={editValue}
                           onChange={(e) => setEditValue(e.target.value)}
@@ -1139,7 +1161,9 @@ function StepsPanel({
                         onClick={() => startEditing(step, "comment")}
                       >
                         {step.comment || (
-                          <span className="not-italic text-slate-300">add comment...</span>
+                          <span className="not-italic text-slate-300 dark:text-slate-600">
+                            add comment...
+                          </span>
                         )}
                         <Pencil className="ml-1 hidden h-3 w-3 group-hover:inline-block" />
                       </p>
@@ -1167,7 +1191,7 @@ function StepsPanel({
                             !s.color &&
                               (isActive
                                 ? "border-transparent bg-slate-800 text-white"
-                                : "border-transparent bg-slate-100 text-slate-600 hover:bg-slate-200"),
+                                : "border-transparent bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600"),
                           )}
                         >
                           {s.name}

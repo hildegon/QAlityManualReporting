@@ -48,14 +48,14 @@ function FetchProgress({ loaded, expected }: { loaded: number; expected: number 
   if (expected === 0 || loaded >= expected) return null;
   const pct = expected > 0 ? (loaded / expected) * 100 : 0;
   return (
-    <div className="flex items-center gap-2 text-xs text-slate-400">
+    <div className="flex items-center gap-2 text-xs text-slate-400 dark:text-slate-500">
       <Loader2 className="h-3 w-3 animate-spin" />
       <span>
         Loading test results… {loaded}/{expected} pages
       </span>
-      <div className="h-1 flex-1 overflow-hidden rounded-full bg-slate-100">
+      <div className="h-1 flex-1 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-700">
         <div
-          className="h-full rounded-full bg-slate-300 transition-all duration-300"
+          className="h-full rounded-full bg-slate-300 transition-all duration-300 dark:bg-slate-500"
           style={{ width: `${pct}%` }}
         />
       </div>
@@ -72,22 +72,26 @@ const CLASSIFICATION_META: Record<
   fixed: {
     label: "Fixed",
     icon: CheckCheck,
-    chipClass: "bg-emerald-50 text-emerald-700 border-emerald-200",
+    chipClass:
+      "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-900/40 dark:text-emerald-300 dark:border-emerald-800",
   },
   failing: {
     label: "Still failing",
     icon: TrendingDown,
-    chipClass: "bg-red-50 text-red-700 border-red-200",
+    chipClass:
+      "bg-red-50 text-red-700 border-red-200 dark:bg-red-950 dark:text-red-300 dark:border-red-800",
   },
   flaky: {
     label: "Flaky",
     icon: Shuffle,
-    chipClass: "bg-amber-50 text-amber-700 border-amber-200",
+    chipClass:
+      "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-900/40 dark:text-amber-300 dark:border-amber-800",
   },
   "never-passed": {
     label: "No pass yet",
     icon: AlertTriangle,
-    chipClass: "bg-orange-50 text-orange-700 border-orange-200",
+    chipClass:
+      "bg-orange-50 text-orange-700 border-orange-200 dark:bg-orange-900/40 dark:text-orange-300 dark:border-orange-800",
   },
 };
 
@@ -113,11 +117,13 @@ function FailedTestRow({ test }: { test: TestRunHistory }) {
   const Icon = meta.icon;
 
   return (
-    <div className="rounded-lg border border-slate-200 bg-white px-4 py-3">
+    <div className="rounded-lg border border-slate-200 bg-white px-4 py-3 dark:border-slate-700 dark:bg-slate-800">
       <div className="flex flex-wrap items-start justify-between gap-2">
         {/* Test identity */}
         <div className="min-w-0">
-          <p className="truncate font-medium text-sm text-slate-900">{test.testSummary}</p>
+          <p className="truncate font-medium text-sm text-slate-900 dark:text-slate-200">
+            {test.testSummary}
+          </p>
           <p className="mt-0.5 font-mono text-xs text-slate-400">{test.testKey}</p>
         </div>
         {/* Classification chip */}
@@ -162,10 +168,12 @@ function FailedTestsAnalysis({
 
   if (isLoading) {
     return (
-      <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+      <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-800">
         <div className="mb-3 flex items-center gap-2">
           <AlertTriangle className="h-4 w-4 text-slate-400" />
-          <h3 className="font-semibold text-slate-800">Failed tests analysis</h3>
+          <h3 className="font-semibold text-slate-800 dark:text-slate-300">
+            Failed tests analysis
+          </h3>
         </div>
         <div className="flex items-center gap-2 text-sm text-slate-400">
           <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -177,12 +185,14 @@ function FailedTestsAnalysis({
 
   if (failedTests.length === 0) {
     return (
-      <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-5 shadow-sm">
+      <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-5 shadow-sm dark:border-emerald-800 dark:bg-emerald-950">
         <div className="flex items-center gap-2">
           <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-          <p className="font-semibold text-emerald-800">No failures detected</p>
+          <p className="font-semibold text-emerald-800 dark:text-emerald-300">
+            No failures detected
+          </p>
         </div>
-        <p className="mt-0.5 text-sm text-emerald-700">
+        <p className="mt-0.5 text-sm text-emerald-700 dark:text-emerald-200">
           All tests with recorded results passed across all executions.
         </p>
       </div>
@@ -199,12 +209,14 @@ function FailedTestsAnalysis({
   const visible = showAll ? failedTests : failedTests.slice(0, PREVIEW_COUNT);
 
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-800">
       {/* Header */}
       <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
         <div className="flex items-center gap-2">
           <AlertTriangle className="h-4 w-4 text-red-500" />
-          <h3 className="font-semibold text-slate-800">Failed tests analysis</h3>
+          <h3 className="font-semibold text-slate-800 dark:text-slate-200">
+            Failed tests analysis
+          </h3>
           <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-semibold text-red-700">
             {failedTests.length} test{failedTests.length !== 1 ? "s" : ""}
           </span>
@@ -291,15 +303,19 @@ function VersionDashboard({ executions, version }: VersionDashboardProps) {
   return (
     <div className="space-y-4">
       {/* Results overview card */}
-      <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+      <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-800">
         <div className="mb-4 flex items-start justify-between gap-4">
           <div>
             <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">
               Test results report
             </p>
-            <h2 className="mt-0.5 text-lg font-bold text-slate-900">{version.name}</h2>
+            <h2 className="mt-0.5 text-lg font-bold text-slate-900 dark:text-slate-100">
+              {version.name}
+            </h2>
             {version.description && (
-              <p className="mt-0.5 text-sm text-slate-500">{version.description}</p>
+              <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
+                {version.description}
+              </p>
             )}
           </div>
           <span
@@ -344,19 +360,26 @@ function VersionDashboard({ executions, version }: VersionDashboardProps) {
               </>
             )}
 
-            <div className="flex flex-wrap gap-x-6 gap-y-1 border-t border-slate-100 pt-3 text-xs text-slate-400">
+            <div className="flex flex-wrap gap-x-6 gap-y-1 border-t border-slate-100 pt-3 text-xs text-slate-400 dark:border-slate-700 dark:text-slate-500">
               {version.release_date && (
                 <span>
                   Release date:{" "}
-                  <span className="font-medium text-slate-600">{version.release_date}</span>
+                  <span className="font-medium text-slate-600 dark:text-slate-300">
+                    {version.release_date}
+                  </span>
                 </span>
               )}
               <span>
-                Executions: <span className="font-medium text-slate-600">{executions.length}</span>
+                Executions:{" "}
+                <span className="font-medium text-slate-600 dark:text-slate-300">
+                  {executions.length}
+                </span>
               </span>
               <span>
                 Total runs:{" "}
-                <span className="font-medium text-slate-600">{isLoading ? "…" : stats.total}</span>
+                <span className="font-medium text-slate-600 dark:text-slate-300">
+                  {isLoading ? "…" : stats.total}
+                </span>
               </span>
             </div>
           </div>
@@ -395,7 +418,7 @@ function VersionCard({
         "group w-full rounded-lg border px-4 py-3 text-left transition-colors",
         isActive
           ? "border-slate-800 bg-slate-800 text-white"
-          : "border-slate-200 bg-white text-slate-800 hover:border-slate-300 hover:bg-slate-50",
+          : "border-slate-200 bg-white text-slate-800 hover:border-slate-300 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200 dark:hover:border-slate-500 dark:hover:bg-slate-700",
       )}
     >
       <div className="flex items-center justify-between gap-2">
@@ -446,12 +469,22 @@ function VersionCard({
         </div>
       </div>
       {version.description && (
-        <p className={cn("mt-0.5 truncate text-xs", isActive ? "text-white/70" : "text-slate-500")}>
+        <p
+          className={cn(
+            "mt-0.5 truncate text-xs",
+            isActive ? "text-white/70" : "text-slate-500 dark:text-slate-400",
+          )}
+        >
           {version.description}
         </p>
       )}
       {version.release_date && (
-        <p className={cn("mt-0.5 text-xs", isActive ? "text-white/60" : "text-slate-400")}>
+        <p
+          className={cn(
+            "mt-0.5 text-xs",
+            isActive ? "text-white/60" : "text-slate-400 dark:text-slate-500",
+          )}
+        >
           {version.release_date}
         </p>
       )}
@@ -471,11 +504,13 @@ function ExecutionRow({ execution, onClick }: ExecutionRowProps) {
   return (
     <button
       onClick={onClick}
-      className="w-full rounded-lg border border-slate-200 bg-white px-4 py-3 text-left shadow-sm transition-colors hover:border-slate-300 hover:bg-slate-50"
+      className="w-full rounded-lg border border-slate-200 bg-white px-4 py-3 text-left shadow-sm transition-colors hover:border-slate-300 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:hover:border-slate-600 dark:hover:bg-slate-700"
     >
       <div className="flex items-center justify-between gap-3">
         <div className="min-w-0">
-          <p className="truncate font-medium text-sm text-slate-900">{execution.jira.summary}</p>
+          <p className="truncate font-medium text-sm text-slate-900 dark:text-slate-200">
+            {execution.jira.summary}
+          </p>
           <p className="mt-0.5 font-mono text-xs text-slate-400">{execution.jira.key}</p>
         </div>
         {statusName && (
@@ -510,7 +545,7 @@ function ExecutionListPanel({ projectKey, version, onSelectExecution }: Executio
         {Array.from({ length: 3 }).map((_, i) => (
           <div
             key={i}
-            className="flex items-center gap-3 rounded border border-slate-100 px-3 py-2"
+            className="flex items-center gap-3 rounded border border-slate-100 px-3 py-2 dark:border-slate-700"
           >
             <Skeleton className="h-4 w-20 shrink-0" />
             <Skeleton className="h-4 flex-1" />
@@ -526,7 +561,7 @@ function ExecutionListPanel({ projectKey, version, onSelectExecution }: Executio
     if (rateLimitUntil !== null) {
       const seconds = Math.max(0, Math.ceil((rateLimitUntil - Date.now()) / 1_000));
       return (
-        <div className="rounded-md bg-amber-50 px-4 py-3 text-sm text-amber-800">
+        <div className="rounded-md bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:bg-amber-900/40 dark:text-amber-300">
           <p className="font-medium">Rate limited by Xray</p>
           <p className="mt-0.5 text-xs">
             Too many requests. Please wait{seconds > 0 ? ` ~${seconds}s` : ""} and try again.
@@ -535,7 +570,7 @@ function ExecutionListPanel({ projectKey, version, onSelectExecution }: Executio
       );
     }
     return (
-      <div className="rounded-md bg-red-50 px-4 py-3 text-sm text-red-700">
+      <div className="rounded-md bg-red-50 px-4 py-3 text-sm text-red-700 dark:bg-red-950 dark:text-red-300">
         <p className="mb-1 font-medium">Failed to load test executions</p>
         <pre className="whitespace-pre-wrap break-words font-mono text-xs">{String(error)}</pre>
       </div>
@@ -591,7 +626,7 @@ function FilterChip({
         "rounded-full border px-2.5 py-0.5 text-xs font-medium transition-colors",
         active
           ? cn("border-slate-700 bg-slate-700 text-white", colorClass && "")
-          : "border-slate-200 bg-white text-slate-500 hover:border-slate-300 hover:bg-slate-50",
+          : "border-slate-200 bg-white text-slate-500 hover:border-slate-300 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:border-slate-500",
       )}
     >
       {label}
@@ -698,9 +733,9 @@ function BugsPanel({ projectKey, versionName }: BugsPanelProps) {
   const list = bugs ?? [];
 
   return (
-    <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+    <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800">
       {/* Header */}
-      <div className="mb-3 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-slate-400">
+      <div className="mb-3 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
         <Bug className="h-3.5 w-3.5" />
         Bugs ({list.length})
         {hasActiveFilters && (
@@ -720,7 +755,7 @@ function BugsPanel({ projectKey, versionName }: BugsPanelProps) {
               placeholder="Search summary or key…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="w-full rounded-lg border border-slate-200 bg-slate-50 py-1.5 pl-8 pr-8 text-sm text-slate-800 placeholder-slate-400 outline-none focus:border-slate-400 focus:bg-white"
+              className="w-full rounded-lg border border-slate-200 bg-slate-50 py-1.5 pl-8 pr-8 text-sm text-slate-800 placeholder-slate-400 outline-none focus:border-slate-400 focus:bg-white dark:border-slate-700 dark:bg-slate-700 dark:text-slate-200 dark:placeholder-slate-500 dark:focus:border-slate-500 dark:focus:bg-slate-700"
             />
             {search && (
               <button
@@ -797,7 +832,7 @@ function BugsPanel({ projectKey, versionName }: BugsPanelProps) {
           {filtered.map((bug: JiraBug) => (
             <div
               key={bug.id}
-              className="flex items-start gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2.5"
+              className="flex items-start gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2.5 dark:border-slate-700 dark:bg-slate-800"
             >
               {/* Priority dot */}
               <span
@@ -812,13 +847,15 @@ function BugsPanel({ projectKey, versionName }: BugsPanelProps) {
 
               {/* Key + summary */}
               <div className="min-w-0 flex-1">
-                <p className="truncate text-sm text-slate-800">{bug.fields.summary}</p>
+                <p className="truncate text-sm text-slate-800 dark:text-slate-200">
+                  {bug.fields.summary}
+                </p>
                 <p className="mt-0.5 font-mono text-xs text-slate-400">{bug.key}</p>
               </div>
 
               {/* Assignee */}
               {bug.fields.assignee ? (
-                <span className="flex shrink-0 items-center gap-1 text-xs text-slate-400">
+                <span className="flex shrink-0 items-center gap-1 text-xs text-slate-400 dark:text-slate-400">
                   <User className="h-3 w-3" />
                   {bug.fields.assignee.display_name}
                 </span>
@@ -947,7 +984,10 @@ export function VersionsPage() {
           <Skeleton className="h-8 w-20" />
         </div>
         {Array.from({ length: 4 }).map((_, i) => (
-          <div key={i} className="rounded-lg border border-slate-100 p-4 space-y-2">
+          <div
+            key={i}
+            className="rounded-lg border border-slate-100 p-4 space-y-2 dark:border-slate-700"
+          >
             <div className="flex items-center gap-3">
               <Skeleton className="h-5 w-24" />
               <Skeleton className="h-4 w-16 rounded-full" />
@@ -964,7 +1004,7 @@ export function VersionsPage() {
     if (rateLimitUntil !== null) {
       const seconds = Math.max(0, Math.ceil((rateLimitUntil - Date.now()) / 1_000));
       return (
-        <div className="rounded-md bg-amber-50 px-4 py-3 text-sm text-amber-800">
+        <div className="rounded-md bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:bg-amber-900/40 dark:text-amber-300">
           <p className="font-medium">Rate limited by Jira</p>
           <p className="mt-0.5 text-xs">
             Too many requests. Please wait{seconds > 0 ? ` ~${seconds}s` : ""} and try again.
@@ -973,7 +1013,7 @@ export function VersionsPage() {
       );
     }
     return (
-      <div className="rounded-md bg-red-50 px-4 py-3 text-sm text-red-700">
+      <div className="rounded-md bg-red-50 px-4 py-3 text-sm text-red-700 dark:bg-red-950 dark:text-red-300">
         <p className="mb-1 font-medium">Failed to load versions</p>
         <pre className="whitespace-pre-wrap break-words font-mono text-xs">
           {String(versionsErr)}
@@ -1017,7 +1057,7 @@ export function VersionsPage() {
             onClick={handleReload}
             disabled={isRefreshing}
             title="Reload versions and data"
-            className="rounded p-1 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 disabled:opacity-40"
+            className="rounded p-1 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 disabled:opacity-40 dark:hover:bg-slate-700 dark:text-slate-400"
           >
             <RefreshCw className={cn("h-3.5 w-3.5", isRefreshing && "animate-spin")} />
           </button>
@@ -1042,7 +1082,7 @@ export function VersionsPage() {
               ))}
             </div>
             {(activeVersions.length > 0 || archivedVersions.length > 0) && (
-              <div className="my-2 border-t border-slate-100" />
+              <div className="my-2 border-t border-slate-100 dark:border-slate-700" />
             )}
           </>
         )}
@@ -1064,7 +1104,7 @@ export function VersionsPage() {
 
         {archivedVersions.length > 0 && (
           <>
-            <p className="mb-1 mt-4 text-xs font-semibold uppercase tracking-wider text-slate-300">
+            <p className="mb-1 mt-4 text-xs font-semibold uppercase tracking-wider text-slate-300 dark:text-slate-500">
               Archived
             </p>
             <div className="space-y-1">
@@ -1086,7 +1126,7 @@ export function VersionsPage() {
       {/* Main content */}
       <div className="min-w-0 flex-1 overflow-y-auto">
         {!selectedVersion ? (
-          <div className="flex h-48 flex-col items-center justify-center gap-2 text-slate-400">
+          <div className="flex h-48 flex-col items-center justify-center gap-2 text-slate-400 dark:text-slate-500">
             <Tag className="h-8 w-8 opacity-40" />
             <p className="text-sm">Select a version to view its report.</p>
           </div>

@@ -37,8 +37,8 @@ export function Toast({ message }: ToastProps) {
       className={cn(
         "fixed bottom-4 right-4 z-50 rounded-lg border px-4 py-3 text-sm font-medium shadow-lg transition-all",
         message.type === "success"
-          ? "border-emerald-200 bg-emerald-50 text-emerald-800"
-          : "border-red-200 bg-red-50 text-red-800",
+          ? "border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-700 dark:bg-emerald-950 dark:text-emerald-300"
+          : "border-red-200 bg-red-50 text-red-800 dark:border-red-700 dark:bg-red-950 dark:text-red-300",
       )}
     >
       {message.text}

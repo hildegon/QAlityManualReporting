@@ -206,7 +206,15 @@ export function DonutChart({
   return (
     <div className="shrink-0">
       <svg width={DONUT_SIZE} height={DONUT_SIZE} viewBox={`0 0 ${DONUT_SIZE} ${DONUT_SIZE}`}>
-        <circle cx={CX} cy={CY} r={R} fill="none" stroke="#e2e8f0" strokeWidth={R - HOLE_R} />
+        <circle
+          cx={CX}
+          cy={CY}
+          r={R}
+          fill="none"
+          stroke="currentColor"
+          className="text-slate-200 dark:text-slate-700"
+          strokeWidth={R - HOLE_R}
+        />
         {slices.map((sl) => {
           const dashLen = Math.max(0, sl.pct * CIRCUMFERENCE - GAP);
           const offset = -cumPct * CIRCUMFERENCE;
@@ -248,7 +256,8 @@ export function DonutChart({
               x={CX}
               y={CY - 7}
               textAnchor="middle"
-              style={{ fontSize: 24, fontWeight: 700, fill: "#1e293b" }}
+              className="fill-slate-900 dark:fill-slate-100"
+              style={{ fontSize: 24, fontWeight: 700 }}
             >
               {total}
             </text>
@@ -274,7 +283,7 @@ export function StatCard({ sl }: { sl: Slice }) {
   return (
     <div className={cn("rounded-xl border p-3", sl.lightBg, sl.borderClass)}>
       <div className="mb-1.5 flex items-center justify-between">
-        <span className="text-xs font-medium text-slate-500">{sl.label}</span>
+        <span className="text-xs font-medium text-slate-500 dark:text-slate-400">{sl.label}</span>
         <Icon className={cn("h-3.5 w-3.5", sl.textClass)} />
       </div>
       <p className={cn("text-2xl font-bold", sl.textClass)}>{sl.count}</p>
@@ -288,7 +297,7 @@ export function StatCard({ sl }: { sl: Slice }) {
 export function StackedBar({ slices }: { slices: Slice[] }) {
   return (
     <div className="space-y-2">
-      <div className="flex h-4 w-full overflow-hidden rounded-full bg-slate-100">
+      <div className="flex h-4 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-700">
         {slices.map((sl) => (
           <div
             key={sl.key}
@@ -300,7 +309,10 @@ export function StackedBar({ slices }: { slices: Slice[] }) {
       </div>
       <div className="flex flex-wrap gap-x-4 gap-y-1">
         {slices.map((sl) => (
-          <div key={sl.key} className="flex items-center gap-1.5 text-xs text-slate-500">
+          <div
+            key={sl.key}
+            className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400"
+          >
             <span className={cn("h-2 w-2 shrink-0 rounded-full", sl.bgClass)} />
             {sl.label} — {sl.count} ({Math.round(sl.pct * 100)}%)
           </div>
@@ -314,7 +326,12 @@ export function StackedBar({ slices }: { slices: Slice[] }) {
 
 export function MiniStackedBar({ slices, className }: { slices: Slice[]; className?: string }) {
   return (
-    <div className={cn("flex h-1.5 w-full overflow-hidden rounded-full bg-slate-100", className)}>
+    <div
+      className={cn(
+        "flex h-1.5 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-700",
+        className,
+      )}
+    >
       {slices.map((sl) => (
         <div
           key={sl.key}
