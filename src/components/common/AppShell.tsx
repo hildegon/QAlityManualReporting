@@ -33,30 +33,60 @@ export function AppShell() {
   const executionKey = config?.execution_project_key || null;
   const executionName = config?.execution_project_name || executionKey;
 
-  // Label shown when Jira is not configured (no interactive project selector).
-  // Uses the stored project names, falling back to raw keys when names aren't set.
-  const projectLabel = (() => {
-    if (!contentName && !executionName) return null;
-    if (contentName && executionName && contentKey !== executionKey)
-      return `${contentName} / ${executionName}`;
-    return contentName || executionName;
-  })();
-
   return (
     <div className="flex h-screen flex-col bg-slate-50 text-slate-900 dark:bg-slate-900 dark:text-slate-100">
       {/* Top navigation bar */}
       <header className="flex h-12 shrink-0 items-center justify-between border-b border-slate-200 bg-white px-4 shadow-sm dark:border-slate-700 dark:bg-slate-800">
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-3">
           <span className="text-sm font-semibold tracking-tight text-slate-800 dark:text-slate-100">
             QAlity
           </span>
+
           {isJiraConfigured ? (
-            <ProjectSelector />
-          ) : projectLabel ? (
-            <span className="rounded-md border border-slate-200 px-3 py-1.5 text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300">
-              {projectLabel}
-            </span>
-          ) : null}
+            /* Two independent project selectors, each with a scope label */
+            <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs font-medium text-slate-400 dark:text-slate-500">
+                  Content
+                </span>
+                <ProjectSelector scope="content" />
+              </div>
+              <span className="text-slate-300 dark:text-slate-600">/</span>
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs font-medium text-slate-400 dark:text-slate-500">
+                  Executions
+                </span>
+                <ProjectSelector scope="execution" />
+              </div>
+            </div>
+          ) : (
+            /* Jira not configured yet — show static labels from saved config */
+            <div className="flex items-center gap-2">
+              {contentName && (
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs font-medium text-slate-400 dark:text-slate-500">
+                    Content
+                  </span>
+                  <span className="rounded-md border border-slate-200 px-3 py-1.5 text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300">
+                    {contentName}
+                  </span>
+                </div>
+              )}
+              {executionName && executionKey !== contentKey && (
+                <>
+                  <span className="text-slate-300 dark:text-slate-600">/</span>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-xs font-medium text-slate-400 dark:text-slate-500">
+                      Executions
+                    </span>
+                    <span className="rounded-md border border-slate-200 px-3 py-1.5 text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300">
+                      {executionName}
+                    </span>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
         </div>
 
         <nav className="flex items-center gap-1">
