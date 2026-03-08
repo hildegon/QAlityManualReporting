@@ -18,6 +18,7 @@ import {
   X,
   Filter,
   RefreshCw,
+  Star,
 } from "lucide-react";
 import {
   useBugsByVersion,
@@ -29,6 +30,7 @@ import {
 import { useQueryClient } from "@tanstack/react-query";
 import { useExecutionProjectKey } from "@/hooks/useProjectKey";
 import { parseRateLimitError } from "@/stores/uiStore";
+import { useVersionsStore } from "@/stores/versionsStore";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge, statusVariant } from "@/components/ui/badge";
 import { cn } from "@/components/ui/utils";
@@ -610,15 +612,23 @@ function VersionDashboard({ executions, version }: VersionDashboardProps) {
 interface VersionCardProps {
   version: JiraVersion;
   isActive: boolean;
+  isFavourite: boolean;
   onClick: () => void;
+  onToggleFavourite: (e: React.MouseEvent) => void;
 }
 
-function VersionCard({ version, isActive, onClick }: VersionCardProps) {
+function VersionCard({
+  version,
+  isActive,
+  isFavourite,
+  onClick,
+  onToggleFavourite,
+}: VersionCardProps) {
   return (
     <button
       onClick={onClick}
       className={cn(
-        "w-full rounded-lg border px-4 py-3 text-left transition-colors",
+        "group w-full rounded-lg border px-4 py-3 text-left transition-colors",
         isActive
           ? "border-slate-800 bg-slate-800 text-white"
           : "border-slate-200 bg-white text-slate-800 hover:border-slate-300 hover:bg-slate-50",
@@ -626,7 +636,7 @@ function VersionCard({ version, isActive, onClick }: VersionCardProps) {
     >
       <div className="flex items-center justify-between gap-2">
         <span className="truncate font-medium text-sm">{version.name}</span>
-        <div className="flex shrink-0 gap-1.5">
+        <div className="flex shrink-0 items-center gap-1.5">
           {version.released && (
             <span
               className={cn(
@@ -647,6 +657,28 @@ function VersionCard({ version, isActive, onClick }: VersionCardProps) {
               Archived
             </span>
           )}
+          {/* Favourite star */}
+          <span
+            role="button"
+            aria-label={isFavourite ? "Remove from favourites" : "Add to favourites"}
+            onClick={onToggleFavourite}
+            className={cn(
+              "rounded p-0.5 transition-colors",
+              isFavourite
+                ? isActive
+                  ? "text-amber-300 hover:text-amber-100"
+                  : "text-amber-400 hover:text-amber-500"
+                : isActive
+                  ? "text-white/30 hover:text-white/70"
+                  : "text-slate-200 hover:text-amber-400 opacity-0 group-hover:opacity-100",
+            )}
+          >
+            <Star
+              className="h-3.5 w-3.5"
+              fill={isFavourite ? "currentColor" : "none"}
+              strokeWidth={isFavourite ? 0 : 1.5}
+            />
+          </span>
         </div>
       </div>
       {version.description && (
@@ -1105,6 +1137,8 @@ function EmptyState({ message }: { message: string }) {
 export function VersionsPage() {
   const executionProjectKey = useExecutionProjectKey();
   const queryClient = useQueryClient();
+  const { isFavourite, toggleFavourite } = useVersionsStore();
+
   const {
     data: versions,
     isLoading: versionsLoading,
@@ -1193,10 +1227,24 @@ export function VersionsPage() {
     );
   }
 
-  const activeVersions = (versions ?? []).filter((v) => !v.archived);
-  const archivedVersions = (versions ?? []).filter((v) => v.archived);
+  const allVersions = versions ?? [];
+  const favouriteVersions = allVersions.filter(
+    (v) => executionProjectKey && isFavourite(executionProjectKey, v.id),
+  );
+  const activeVersions = allVersions.filter(
+    (v) => !v.archived && !(executionProjectKey && isFavourite(executionProjectKey, v.id)),
+  );
+  const archivedVersions = allVersions.filter(
+    (v) => v.archived && !(executionProjectKey && isFavourite(executionProjectKey, v.id)),
+  );
 
-  if (activeVersions.length === 0 && archivedVersions.length === 0) {
+  function handleToggleFavourite(e: React.MouseEvent, version: JiraVersion) {
+    e.stopPropagation();
+    if (!executionProjectKey) return;
+    toggleFavourite(executionProjectKey, version.id);
+  }
+
+  if (allVersions.length === 0) {
     return <EmptyState message="No versions found for this project." />;
   }
 
@@ -1220,6 +1268,30 @@ export function VersionsPage() {
           </button>
         </div>
 
+        {favouriteVersions.length > 0 && (
+          <>
+            <div className="mb-1 flex items-center gap-1 text-xs font-semibold uppercase tracking-wider text-amber-400">
+              <Star className="h-3 w-3 fill-current" />
+              Favourites
+            </div>
+            <div className="space-y-1">
+              {favouriteVersions.map((v) => (
+                <VersionCard
+                  key={v.id}
+                  version={v}
+                  isActive={selectedVersion?.id === v.id}
+                  isFavourite={true}
+                  onClick={() => handleSelectVersion(v)}
+                  onToggleFavourite={(e) => handleToggleFavourite(e, v)}
+                />
+              ))}
+            </div>
+            {(activeVersions.length > 0 || archivedVersions.length > 0) && (
+              <div className="my-2 border-t border-slate-100" />
+            )}
+          </>
+        )}
+
         {activeVersions.length > 0 && (
           <div className="space-y-1">
             {activeVersions.map((v) => (
@@ -1227,7 +1299,9 @@ export function VersionsPage() {
                 key={v.id}
                 version={v}
                 isActive={selectedVersion?.id === v.id}
+                isFavourite={false}
                 onClick={() => handleSelectVersion(v)}
+                onToggleFavourite={(e) => handleToggleFavourite(e, v)}
               />
             ))}
           </div>
@@ -1244,7 +1318,9 @@ export function VersionsPage() {
                   key={v.id}
                   version={v}
                   isActive={selectedVersion?.id === v.id}
+                  isFavourite={false}
                   onClick={() => handleSelectVersion(v)}
+                  onToggleFavourite={(e) => handleToggleFavourite(e, v)}
                 />
               ))}
             </div>
