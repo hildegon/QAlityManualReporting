@@ -70,6 +70,11 @@ jobs:
       - name: Build
         run: npm run build
 
+      - name: Remove macOS quarantine attribute
+        if: runner.os == 'macOS'
+        run: |
+          xattr -cr src-tauri/target/release/bundle/macos/QAlity.app
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
