@@ -467,21 +467,9 @@ export function CreateTestPage() {
 
         {/* Steps */}
         <div className="space-y-3">
-          <div className="flex items-center justify-between">
-            <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
-              Test Steps ({steps.length})
-            </span>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={addStep}
-              disabled={isSubmitting}
-            >
-              <Plus className="h-3.5 w-3.5" />
-              Add step
-            </Button>
-          </div>
+          <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
+            Test Steps ({steps.length})
+          </span>
 
           <div className="space-y-2">
             {steps.map((step, index) => (
@@ -500,6 +488,17 @@ export function CreateTestPage() {
               />
             ))}
           </div>
+
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={addStep}
+            disabled={isSubmitting}
+          >
+            <Plus className="h-3.5 w-3.5" />
+            Add step
+          </Button>
 
           <p className="text-xs text-slate-400 dark:text-slate-500">
             Steps with an empty action will be omitted when saving.
