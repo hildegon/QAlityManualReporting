@@ -95,7 +95,7 @@ export interface JiraIssueLink {
   };
 }
 
-/** A Bug issue returned by `get_bugs_by_version`. */
+/** A Bug / Story / Task issue returned by `get_bugs_by_version` or `get_version_issues`. */
 export interface JiraBug {
   id: string;
   key: string;
@@ -104,6 +104,8 @@ export interface JiraBug {
     status?: { name: string; category?: { key: string; name: string } };
     priority?: { name: string };
     assignee?: { account_id: string; display_name: string };
+    /** Present when fetched via `get_version_issues`. */
+    issue_type?: { name: string };
     /** Issue links — used to find which tests detected this bug. */
     issue_links?: JiraIssueLink[];
   };

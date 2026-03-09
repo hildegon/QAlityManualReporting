@@ -397,6 +397,70 @@ impl JiraClient {
         Ok(all_bugs)
     }
 
+    /// Fetch Story, Task, and Bug issues with `fixVersion` matching `version_name` in the given
+    /// project.
+    ///
+    /// Uses `POST /rest/api/3/search/jql` with JQL:
+    /// `project = "<key>" AND issuetype in (Story, Task, Bug)
+    ///  AND fixVersion = "<name>" ORDER BY priority ASC`
+    ///
+    /// Returns all pages. Each issue includes `summary`, `status`, `priority`, `assignee`,
+    /// and `issuetype` so the caller can split them into groups (e.g. Done vs. In Acceptance).
+    pub async fn get_version_issues(
+        &self,
+        project_key: &str,
+        version_name: &str,
+    ) -> Result<Vec<JiraBug>> {
+        validate_project_key(project_key)?;
+        let safe_version = escape_jql_string(version_name);
+        let jql = format!(
+            "project = \"{}\" AND issuetype in (Story, Task, Bug) \
+             AND fixVersion = \"{}\" ORDER BY priority ASC",
+            project_key, safe_version,
+        );
+        let url = format!("{}/rest/api/3/search/jql", self.base_url);
+        let mut all_issues: Vec<JiraBug> = Vec::new();
+        let mut next_page_token: Option<String> = None;
+
+        loop {
+            let mut body = serde_json::json!({
+                "jql": jql,
+                "fields": ["summary", "status", "priority", "assignee", "issuetype"],
+                "maxResults": 100,
+            });
+            if let Some(ref token) = next_page_token {
+                body["nextPageToken"] = serde_json::Value::String(token.clone());
+            }
+
+            let resp: JiraSearchResponse = check_rate_limit(
+                self.client
+                    .post(&url)
+                    .header("Authorization", &self.auth_header)
+                    .header("Accept", "application/json")
+                    .header("Content-Type", "application/json")
+                    .json(&body)
+                    .send()
+                    .await
+                    .context("Failed to send Jira version-issues search request")?,
+            )?
+            .error_for_status()
+            .context("Jira version-issues search request returned error status")?
+            .json()
+            .await
+            .context("Failed to parse Jira version-issues search response")?;
+
+            let is_last = resp.is_last;
+            next_page_token = resp.next_page_token.clone();
+            all_issues.extend(resp.issues);
+
+            if is_last || next_page_token.is_none() {
+                break;
+            }
+        }
+
+        Ok(all_issues)
+    }
+
     /// Update the summary (name) of any Jira issue.
     ///
     /// Works for Test Plans, Test Sets, Test Executions — all are Jira issues.

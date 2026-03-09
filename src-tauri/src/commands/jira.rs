@@ -168,3 +168,17 @@ pub async fn get_bugs_by_version(
         .await
         .map_err(format_err)
 }
+
+/// Fetch Story, Task, and Bug issues with the given `fixVersion` in the project.
+#[tauri::command]
+pub async fn get_version_issues(
+    app: AppHandle,
+    project_key: String,
+    version_name: String,
+) -> Result<Vec<JiraBug>, String> {
+    let client = make_jira_client(&app)?;
+    client
+        .get_version_issues(&project_key, &version_name)
+        .await
+        .map_err(format_err)
+}

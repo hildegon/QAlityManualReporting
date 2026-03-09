@@ -70,6 +70,10 @@ export const getProjectVersions = (projectKey: string): Promise<JiraVersion[]> =
 export const getBugsByVersion = (projectKey: string, versionName: string): Promise<JiraBug[]> =>
   invoke("get_bugs_by_version", { projectKey, versionName });
 
+/** Fetch Story, Task, and Bug issues with the given fixVersion in the project. */
+export const getVersionIssues = (projectKey: string, versionName: string): Promise<JiraBug[]> =>
+  invoke("get_version_issues", { projectKey, versionName });
+
 /** Fetch all issue link types configured in the Jira instance. */
 export const getIssueLinkTypes = (): Promise<JiraIssueLinkType[]> => invoke("get_issue_link_types");
 

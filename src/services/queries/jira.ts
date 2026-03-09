@@ -95,23 +95,40 @@ export function useBugsByVersion(projectKey: string | null, versionName: string 
   });
 }
 
+/** Fetch Story, Task, and Bug issues with the given fixVersion in a Jira project. */
+export function useVersionIssues(projectKey: string | null, versionName: string | null) {
+  return useQuery<JiraBug[]>({
+    queryKey: queryKeys.versionIssues(projectKey ?? "", versionName ?? ""),
+    queryFn: () => api.getVersionIssues(projectKey!, versionName!),
+    enabled: !!projectKey && !!versionName,
+    staleTime: 2 * 60 * 1_000,
+  });
+}
+
 // ── Mutations ─────────────────────────────────────────────────────────────────
 
 interface TransitionIssueVars {
   issueKey: string;
   transitionId: string;
   executionProjectKey: string;
+  /** If set, the versionIssues query for this version is also invalidated. */
+  versionName?: string;
 }
 
 export function useTransitionIssue() {
   const queryClient = useQueryClient();
   return useMutation<void, Error, TransitionIssueVars>({
     mutationFn: ({ issueKey, transitionId }) => api.transitionIssue(issueKey, transitionId),
-    onSuccess: (_data, { issueKey, executionProjectKey }) => {
+    onSuccess: (_data, { issueKey, executionProjectKey, versionName }) => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.issueTransitions(issueKey) });
       void queryClient.invalidateQueries({
         queryKey: queryKeys.testExecutions(executionProjectKey),
       });
+      if (versionName) {
+        void queryClient.invalidateQueries({
+          queryKey: queryKeys.versionIssues(executionProjectKey, versionName),
+        });
+      }
     },
   });
 }
