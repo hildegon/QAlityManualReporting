@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   useTestRuns,
   useUpdateTestRunStatus,
@@ -9,7 +10,12 @@ import {
   useXrayStatuses,
   useStepStatuses,
   useTestSetMembership,
+  useGetTests,
+  useGetTestSets,
+  useAddTestsToTestExecution,
+  queryKeys,
 } from "@/services/queries";
+import * as api from "@/services/tauri";
 import { parseRateLimitError } from "@/stores/uiStore";
 import { buildSlicesFromCounts } from "@/components/charts/StatusCharts";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -27,6 +33,7 @@ import {
   Loader2,
   MessageSquare,
   Pencil,
+  Plus,
   Search,
   X,
 } from "lucide-react";
@@ -101,6 +108,8 @@ export function TestExecutionDetail({
   const updateComment = useUpdateTestRunComment();
   const updateStepStatus = useUpdateTestRunStepStatus();
   const updateStep = useUpdateTestRunStep();
+  const addTests = useAddTestsToTestExecution();
+  const queryClient = useQueryClient();
 
   // Test-set membership data for the filter
   const { testSets, membership } = useTestSetMembership(contentProjectKey ?? null);
@@ -115,6 +124,98 @@ export function TestExecutionDetail({
   /** Status name to filter by, or null to show all. */
   const [statusFilter, setStatusFilter] = useState<string | null>(null);
   const parentRef = useRef<HTMLDivElement>(null);
+
+  // ── Add-tests panel state ──────────────────────────────────────────────────
+  const [addPanelOpen, setAddPanelOpen] = useState(false);
+  /** "sets" | "tests" tab inside the add panel */
+  const [addTab, setAddTab] = useState<"sets" | "tests">("sets");
+  const [addSetSearch, setAddSetSearch] = useState("");
+  const [addTestSearch, setAddTestSearch] = useState("");
+  const [selectedTestIds, setSelectedTestIds] = useState<Set<string>>(new Set());
+  /** issueId of the test set currently being expanded into selectedTestIds */
+  const [loadingSetId, setLoadingSetId] = useState<string | null>(null);
+
+  // Only fetch tests/sets when the panel is open to avoid unnecessary calls.
+  const { data: allTests, isLoading: testsLoading } = useGetTests(
+    addPanelOpen ? (contentProjectKey ?? undefined) : undefined,
+  );
+  const { data: allTestSets, isLoading: testSetsLoading } = useGetTestSets(
+    addPanelOpen ? (contentProjectKey ?? undefined) : undefined,
+  );
+
+  const filteredAddSets = useMemo(() => {
+    const q = addSetSearch.trim().toLowerCase();
+    return (allTestSets ?? []).filter(
+      (ts) =>
+        !q || ts.jira.key.toLowerCase().includes(q) || ts.jira.summary.toLowerCase().includes(q),
+    );
+  }, [allTestSets, addSetSearch]);
+
+  const filteredAddTests = useMemo(() => {
+    const q = addTestSearch.trim().toLowerCase();
+    return (allTests ?? []).filter(
+      (t) => !q || t.jira.key.toLowerCase().includes(q) || t.jira.summary.toLowerCase().includes(q),
+    );
+  }, [allTests, addTestSearch]);
+
+  const toggleSelectedTest = (issueId: string) => {
+    setSelectedTestIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(issueId)) {
+        next.delete(issueId);
+      } else {
+        next.add(issueId);
+      }
+      return next;
+    });
+  };
+
+  /** Fetch all tests in a set and add them to selectedTestIds. */
+  const handleSelectFromSet = useCallback(
+    async (setIssueId: string) => {
+      setLoadingSetId(setIssueId);
+      try {
+        const setTests = await queryClient.fetchQuery({
+          queryKey: queryKeys.testSetTests(setIssueId),
+          queryFn: () => api.getTestSetTests(setIssueId),
+          staleTime: 5 * 60 * 1_000,
+        });
+        setSelectedTestIds((prev) => {
+          const next = new Set(prev);
+          for (const t of setTests) next.add(t.issue_id);
+          return next;
+        });
+        // Switch to the tests tab so the user sees what got selected.
+        setAddTab("tests");
+      } catch {
+        // silently ignore — button re-enables
+      } finally {
+        setLoadingSetId(null);
+      }
+    },
+    [queryClient],
+  );
+
+  const handleConfirmAddTests = () => {
+    if (selectedTestIds.size === 0 || addTests.isPending) return;
+    addTests.mutate(
+      {
+        testExecIssueId: execution.issue_id,
+        testIssueIds: [...selectedTestIds],
+        executionProjectKey: execution.project_id,
+      },
+      {
+        onSuccess: () => {
+          setAddPanelOpen(false);
+          setSelectedTestIds(new Set());
+          setAddSetSearch("");
+          setAddTestSearch("");
+          setAddTab("sets");
+          addTests.reset();
+        },
+      },
+    );
+  };
 
   // Flatten all pages into a single runs array
   const runs = useMemo(() => data?.pages.flatMap((page) => page.results) ?? [], [data]);
@@ -288,6 +389,239 @@ export function TestExecutionDetail({
     }
   };
 
+  // ── Add-tests panel JSX (reused in both empty state and toolbar) ─────────────
+  const addTestsPanel = addPanelOpen ? (
+    <div className="rounded-lg border border-blue-200 bg-blue-50 shadow-sm dark:border-blue-800 dark:bg-blue-950/40">
+      {/* Panel header */}
+      <div className="flex items-center justify-between border-b border-blue-200 px-4 py-2.5 dark:border-blue-800">
+        <span className="text-sm font-medium text-blue-900 dark:text-blue-200">
+          Add tests to execution
+        </span>
+        <button
+          onClick={() => {
+            setAddPanelOpen(false);
+            setSelectedTestIds(new Set());
+            setAddSetSearch("");
+            setAddTestSearch("");
+            setAddTab("sets");
+            addTests.reset();
+          }}
+          className="rounded p-0.5 text-blue-400 hover:bg-blue-100 hover:text-blue-600 dark:hover:bg-blue-900"
+        >
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+
+      {/* Tabs */}
+      <div className="flex border-b border-blue-200 dark:border-blue-800">
+        {(["sets", "tests"] as const).map((tab) => (
+          <button
+            key={tab}
+            onClick={() => setAddTab(tab)}
+            className={cn(
+              "px-4 py-2 text-xs font-medium transition-colors",
+              addTab === tab
+                ? "border-b-2 border-blue-600 text-blue-700 dark:text-blue-300"
+                : "text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200",
+            )}
+          >
+            {tab === "sets" ? "From Test Set" : "Individual Tests"}
+            {tab === "tests" && selectedTestIds.size > 0 && (
+              <span className="ml-1.5 rounded-full bg-blue-600 px-1.5 py-0.5 text-[10px] text-white">
+                {selectedTestIds.size}
+              </span>
+            )}
+          </button>
+        ))}
+      </div>
+
+      <div className="p-4">
+        {/* ── From Test Set tab ── */}
+        {addTab === "sets" && (
+          <div className="space-y-2">
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              Select a test set to add all its tests to this execution.
+            </p>
+            <div className="flex items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-1.5 dark:border-slate-600 dark:bg-slate-800">
+              <Search className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+              <input
+                type="text"
+                placeholder="Filter test sets…"
+                value={addSetSearch}
+                onChange={(e) => setAddSetSearch(e.target.value)}
+                className="flex-1 bg-transparent text-sm text-slate-700 placeholder:text-slate-400 focus:outline-none dark:text-slate-200"
+              />
+              {addSetSearch && (
+                <button
+                  onClick={() => setAddSetSearch("")}
+                  className="text-slate-400 hover:text-slate-600"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </div>
+            {testSetsLoading ? (
+              <div className="flex items-center gap-2 py-3 text-sm text-slate-400">
+                <Loader2 className="h-4 w-4 animate-spin" /> Loading test sets…
+              </div>
+            ) : (
+              <div className="max-h-48 overflow-y-auto rounded-md border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-800">
+                {filteredAddSets.length === 0 ? (
+                  <p className="px-3 py-4 text-center text-sm text-slate-400">
+                    {addSetSearch ? "No test sets match." : "No test sets found."}
+                  </p>
+                ) : (
+                  <ul className="divide-y divide-slate-100 dark:divide-slate-700">
+                    {filteredAddSets.map((ts) => {
+                      const isLoading = loadingSetId === ts.issue_id;
+                      return (
+                        <li
+                          key={ts.issue_id}
+                          className="flex items-center justify-between gap-3 px-3 py-2"
+                        >
+                          <div className="min-w-0">
+                            <span className="mr-1.5 font-mono text-xs text-slate-500">
+                              {ts.jira.key}
+                            </span>
+                            <span className="text-sm text-slate-800 dark:text-slate-200">
+                              {ts.jira.summary}
+                            </span>
+                          </div>
+                          <button
+                            disabled={isLoading || loadingSetId !== null}
+                            onClick={() => void handleSelectFromSet(ts.issue_id)}
+                            className="flex shrink-0 items-center gap-1 rounded border border-slate-200 bg-white px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-300"
+                          >
+                            {isLoading ? (
+                              <Loader2 className="h-3 w-3 animate-spin" />
+                            ) : (
+                              <Plus className="h-3 w-3" />
+                            )}
+                            Select
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── Individual Tests tab ── */}
+        {addTab === "tests" && (
+          <div className="space-y-2">
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              Check tests to add them individually.
+            </p>
+            <div className="flex items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-1.5 dark:border-slate-600 dark:bg-slate-800">
+              <Search className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+              <input
+                type="text"
+                placeholder="Search by key or summary…"
+                value={addTestSearch}
+                onChange={(e) => setAddTestSearch(e.target.value)}
+                className="flex-1 bg-transparent text-sm text-slate-700 placeholder:text-slate-400 focus:outline-none dark:text-slate-200"
+              />
+              {addTestSearch && (
+                <button
+                  onClick={() => setAddTestSearch("")}
+                  className="text-slate-400 hover:text-slate-600"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </div>
+            {testsLoading ? (
+              <div className="flex items-center gap-2 py-3 text-sm text-slate-400">
+                <Loader2 className="h-4 w-4 animate-spin" /> Loading tests…
+              </div>
+            ) : (
+              <div className="max-h-48 overflow-y-auto rounded-md border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-800">
+                {filteredAddTests.length === 0 ? (
+                  <p className="px-3 py-4 text-center text-sm text-slate-400">
+                    {addTestSearch ? "No tests match." : "No tests found."}
+                  </p>
+                ) : (
+                  <ul className="divide-y divide-slate-100 dark:divide-slate-700">
+                    {filteredAddTests.map((test) => {
+                      const checked = selectedTestIds.has(test.issue_id);
+                      return (
+                        <li key={test.issue_id}>
+                          <label className="flex cursor-pointer items-start gap-3 px-3 py-2 hover:bg-slate-50 dark:hover:bg-slate-700/40">
+                            <input
+                              type="checkbox"
+                              className="mt-0.5 h-4 w-4 shrink-0 accent-blue-600"
+                              checked={checked}
+                              onChange={() => toggleSelectedTest(test.issue_id)}
+                            />
+                            <div className="min-w-0">
+                              <span className="mr-1.5 font-mono text-xs text-slate-500">
+                                {test.jira.key}
+                              </span>
+                              <span className="text-sm text-slate-800 dark:text-slate-200">
+                                {test.jira.summary}
+                              </span>
+                            </div>
+                          </label>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Error */}
+        {addTests.isError && (
+          <div className="mt-2 rounded-md bg-red-50 px-3 py-2 text-xs text-red-700 dark:bg-red-950 dark:text-red-300">
+            Failed to add tests: {String(addTests.error)}
+          </div>
+        )}
+
+        {/* Footer */}
+        <div className="mt-3 flex items-center justify-between">
+          <span className="text-xs text-slate-500 dark:text-slate-400">
+            {selectedTestIds.size > 0
+              ? `${selectedTestIds.size} test${selectedTestIds.size !== 1 ? "s" : ""} selected`
+              : "No tests selected"}
+          </span>
+          <div className="flex gap-2">
+            {selectedTestIds.size > 0 && (
+              <button
+                onClick={() => setSelectedTestIds(new Set())}
+                className="rounded border border-slate-200 px-3 py-1.5 text-xs text-slate-500 hover:bg-slate-50 dark:border-slate-600 dark:text-slate-400"
+              >
+                Clear
+              </button>
+            )}
+            <Button
+              size="sm"
+              disabled={selectedTestIds.size === 0 || addTests.isPending}
+              onClick={handleConfirmAddTests}
+            >
+              {addTests.isPending ? (
+                <>
+                  <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                  Adding…
+                </>
+              ) : (
+                <>
+                  <Plus className="mr-1.5 h-3.5 w-3.5" />
+                  Add {selectedTestIds.size > 0 ? selectedTestIds.size : ""} test
+                  {selectedTestIds.size !== 1 ? "s" : ""}
+                </>
+              )}
+            </Button>
+          </div>
+        </div>
+      </div>
+    </div>
+  ) : null;
+
   // ── Progress summary (over filtered runs) ──────────────────────────────────
   const total = filteredRuns.length;
   const rawCounts = filteredRuns.reduce<Record<string, number>>((acc, run) => {
@@ -373,6 +707,19 @@ export function TestExecutionDetail({
         <div className="flex h-48 flex-col items-center justify-center gap-3 text-slate-400">
           <ClipboardList className="h-10 w-10 opacity-40" />
           <p className="text-sm">No test runs in this execution.</p>
+          <button
+            onClick={() => setAddPanelOpen((prev) => !prev)}
+            className={cn(
+              "flex items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-medium shadow-sm transition-colors",
+              addPanelOpen
+                ? "border-blue-600 bg-blue-600 text-white"
+                : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:border-slate-500 dark:hover:bg-slate-700",
+            )}
+          >
+            <Plus className="h-3.5 w-3.5" />
+            Add tests
+          </button>
+          {addTestsPanel}
         </div>
       )}
 
@@ -458,7 +805,7 @@ export function TestExecutionDetail({
                 </div>
               )}
 
-            {/* Key / name search + sort toggle */}
+            {/* Key / name search + sort toggle + add tests */}
             <div className="flex items-center gap-2">
               <div className="flex flex-1 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 shadow-sm dark:border-slate-700 dark:bg-slate-800">
                 <Search className="h-3.5 w-3.5 shrink-0 text-slate-400" />
@@ -492,7 +839,23 @@ export function TestExecutionDetail({
                 <ArrowUpDown className="h-3.5 w-3.5" />
                 Status
               </button>
+              <button
+                onClick={() => setAddPanelOpen((prev) => !prev)}
+                title="Add tests to this execution"
+                className={cn(
+                  "flex items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-medium shadow-sm transition-colors",
+                  addPanelOpen
+                    ? "border-blue-600 bg-blue-600 text-white"
+                    : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:border-slate-500 dark:hover:bg-slate-700",
+                )}
+              >
+                <Plus className="h-3.5 w-3.5" />
+                Add tests
+              </button>
             </div>
+
+            {/* ── Add-tests panel ────────────────────────────────────────────── */}
+            {addTestsPanel}
           </div>
 
           {/* Progress summary */}

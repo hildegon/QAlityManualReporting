@@ -185,6 +185,12 @@ export const addTestsToTestPlan = (
   testIssueIds: string[],
 ): Promise<void> => invoke("add_tests_to_test_plan", { testPlanIssueId, testIssueIds });
 
+/** Add test issues to an existing test execution. */
+export const addTestsToTestExecution = (
+  testExecIssueId: string,
+  testIssueIds: string[],
+): Promise<void> => invoke("add_tests_to_test_execution", { testExecIssueId, testIssueIds });
+
 /** Remove test issues from a test set. */
 export const removeTestsFromTestSet = (
   testSetIssueId: string,

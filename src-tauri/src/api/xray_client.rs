@@ -835,6 +835,34 @@ impl XrayClient {
         Ok(())
     }
 
+    // ── Add Tests to Test Execution ───────────────────────────────────────────
+
+    /// Add one or more tests to an existing test execution.
+    pub async fn add_tests_to_test_execution(
+        &self,
+        test_exec_issue_id: &str,
+        test_issue_ids: &[String],
+    ) -> Result<()> {
+        let query = r#"
+            mutation AddTestsToTestExecution($issueId: String!, $testIssueIds: [String]!) {
+                addTestsToTestExecution(issueId: $issueId, testIssueIds: $testIssueIds) {
+                    addedTests
+                    warning
+                }
+            }
+        "#;
+        let _: serde_json::Value = self
+            .graphql(
+                query,
+                serde_json::json!({
+                    "issueId": test_exec_issue_id,
+                    "testIssueIds": test_issue_ids,
+                }),
+            )
+            .await?;
+        Ok(())
+    }
+
     // ── Create Test Set ───────────────────────────────────────────────────────
 
     /// Create a new Test Set in Xray. Optionally link existing tests at creation time.
