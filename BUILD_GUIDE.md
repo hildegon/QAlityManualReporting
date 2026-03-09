@@ -8,23 +8,40 @@ backend is a Rust binary. Both must be compiled together to produce the final ex
 
 ---
 
+## Quick Start: Download Pre-Built Executables
+
+Pre-built installers for **macOS**, **Windows**, and **Linux** are automatically built on every push via GitHub Actions.
+
+**Latest builds:** [GitHub Releases](../../releases) or [GitHub Actions Artifacts](../../actions)
+
+| Platform | Installer Format | Download |
+|---|---|---|
+| **macOS ARM64** | `.dmg` | `QAlity_0.1.0_aarch64.dmg` |
+| **macOS Intel** | `.dmg` | `QAlity_0.1.0_x86_64.dmg` |
+| **Windows** | `.exe` or `.msi` | `QAlity_<version>_x64-setup.exe` or `.msi` |
+| **Linux** | `.AppImage` or `.deb` | `QAlity_<version>_amd64.AppImage` or `.deb` |
+
+---
+
 ## Table of Contents
 
-1. [Prerequisites](#prerequisites)
+1. [Quick Start](#quick-start-download-pre-built-executables)
+2. [Prerequisites](#prerequisites)
    - [All platforms](#all-platforms)
    - [macOS](#macos)
    - [Windows](#windows)
    - [Linux](#linux)
-2. [Clone and install dependencies](#clone-and-install-dependencies)
-3. [Development build (with HMR)](#development-build-with-hmr)
-4. [Production build](#production-build)
-5. [Build outputs](#build-outputs)
+3. [Clone and install dependencies](#clone-and-install-dependencies)
+4. [Development build (with HMR)](#development-build-with-hmr)
+5. [Production build](#production-build)
+6. [Build outputs](#build-outputs)
    - [macOS](#macos-1)
    - [Windows](#windows-1)
    - [Linux](#linux-1)
-6. [Frontend-only build (no Tauri)](#frontend-only-build-no-tauri)
-7. [Code signing and notarisation](#code-signing-and-notarisation)
-8. [Useful scripts reference](#useful-scripts-reference)
+7. [Automated multi-platform builds (CI/CD)](#automated-multi-platform-builds-cicd)
+8. [Frontend-only build (no Tauri)](#frontend-only-build-no-tauri)
+9. [Code signing and notarisation](#code-signing-and-notarisation)
+10. [Useful scripts reference](#useful-scripts-reference)
 
 ---
 
@@ -219,6 +236,35 @@ Run the AppImage directly (no installation needed):
 chmod +x QAlity_<version>_amd64.AppImage
 ./QAlity_<version>_amd64.AppImage
 ```
+
+---
+
+## Automated multi-platform builds (CI/CD)
+
+Every push to `main` and tag push (e.g., `v0.1.0`) automatically triggers a GitHub Actions workflow that builds QAlity for all three platforms: **macOS**, **Windows**, and **Linux**.
+
+**How it works:**
+
+1. GitHub Actions runs on three separate machines (macOS, Ubuntu, Windows)
+2. Each machine compiles the app natively for its platform
+3. Finished builds (`.dmg`, `.exe`, `.deb`, `.AppImage`, etc.) are uploaded as artifacts
+4. On tagged releases, builds are automatically published to GitHub Releases
+
+**To download the latest builds:**
+
+1. Go to [GitHub Actions](../../actions) and select the latest workflow run
+2. Download the artifact for your platform (e.g., `macos-aarch64`, `linux`, `windows`)
+3. Or: Go to [GitHub Releases](../../releases) and download the final installer
+
+**To build locally on your machine:**
+
+Simply run:
+
+```bash
+npm run build
+```
+
+This compiles QAlity natively for your current OS. To cross-compile for other platforms, see the sections below.
 
 ---
 
