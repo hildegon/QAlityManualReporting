@@ -20,6 +20,8 @@ import type {
   CreateTestSetResult,
   CreateTestStepInput,
   JiraBug,
+  JiraIssueLink,
+  JiraIssueLinkType,
   JiraComponent,
   JiraProject,
   JiraTransition,
@@ -68,6 +70,7 @@ export const queryKeys = {
   stepStatuses: (projectId: string) => ["xray", "step-statuses", projectId] as const,
   bugsByVersion: (projectKey: string, versionName: string) =>
     ["jira", "bugs-by-version", projectKey, versionName] as const,
+  issueLinkTypes: ["jira", "issue-link-types"] as const,
 };
 
 // ── Config ────────────────────────────────────────────────────────────────────
@@ -226,6 +229,18 @@ export function useProjectVersions(projectKey: string | null) {
   });
 }
 
+// ── Issue link types ──────────────────────────────────────────────────────────
+
+/** Fetch all issue link types configured in the Jira instance. */
+export function useIssueLinkTypes(enabled = true) {
+  return useQuery<JiraIssueLinkType[]>({
+    queryKey: queryKeys.issueLinkTypes,
+    queryFn: api.getIssueLinkTypes,
+    enabled,
+    staleTime: 10 * 60 * 1_000,
+  });
+}
+
 // ── Bugs by Version ───────────────────────────────────────────────────────────
 
 /** Fetch Bug issues with the given affectedVersion in a Jira project. */
@@ -235,6 +250,64 @@ export function useBugsByVersion(projectKey: string | null, versionName: string 
     queryFn: () => api.getBugsByVersion(projectKey!, versionName!),
     enabled: !!projectKey && !!versionName,
     staleTime: 2 * 60 * 1_000,
+  });
+}
+
+// ── Link bug to test ──────────────────────────────────────────────────────────
+
+interface LinkBugToTestVars {
+  bugKey: string;
+  testKey: string;
+  linkTypeName: string;
+  projectKey: string;
+  versionName: string;
+}
+
+export function useLinkBugToTest() {
+  const queryClient = useQueryClient();
+  return useMutation<void, string, LinkBugToTestVars>({
+    mutationFn: ({ bugKey, testKey, linkTypeName }) =>
+      api.createIssueLink(bugKey, testKey, linkTypeName),
+    onMutate: async ({ bugKey, testKey, linkTypeName, projectKey, versionName }) => {
+      const queryKey = queryKeys.bugsByVersion(projectKey, versionName);
+      await queryClient.cancelQueries({ queryKey });
+      const previous = queryClient.getQueryData<JiraBug[]>(queryKey);
+      queryClient.setQueryData<JiraBug[]>(queryKey, (old) =>
+        (old ?? []).map((bug) => {
+          if (bug.key !== bugKey) return bug;
+          const alreadyLinked = (bug.fields.issue_links ?? []).some(
+            (l) => (l.outward_issue?.key ?? l.inward_issue?.key) === testKey,
+          );
+          if (alreadyLinked) return bug;
+          const newLink: JiraIssueLink = {
+            id: `optimistic-${testKey}`,
+            link_type: { outward: linkTypeName },
+            outward_issue: {
+              id: testKey,
+              key: testKey,
+              fields: { summary: testKey, issue_type: { name: "Test" } },
+            },
+          };
+          return {
+            ...bug,
+            fields: {
+              ...bug.fields,
+              issue_links: [...(bug.fields.issue_links ?? []), newLink],
+            },
+          };
+        }),
+      );
+      return { previous, queryKey };
+    },
+    onError: (_err: string, _vars, context) => {
+      const ctx = context as { previous: unknown; queryKey: readonly unknown[] } | undefined;
+      if (ctx) queryClient.setQueryData(ctx.queryKey, ctx.previous);
+    },
+    onSettled: (_data, _err, { projectKey, versionName }) => {
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.bugsByVersion(projectKey, versionName),
+      });
+    },
   });
 }
 
@@ -831,6 +904,11 @@ export interface TestRunHistory {
    *  - "never-passed" — only one execution and it failed (no trend yet)
    */
   classification: "fixed" | "failing" | "flaky" | "never-passed";
+  /**
+   * Keys of bugs in Jira that are linked to this test (via Jira issue links).
+   * Only populated when bugs data is passed to useVersionRunStats.
+   */
+  linkedBugKeys: string[];
 }
 
 export interface RunStats {
@@ -884,7 +962,7 @@ function classifyHistory(history: TestRunHistory["history"]): TestRunHistory["cl
  *   Phase 2 — fire all remaining pages in parallel.
  *   Aggregate — counts and per-test histories are built from every resolved page.
  */
-export function useVersionRunStats(executions: TestExecution[]): RunStats {
+export function useVersionRunStats(executions: TestExecution[], bugs?: JiraBug[]): RunStats {
   const PAGE_SIZE = TEST_RUNS_PAGE_SIZE;
 
   // ── Phase 1: page 0 per execution ────────────────────────────────────────────
@@ -991,6 +1069,21 @@ export function useVersionRunStats(executions: TestExecution[]): RunStats {
     const failedTests: TestRunHistory[] = [];
 
     if (allLoaded) {
+      // Build a map: testKey → bug keys that link to it (via Jira issuelinks).
+      const testKeyToBugKeys = new Map<string, string[]>();
+      for (const bug of bugs ?? []) {
+        for (const link of bug.fields.issue_links ?? []) {
+          const linked = link.outward_issue ?? link.inward_issue;
+          if (!linked) continue;
+          const issueType = linked.fields.issue_type?.name?.toLowerCase() ?? "";
+          if (issueType === "test") {
+            const existing = testKeyToBugKeys.get(linked.key) ?? [];
+            existing.push(bug.key);
+            testKeyToBugKeys.set(linked.key, existing);
+          }
+        }
+      }
+
       for (const [testIssueId, meta] of testMap) {
         // Only include tests whose byExec map contains a PASS or FAIL status
         // (same gate as before — TODO/EXECUTING tests are excluded from history).
@@ -1018,6 +1111,7 @@ export function useVersionRunStats(executions: TestExecution[]): RunStats {
           testSummary: meta.testSummary,
           history,
           classification: classifyHistory(history),
+          linkedBugKeys: testKeyToBugKeys.get(meta.testKey) ?? [],
         });
       }
 
@@ -1032,7 +1126,7 @@ export function useVersionRunStats(executions: TestExecution[]): RunStats {
     }
 
     return { counts, total, pagesLoaded, pagesExpected, failedTests };
-  }, [executions, extraPageQueries, phase1, phase2]);
+  }, [executions, extraPageQueries, phase1, phase2, bugs]);
 }
 
 /**

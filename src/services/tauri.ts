@@ -12,6 +12,7 @@ import type {
   CreateTestStepInput,
   JiraBug,
   JiraComponent,
+  JiraIssueLinkType,
   JiraProject,
   JiraTransition,
   JiraUser,
@@ -68,6 +69,20 @@ export const getProjectVersions = (projectKey: string): Promise<JiraVersion[]> =
 /** Fetch Bug issues with the given affectedVersion in the project. */
 export const getBugsByVersion = (projectKey: string, versionName: string): Promise<JiraBug[]> =>
   invoke("get_bugs_by_version", { projectKey, versionName });
+
+/** Fetch all issue link types configured in the Jira instance. */
+export const getIssueLinkTypes = (): Promise<JiraIssueLinkType[]> => invoke("get_issue_link_types");
+
+/**
+ * Create an issue link between two Jira issues.
+ * `linkTypeName` is the Jira link type name, e.g. "is detected by".
+ * The bug is the inward issue; the test is the outward issue.
+ */
+export const createIssueLink = (
+  inwardIssueKey: string,
+  outwardIssueKey: string,
+  linkTypeName: string,
+): Promise<void> => invoke("create_issue_link", { inwardIssueKey, outwardIssueKey, linkTypeName });
 
 /** Update the summary (name) of any Jira issue — Test Plan, Test Set, Test Execution, etc. */
 export const updateIssueSummary = (issueKey: string, summary: string): Promise<void> =>
@@ -206,3 +221,10 @@ export const removeTestsFromTestPlan = (
 /** Fetch all tests in a test set including each test's latest execution status. */
 export const getTestSetTestsWithStatus = (issueId: string): Promise<XrayTestWithStatus[]> =>
   invoke("get_test_set_tests_with_status", { issueId });
+
+/**
+ * Link one or more Jira bug keys to a test run as Xray defects.
+ * Returns the list of issue keys that were actually added to the run.
+ */
+export const addDefectsToTestRun = (runId: string, issueKeys: string[]): Promise<string[]> =>
+  invoke("add_defects_to_test_run", { runId, issueKeys });

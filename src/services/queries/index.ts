@@ -12,10 +12,12 @@ export {
   useProjectVersions,
   useIssueTransitions,
   useSearchUsers,
+  useIssueLinkTypes,
   useBugsByVersion,
   useTransitionIssue,
   useUpdateAssignee,
   useRenameIssue,
+  useLinkBugToTest,
 } from "./jira";
 export {
   useTestPlans,

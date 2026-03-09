@@ -91,6 +91,9 @@ pub struct TestRun {
     pub assignee_id: Option<String>,
     #[serde(rename(deserialize = "executedById"))]
     pub executed_by_id: Option<String>,
+    /// Jira issue keys of defects (bugs) linked to this test run via Xray.
+    #[serde(default)]
+    pub defects: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

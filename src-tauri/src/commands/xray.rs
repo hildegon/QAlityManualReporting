@@ -481,3 +481,20 @@ pub async fn get_test_executions_by_version(
         .map_err(format_err)?;
     Ok(result.test_executions.results)
 }
+
+/// Link one or more Jira bug keys to a test run as Xray defects.
+///
+/// Returns the list of issue keys that were actually added to the run.
+#[tauri::command]
+pub async fn add_defects_to_test_run(
+    app: AppHandle,
+    state: State<'_, XrayClientState>,
+    run_id: String,
+    issue_keys: Vec<String>,
+) -> Result<Vec<String>, String> {
+    let client = get_xray_client(&app, &state).await?;
+    client
+        .add_defects_to_test_run(&run_id, &issue_keys)
+        .await
+        .map_err(format_err)
+}

@@ -16,6 +16,14 @@ export interface AppConfig {
   execution_project_name: string;
 }
 
+/** A Jira issue link type as returned by GET /rest/api/3/issueLinkType. */
+export interface JiraIssueLinkType {
+  id: string;
+  name: string;
+  inward: string;
+  outward: string;
+}
+
 // ── Jira ──────────────────────────────────────────────────────────────────────
 
 export interface JiraProject {
@@ -68,6 +76,25 @@ export interface JiraVersion {
   release_date?: string;
 }
 
+/** A single issue link as returned by Jira's `issuelinks` field. */
+export interface JiraIssueLink {
+  id: string;
+  link_type: {
+    outward?: string;
+    inward?: string;
+  };
+  outward_issue?: {
+    id: string;
+    key: string;
+    fields: { summary: string; issue_type?: { name: string } };
+  };
+  inward_issue?: {
+    id: string;
+    key: string;
+    fields: { summary: string; issue_type?: { name: string } };
+  };
+}
+
 /** A Bug issue returned by `get_bugs_by_version`. */
 export interface JiraBug {
   id: string;
@@ -77,6 +104,8 @@ export interface JiraBug {
     status?: { name: string; category?: { key: string; name: string } };
     priority?: { name: string };
     assignee?: { account_id: string; display_name: string };
+    /** Issue links — used to find which tests detected this bug. */
+    issue_links?: JiraIssueLink[];
   };
 }
 
@@ -146,6 +175,8 @@ export interface TestRun {
   finished_on?: string;
   assignee_id?: string;
   executed_by_id?: string;
+  /** Jira issue keys of defects (bugs) linked to this test run via Xray. */
+  defects?: string[];
 }
 
 export interface TestRunStatus {
