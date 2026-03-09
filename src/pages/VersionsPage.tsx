@@ -8,6 +8,9 @@ import {
   Shuffle,
   TrendingDown,
   CheckCircle2,
+  CheckCircle,
+  ChevronDown,
+  Clock,
   Bug,
   User,
   Search,
@@ -28,9 +31,12 @@ import { EmptyState } from "@/components/common/EmptyState";
 import {
   useBugsByVersion,
   useIssueLinkTypes,
+  useIssueTransitions,
   useLinkBugToTest,
   useProjectVersions,
   useTestExecutionsByVersion,
+  useTransitionIssue,
+  useVersionIssues,
   useVersionRunStats,
   queryKeys,
 } from "@/services/queries";
@@ -42,7 +48,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Badge, statusVariant } from "@/components/ui/badge";
 import { cn } from "@/components/ui/utils";
 import { TestExecutionDetail } from "@/components/test-execution/TestExecutionDetail";
-import type { JiraBug, JiraVersion, TestExecution } from "@/types";
+import type { JiraBug, JiraTransition, JiraVersion, TestExecution } from "@/types";
 import type { TestRunHistory } from "@/services/queries";
 
 // ── Fetch progress ────────────────────────────────────────────────────────────
@@ -300,6 +306,7 @@ function FailedTestsAnalysis({
   versionName: string;
 }) {
   const [showAll, setShowAll] = useState(false);
+  const [collapsed, setCollapsed] = useState(true);
 
   if (isLoading) {
     return (
@@ -344,63 +351,83 @@ function FailedTestsAnalysis({
   const visible = showAll ? failedTests : failedTests.slice(0, PREVIEW_COUNT);
 
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-800">
-      {/* Header */}
-      <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+    <div className="rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
+      {/* Header — always visible, clicking toggles collapsed */}
+      <button
+        onClick={() => setCollapsed((c) => !c)}
+        className="flex w-full flex-wrap items-start justify-between gap-3 px-5 py-4 text-left"
+      >
         <div className="flex items-center gap-2">
-          <AlertTriangle className="h-4 w-4 text-red-500" />
+          <AlertTriangle className="h-4 w-4 shrink-0 text-red-500" />
           <h3 className="font-semibold text-slate-800 dark:text-slate-200">
             Failed tests analysis
           </h3>
-          <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-semibold text-red-700">
+          <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-semibold text-red-700 dark:bg-red-900/40 dark:text-red-300">
             {failedTests.length} test{failedTests.length !== 1 ? "s" : ""}
           </span>
         </div>
 
-        {/* Classification summary pills */}
-        <div className="flex flex-wrap gap-2">
-          {(["failing", "flaky", "never-passed", "fixed"] as const).map((cls) => {
-            const count = byClass[cls];
-            if (!count) return null;
-            const m = CLASSIFICATION_META[cls];
-            const Icon = m.icon;
-            return (
-              <span
-                key={cls}
-                className={cn(
-                  "inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-semibold",
-                  m.chipClass,
-                )}
-              >
-                <Icon className="h-3 w-3" />
-                {count} {m.label.toLowerCase()}
-              </span>
-            );
-          })}
-        </div>
-      </div>
+        <div className="flex items-center gap-2">
+          {/* Classification summary pills */}
+          <div className="flex flex-wrap gap-2">
+            {(["failing", "flaky", "never-passed", "fixed"] as const).map((cls) => {
+              const count = byClass[cls];
+              if (!count) return null;
+              const m = CLASSIFICATION_META[cls];
+              const Icon = m.icon;
+              return (
+                <span
+                  key={cls}
+                  className={cn(
+                    "inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-semibold",
+                    m.chipClass,
+                  )}
+                >
+                  <Icon className="h-3 w-3" />
+                  {count} {m.label.toLowerCase()}
+                </span>
+              );
+            })}
+          </div>
 
-      {/* Rows */}
-      <div className="space-y-2">
-        {visible.map((t) => (
-          <FailedTestRow
-            key={t.testIssueId}
-            test={t}
-            linkableBugs={linkableBugs}
-            linkTypeName={linkTypeName}
-            projectKey={projectKey}
-            versionName={versionName}
+          {/* Chevron */}
+          <ChevronDown
+            className={cn(
+              "h-4 w-4 shrink-0 text-slate-400 transition-transform duration-200",
+              collapsed && "-rotate-90",
+            )}
           />
-        ))}
-      </div>
+        </div>
+      </button>
 
-      {failedTests.length > PREVIEW_COUNT && (
-        <button
-          onClick={() => setShowAll((s) => !s)}
-          className="mt-3 text-xs font-medium text-slate-500 hover:text-slate-700"
-        >
-          {showAll ? "Show less" : `Show ${failedTests.length - PREVIEW_COUNT} more…`}
-        </button>
+      {/* Collapsible body */}
+      {!collapsed && (
+        <div className="px-5 pb-5">
+          <div className="space-y-2">
+            {visible.map((t) => (
+              <FailedTestRow
+                key={t.testIssueId}
+                test={t}
+                linkableBugs={linkableBugs}
+                linkTypeName={linkTypeName}
+                projectKey={projectKey}
+                versionName={versionName}
+              />
+            ))}
+          </div>
+
+          {failedTests.length > PREVIEW_COUNT && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowAll((s) => !s);
+              }}
+              className="mt-3 text-xs font-medium text-slate-500 hover:text-slate-700"
+            >
+              {showAll ? "Show less" : `Show ${failedTests.length - PREVIEW_COUNT} more…`}
+            </button>
+          )}
+        </div>
       )}
     </div>
   );
@@ -926,162 +953,460 @@ function BugsPanel({ bugs, isLoading, isError, error, failedTests }: BugsPanelPr
   const list = bugs ?? [];
 
   return (
-    <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800">
-      {/* Header */}
-      <div className="mb-3 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+    <div className="mt-4 overflow-hidden rounded-2xl border border-red-200 bg-white shadow-sm dark:border-red-900/60 dark:bg-slate-800">
+      {/* Header strip */}
+      <div className="flex items-center gap-1.5 bg-red-50 px-4 py-2.5 text-xs font-semibold uppercase tracking-wider text-red-500 dark:bg-red-950/60 dark:text-red-400">
         <Bug className="h-3.5 w-3.5" />
         Bugs ({list.length})
         {hasActiveFilters && (
-          <span className="ml-1 rounded-full bg-slate-700 px-1.5 py-0.5 text-white">
+          <span className="ml-1 rounded-full bg-red-600 px-1.5 py-0.5 text-white">
             {filtered.length} shown
           </span>
         )}
       </div>
 
-      {list.length > 0 && (
-        <div className="mb-3 space-y-2">
-          {/* Text search */}
-          <div className="relative">
-            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
-            <input
-              type="text"
-              placeholder="Search summary or key…"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="w-full rounded-lg border border-slate-200 bg-slate-50 py-1.5 pl-8 pr-8 text-sm text-slate-800 placeholder-slate-400 outline-none focus:border-slate-400 focus:bg-white dark:border-slate-700 dark:bg-slate-700 dark:text-slate-200 dark:placeholder-slate-500 dark:focus:border-slate-500 dark:focus:bg-slate-700"
-            />
-            {search && (
-              <button
-                onClick={() => setSearch("")}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
-              >
-                <X className="h-3.5 w-3.5" />
-              </button>
-            )}
-          </div>
-
-          {/* Filter row */}
-          <div className="flex flex-wrap items-center gap-2">
-            <Filter className="h-3.5 w-3.5 shrink-0 text-slate-300" />
-
-            {/* Unresolved toggle */}
-            <FilterChip
-              label="Unresolved"
-              active={unresolvedOnly}
-              onClick={() => setUnresolvedOnly((v) => !v)}
-            />
-
-            {/* Priority chips */}
-            {priorities.map((p) => (
-              <FilterChip
-                key={p}
-                label={p}
-                active={activePriorities.has(p)}
-                onClick={() => setActivePriorities((s) => toggleSet(s, p))}
+      <div className="p-4">
+        {list.length > 0 && (
+          <div className="mb-3 space-y-2">
+            {/* Text search */}
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+              <input
+                type="text"
+                placeholder="Search summary or key…"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="w-full rounded-lg border border-slate-200 bg-slate-50 py-1.5 pl-8 pr-8 text-sm text-slate-800 placeholder-slate-400 outline-none focus:border-slate-400 focus:bg-white dark:border-slate-700 dark:bg-slate-700 dark:text-slate-200 dark:placeholder-slate-500 dark:focus:border-slate-500 dark:focus:bg-slate-700"
               />
-            ))}
-
-            {/* Status chips */}
-            {statuses.map((s) => (
-              <FilterChip
-                key={s}
-                label={s}
-                active={activeStatuses.has(s)}
-                onClick={() => setActiveStatuses((prev) => toggleSet(prev, s))}
-              />
-            ))}
-
-            {/* Assignee chips */}
-            {assignees.map((a) => (
-              <FilterChip
-                key={a}
-                label={a}
-                active={activeAssignee === a}
-                onClick={() => setActiveAssignee((prev) => (prev === a ? null : a))}
-              />
-            ))}
-
-            {/* Clear all */}
-            {hasActiveFilters && (
-              <button
-                onClick={clearFilters}
-                className="ml-auto text-xs text-slate-400 hover:text-slate-600"
-              >
-                Clear filters
-              </button>
-            )}
-          </div>
-        </div>
-      )}
-
-      {filtered.length === 0 ? (
-        <p className="text-xs italic text-slate-400">
-          {list.length === 0
-            ? "No bugs found for this version."
-            : "No bugs match the current filters."}
-        </p>
-      ) : (
-        <div className="space-y-1.5">
-          {filtered.map((bug: JiraBug) => (
-            <div
-              key={bug.id}
-              className="flex items-start gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2.5 dark:border-slate-700 dark:bg-slate-800"
-            >
-              {/* Priority dot */}
-              <span
-                className={cn(
-                  "mt-0.5 shrink-0 font-bold leading-none",
-                  priorityClass(bug.fields.priority?.name),
-                )}
-                title={bug.fields.priority?.name ?? "No priority"}
-              >
-                ●
-              </span>
-
-              {/* Key + summary */}
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm text-slate-800 dark:text-slate-200">
-                  {bug.fields.summary}
-                </p>
-                <p className="mt-0.5 font-mono text-xs text-slate-400">{bug.key}</p>
-                {/* Detecting tests */}
-                {(bugToDetectingTests.get(bug.key) ?? []).length > 0 && (
-                  <div className="mt-1.5 flex flex-wrap items-center gap-1">
-                    <span className="text-[10px] text-slate-400">Detected by:</span>
-                    {bugToDetectingTests.get(bug.key)!.map(({ testKey, testSummary }) => (
-                      <span
-                        key={testKey}
-                        title={testSummary}
-                        className="inline-flex items-center rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 font-mono text-[10px] text-slate-600 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-300"
-                      >
-                        {testKey}
-                      </span>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              {/* Assignee */}
-              {bug.fields.assignee ? (
-                <span className="flex shrink-0 items-center gap-1 text-xs text-slate-400 dark:text-slate-400">
-                  <User className="h-3 w-3" />
-                  {bug.fields.assignee.display_name}
-                </span>
-              ) : null}
-
-              {/* Status badge */}
-              {bug.fields.status && (
-                <span
-                  className={cn(
-                    "shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium",
-                    statusCategoryClass(bug.fields.status.category?.key),
-                  )}
+              {search && (
+                <button
+                  onClick={() => setSearch("")}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
                 >
-                  {bug.fields.status.name}
-                </span>
+                  <X className="h-3.5 w-3.5" />
+                </button>
               )}
             </div>
+
+            {/* Filter row */}
+            <div className="flex flex-wrap items-center gap-2">
+              <Filter className="h-3.5 w-3.5 shrink-0 text-slate-300" />
+
+              {/* Unresolved toggle */}
+              <FilterChip
+                label="Unresolved"
+                active={unresolvedOnly}
+                onClick={() => setUnresolvedOnly((v) => !v)}
+              />
+
+              {/* Priority chips */}
+              {priorities.map((p) => (
+                <FilterChip
+                  key={p}
+                  label={p}
+                  active={activePriorities.has(p)}
+                  onClick={() => setActivePriorities((s) => toggleSet(s, p))}
+                />
+              ))}
+
+              {/* Status chips */}
+              {statuses.map((s) => (
+                <FilterChip
+                  key={s}
+                  label={s}
+                  active={activeStatuses.has(s)}
+                  onClick={() => setActiveStatuses((prev) => toggleSet(prev, s))}
+                />
+              ))}
+
+              {/* Assignee chips */}
+              {assignees.map((a) => (
+                <FilterChip
+                  key={a}
+                  label={a}
+                  active={activeAssignee === a}
+                  onClick={() => setActiveAssignee((prev) => (prev === a ? null : a))}
+                />
+              ))}
+
+              {/* Clear all */}
+              {hasActiveFilters && (
+                <button
+                  onClick={clearFilters}
+                  className="ml-auto text-xs text-slate-400 hover:text-slate-600"
+                >
+                  Clear filters
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
+        {filtered.length === 0 ? (
+          <p className="text-xs italic text-slate-400">
+            {list.length === 0
+              ? "No bugs found for this version."
+              : "No bugs match the current filters."}
+          </p>
+        ) : (
+          <div className="space-y-1.5">
+            {filtered.map((bug: JiraBug) => (
+              <div
+                key={bug.id}
+                className="flex items-start gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2.5 dark:border-slate-700 dark:bg-slate-800"
+              >
+                {/* Priority dot */}
+                <span
+                  className={cn(
+                    "mt-0.5 shrink-0 font-bold leading-none",
+                    priorityClass(bug.fields.priority?.name),
+                  )}
+                  title={bug.fields.priority?.name ?? "No priority"}
+                >
+                  ●
+                </span>
+
+                {/* Key + summary */}
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm text-slate-800 dark:text-slate-200">
+                    {bug.fields.summary}
+                  </p>
+                  <p className="mt-0.5 font-mono text-xs text-slate-400">{bug.key}</p>
+                  {/* Detecting tests */}
+                  {(bugToDetectingTests.get(bug.key) ?? []).length > 0 && (
+                    <div className="mt-1.5 flex flex-wrap items-center gap-1">
+                      <span className="text-[10px] text-slate-400">Detected by:</span>
+                      {bugToDetectingTests.get(bug.key)!.map(({ testKey, testSummary }) => (
+                        <span
+                          key={testKey}
+                          title={testSummary}
+                          className="inline-flex items-center rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 font-mono text-[10px] text-slate-600 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-300"
+                        >
+                          {testKey}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Assignee */}
+                {bug.fields.assignee ? (
+                  <span className="flex shrink-0 items-center gap-1 text-xs text-slate-400 dark:text-slate-400">
+                    <User className="h-3 w-3" />
+                    {bug.fields.assignee.display_name}
+                  </span>
+                ) : null}
+
+                {/* Status badge */}
+                {bug.fields.status && (
+                  <span
+                    className={cn(
+                      "shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium",
+                      statusCategoryClass(bug.fields.status.category?.key),
+                    )}
+                  >
+                    {bug.fields.status.name}
+                  </span>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Version issues panel (Stories / Tasks / Bugs by fixVersion) ───────────────
+
+interface VersionIssuesPanelProps {
+  projectKey: string;
+  versionName: string;
+}
+
+function VersionIssuesPanel({ projectKey, versionName }: VersionIssuesPanelProps) {
+  const { data: issues, isLoading, isError, error } = useVersionIssues(projectKey, versionName);
+
+  const { done, inAcceptance } = useMemo(() => {
+    const list = issues ?? [];
+    const done: JiraBug[] = [];
+    const inAcceptance: JiraBug[] = [];
+    for (const issue of list) {
+      const categoryKey = issue.fields.status?.category?.key ?? "";
+      const statusName = issue.fields.status?.name ?? "";
+      if (categoryKey === "done") {
+        done.push(issue);
+      } else if (/acceptance/i.test(statusName)) {
+        inAcceptance.push(issue);
+      }
+    }
+    return { done, inAcceptance };
+  }, [issues]);
+
+  if (isLoading) {
+    return (
+      <div className="mt-4 overflow-hidden rounded-2xl border border-indigo-200 bg-white shadow-sm dark:border-indigo-900/60 dark:bg-slate-800">
+        <div className="flex items-center gap-1.5 bg-indigo-50 px-4 py-2.5 text-xs font-semibold uppercase tracking-wider text-indigo-500 dark:bg-indigo-950/60 dark:text-indigo-400">
+          <CheckCircle className="h-3.5 w-3.5" />
+          Version Issues
+        </div>
+        <div className="space-y-1.5 p-4">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <div
+              key={i}
+              className="flex items-center gap-3 rounded border border-slate-100 px-3 py-2 dark:border-slate-700"
+            >
+              <Skeleton className="h-4 w-16 shrink-0" />
+              <Skeleton className="h-4 flex-1" />
+              <Skeleton className="h-5 w-20 rounded-full" />
+            </div>
           ))}
+        </div>
+      </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <div className="mt-4 rounded-md bg-red-50 px-3 py-2 text-xs text-red-700">
+        Failed to load version issues: {String(error)}
+      </div>
+    );
+  }
+
+  const list = issues ?? [];
+
+  if (list.length === 0) {
+    return (
+      <div className="mt-4 overflow-hidden rounded-2xl border border-indigo-200 bg-white shadow-sm dark:border-indigo-900/60 dark:bg-slate-800">
+        <div className="flex items-center gap-1.5 bg-indigo-50 px-4 py-2.5 text-xs font-semibold uppercase tracking-wider text-indigo-500 dark:bg-indigo-950/60 dark:text-indigo-400">
+          <CheckCircle className="h-3.5 w-3.5" />
+          Version Issues
+        </div>
+        <p className="p-4 text-xs italic text-slate-400">
+          No stories, tasks, or bugs found for this version.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-4 overflow-hidden rounded-2xl border border-indigo-200 bg-white shadow-sm dark:border-indigo-900/60 dark:bg-slate-800">
+      {/* Header strip */}
+      <div className="flex items-center gap-1.5 bg-indigo-50 px-4 py-2.5 text-xs font-semibold uppercase tracking-wider text-indigo-500 dark:bg-indigo-950/60 dark:text-indigo-400">
+        <CheckCircle className="h-3.5 w-3.5" />
+        Version Issues ({list.length})
+      </div>
+
+      <div className="p-4">
+        {/* In Acceptance Testing section */}
+        {inAcceptance.length > 0 && (
+          <div className="mb-3">
+            <div className="mb-1.5 flex items-center gap-1.5">
+              <Clock className="h-3.5 w-3.5 text-amber-500" />
+              <span className="text-xs font-semibold text-amber-600 dark:text-amber-400">
+                In Acceptance Testing ({inAcceptance.length})
+              </span>
+            </div>
+            <div className="space-y-1.5">
+              {inAcceptance.map((issue) => (
+                <VersionIssueRow
+                  key={issue.id}
+                  issue={issue}
+                  projectKey={projectKey}
+                  versionName={versionName}
+                />
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Done section */}
+        {done.length > 0 && (
+          <div className={cn(inAcceptance.length > 0 && "mt-3")}>
+            <div className="mb-1.5 flex items-center gap-1.5">
+              <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
+              <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400">
+                Done ({done.length})
+              </span>
+            </div>
+            <div className="space-y-1.5">
+              {done.map((issue) => (
+                <VersionIssueRow
+                  key={issue.id}
+                  issue={issue}
+                  projectKey={projectKey}
+                  versionName={versionName}
+                />
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Issues that are neither done nor in acceptance */}
+        {list.length > done.length + inAcceptance.length && (
+          <div className={cn(done.length + inAcceptance.length > 0 && "mt-3")}>
+            <div className="mb-1.5 text-xs font-semibold text-slate-500 dark:text-slate-400">
+              Other ({list.length - done.length - inAcceptance.length})
+            </div>
+            <div className="space-y-1.5">
+              {list
+                .filter((issue) => {
+                  const categoryKey = issue.fields.status?.category?.key ?? "";
+                  const statusName = issue.fields.status?.name ?? "";
+                  return categoryKey !== "done" && !/acceptance/i.test(statusName);
+                })
+                .map((issue) => (
+                  <VersionIssueRow
+                    key={issue.id}
+                    issue={issue}
+                    projectKey={projectKey}
+                    versionName={versionName}
+                  />
+                ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function VersionIssueRow({
+  issue,
+  projectKey,
+  versionName,
+}: {
+  issue: JiraBug;
+  projectKey: string;
+  versionName: string;
+}) {
+  const typeName = issue.fields.issue_type?.name ?? "";
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  const { data: transitions, isLoading: transitionsLoading } = useIssueTransitions(
+    menuOpen ? issue.key : null,
+  );
+  const { mutate: transitionIssue, isPending: transitioning } = useTransitionIssue();
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    if (!menuOpen) return;
+    function handleClickOutside(e: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setMenuOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [menuOpen]);
+
+  function applyTransition(t: JiraTransition) {
+    transitionIssue(
+      {
+        issueKey: issue.key,
+        transitionId: t.id,
+        executionProjectKey: projectKey,
+        versionName,
+      },
+      { onSettled: () => setMenuOpen(false) },
+    );
+  }
+
+  return (
+    <div className="flex items-start gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2.5 dark:border-slate-700 dark:bg-slate-800">
+      {/* Priority dot */}
+      <span
+        className={cn(
+          "mt-0.5 shrink-0 font-bold leading-none",
+          priorityClass(issue.fields.priority?.name),
+        )}
+        title={issue.fields.priority?.name ?? "No priority"}
+      >
+        ●
+      </span>
+
+      {/* Key + summary */}
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-sm text-slate-800 dark:text-slate-200">
+          {issue.fields.summary}
+        </p>
+        <div className="mt-0.5 flex items-center gap-1.5">
+          <p className="font-mono text-xs text-slate-400">{issue.key}</p>
+          {typeName && (
+            <span className="rounded border border-slate-200 bg-slate-50 px-1 py-0.5 text-[10px] font-medium text-slate-500 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-300">
+              {typeName}
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* Assignee */}
+      {issue.fields.assignee ? (
+        <span className="flex shrink-0 items-center gap-1 text-xs text-slate-400 dark:text-slate-400">
+          <User className="h-3 w-3" />
+          {issue.fields.assignee.display_name}
+        </span>
+      ) : null}
+
+      {/* Status badge — clickable to open transition menu */}
+      {issue.fields.status && (
+        <div className="relative shrink-0" ref={menuRef}>
+          <button
+            onClick={() => setMenuOpen((o) => !o)}
+            disabled={transitioning}
+            title="Change status"
+            className={cn(
+              "flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium transition-opacity",
+              statusCategoryClass(issue.fields.status.category?.key),
+              "hover:opacity-80",
+              transitioning && "opacity-50",
+            )}
+          >
+            {transitioning ? (
+              <Loader2 className="h-2.5 w-2.5 animate-spin" />
+            ) : (
+              <ChevronDown className="h-2.5 w-2.5" />
+            )}
+            {issue.fields.status.name}
+          </button>
+
+          {menuOpen && (
+            <div className="absolute right-0 top-full z-20 mt-1 min-w-[160px] overflow-hidden rounded-lg border border-slate-200 bg-white shadow-lg dark:border-slate-700 dark:bg-slate-800">
+              {transitionsLoading ? (
+                <div className="flex items-center gap-2 px-3 py-2 text-xs text-slate-400">
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  Loading…
+                </div>
+              ) : !transitions?.length ? (
+                <p className="px-3 py-2 text-xs italic text-slate-400">No transitions available</p>
+              ) : (
+                <ul>
+                  {transitions.map((t) => (
+                    <li key={t.id}>
+                      <button
+                        onClick={() => applyTransition(t)}
+                        className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-700"
+                      >
+                        <span
+                          className={cn(
+                            "h-2 w-2 shrink-0 rounded-full",
+                            t.to.category?.key === "done"
+                              ? "bg-emerald-500"
+                              : t.to.category?.key === "indeterminate"
+                                ? "bg-blue-500"
+                                : "bg-slate-400",
+                          )}
+                        />
+                        {t.name}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -1128,6 +1453,8 @@ function VersionContent({
         error={bugsErr}
         failedTests={stats.failedTests}
       />
+
+      <VersionIssuesPanel projectKey={projectKey} versionName={version.name} />
 
       {executions.length > 0 && (
         <div className="mt-4">
@@ -1190,6 +1517,9 @@ export function VersionsPage() {
                 executionProjectKey,
                 selectedVersion.name,
               ),
+            }),
+            queryClient.invalidateQueries({
+              queryKey: queryKeys.versionIssues(executionProjectKey, selectedVersion.name),
             }),
           ]
         : []),

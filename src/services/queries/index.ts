@@ -14,6 +14,7 @@ export {
   useSearchUsers,
   useIssueLinkTypes,
   useBugsByVersion,
+  useVersionIssues,
   useTransitionIssue,
   useUpdateAssignee,
   useRenameIssue,

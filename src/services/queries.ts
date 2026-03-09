@@ -70,6 +70,8 @@ export const queryKeys = {
   stepStatuses: (projectId: string) => ["xray", "step-statuses", projectId] as const,
   bugsByVersion: (projectKey: string, versionName: string) =>
     ["jira", "bugs-by-version", projectKey, versionName] as const,
+  versionIssues: (projectKey: string, versionName: string) =>
+    ["jira", "version-issues", projectKey, versionName] as const,
   issueLinkTypes: ["jira", "issue-link-types"] as const,
 };
 
@@ -153,6 +155,8 @@ interface TransitionIssueVars {
   transitionId: string;
   /** Execution project key — used to invalidate the executions list on success. */
   executionProjectKey: string;
+  /** If set, the versionIssues query for this version is also invalidated. */
+  versionName?: string;
 }
 
 /** Apply a workflow transition to a Jira issue and invalidate the executions list. */
@@ -160,7 +164,7 @@ export function useTransitionIssue() {
   const queryClient = useQueryClient();
   return useMutation<void, Error, TransitionIssueVars>({
     mutationFn: ({ issueKey, transitionId }) => api.transitionIssue(issueKey, transitionId),
-    onSuccess: (_data, { issueKey, executionProjectKey }) => {
+    onSuccess: (_data, { issueKey, executionProjectKey, versionName }) => {
       // Invalidate transitions cache so re-opening the dialog shows fresh options
       void queryClient.invalidateQueries({
         queryKey: queryKeys.issueTransitions(issueKey),
@@ -169,6 +173,12 @@ export function useTransitionIssue() {
       void queryClient.invalidateQueries({
         queryKey: queryKeys.testExecutions(executionProjectKey),
       });
+      // Refresh version issues panel if a version context was provided
+      if (versionName) {
+        void queryClient.invalidateQueries({
+          queryKey: queryKeys.versionIssues(executionProjectKey, versionName),
+        });
+      }
     },
   });
 }
@@ -248,6 +258,18 @@ export function useBugsByVersion(projectKey: string | null, versionName: string 
   return useQuery<JiraBug[]>({
     queryKey: queryKeys.bugsByVersion(projectKey ?? "", versionName ?? ""),
     queryFn: () => api.getBugsByVersion(projectKey!, versionName!),
+    enabled: !!projectKey && !!versionName,
+    staleTime: 2 * 60 * 1_000,
+  });
+}
+
+// ── Version Issues (Stories, Tasks, Bugs by fixVersion) ───────────────────────
+
+/** Fetch Story, Task, and Bug issues with the given fixVersion in a Jira project. */
+export function useVersionIssues(projectKey: string | null, versionName: string | null) {
+  return useQuery<JiraBug[]>({
+    queryKey: queryKeys.versionIssues(projectKey ?? "", versionName ?? ""),
+    queryFn: () => api.getVersionIssues(projectKey!, versionName!),
     enabled: !!projectKey && !!versionName,
     staleTime: 2 * 60 * 1_000,
   });

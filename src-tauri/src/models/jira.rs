@@ -182,6 +182,9 @@ pub struct JiraBugFields {
     pub status: Option<JiraStatus>,
     pub priority: Option<JiraPriority>,
     pub assignee: Option<JiraUser>,
+    /// Issue type — present when fetched via `get_version_issues`.
+    #[serde(rename(deserialize = "issuetype"))]
+    pub issue_type: Option<JiraIssueType>,
     /// Issue links — used to find which Xray tests are linked to this bug.
     #[serde(default, rename(deserialize = "issuelinks"))]
     pub issue_links: Vec<JiraIssueLink>,

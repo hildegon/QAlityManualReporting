@@ -11,6 +11,8 @@ export const queryKeys = {
   userSearch: (query: string) => ["jira", "user-search", query] as const,
   bugsByVersion: (projectKey: string, versionName: string) =>
     ["jira", "bugs-by-version", projectKey, versionName] as const,
+  versionIssues: (projectKey: string, versionName: string) =>
+    ["jira", "version-issues", projectKey, versionName] as const,
   issueLinkTypes: ["jira", "issue-link-types"] as const,
   testPlans: (projectKey: string) => ["xray", "test-plans", projectKey] as const,
   testExecutions: (projectKey: string) => ["xray", "test-executions", projectKey] as const,
