@@ -203,12 +203,19 @@ export function TestExecutionDetail({
     getItemKey: (index) => filteredRuns[index]?.id ?? index,
   });
 
-  // When the filtered/sorted list changes identity, force the virtualizer to
-  // recompute offsets from fresh measurements. Without this, reordered rows
-  // render at stale positions, causing overlaps and blank gaps.
+  // Track only the ordered list of run IDs (not their data) so we can
+  // distinguish a structural change (reorder / add / remove) from a
+  // data-only refresh (status / step update).  We join them into a single
+  // string so the comparison is a fast reference-equal check on the memo.
+  const filteredRunKeys = useMemo(() => filteredRuns.map((r) => r.id).join(","), [filteredRuns]);
+
+  // Only force a full height recomputation when the list structure actually
+  // changes (items added, removed, or reordered).  Skipping this on pure
+  // data refreshes prevents the virtualizer from resetting cached heights for
+  // expanded rows, which was the cause of the "ghost steps" visual glitch.
   useEffect(() => {
     virtualizer.measure();
-  }, [filteredRuns, virtualizer]);
+  }, [filteredRunKeys, virtualizer]);
 
   // Auto-load next page when the user scrolls near the bottom
   const virtualItems = virtualizer.getVirtualItems();
