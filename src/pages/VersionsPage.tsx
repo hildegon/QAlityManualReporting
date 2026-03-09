@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useRef, useEffect } from "react";
 import {
   Tag,
   FileText,
@@ -15,6 +15,7 @@ import {
   Filter,
   RefreshCw,
   Star,
+  Link,
 } from "lucide-react";
 import {
   DonutChart,
@@ -26,6 +27,8 @@ import {
 import { EmptyState } from "@/components/common/EmptyState";
 import {
   useBugsByVersion,
+  useIssueLinkTypes,
+  useLinkBugToTest,
   useProjectVersions,
   useTestExecutionsByVersion,
   useVersionRunStats,
@@ -112,9 +115,47 @@ function StatusPip({ statusName }: { statusName: string }) {
   );
 }
 
-function FailedTestRow({ test }: { test: TestRunHistory }) {
+interface FailedTestRowProps {
+  test: TestRunHistory;
+  /** Bugs available for linking (already filtered to this version). */
+  linkableBugs: JiraBug[];
+  linkTypeName: string;
+  projectKey: string;
+  versionName: string;
+}
+
+function FailedTestRow({
+  test,
+  linkableBugs,
+  linkTypeName,
+  projectKey,
+  versionName,
+}: FailedTestRowProps) {
   const meta = CLASSIFICATION_META[test.classification];
   const Icon = meta.icon;
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const pickerRef = useRef<HTMLDivElement>(null);
+  const linkBug = useLinkBugToTest();
+
+  // Close picker when clicking outside
+  useEffect(() => {
+    if (!pickerOpen) return;
+    function handleClick(e: MouseEvent) {
+      if (pickerRef.current && !pickerRef.current.contains(e.target as Node)) {
+        setPickerOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [pickerOpen]);
+
+  // Bugs not already linked to this test
+  const unlinkedBugs = linkableBugs.filter((b) => !test.linkedBugKeys.includes(b.key));
+
+  function handleLinkBug(bugKey: string) {
+    setPickerOpen(false);
+    linkBug.mutate({ bugKey, testKey: test.testKey, linkTypeName, projectKey, versionName });
+  }
 
   return (
     <div className="rounded-lg border border-slate-200 bg-white px-4 py-3 dark:border-slate-700 dark:bg-slate-800">
@@ -126,16 +167,80 @@ function FailedTestRow({ test }: { test: TestRunHistory }) {
           </p>
           <p className="mt-0.5 font-mono text-xs text-slate-400">{test.testKey}</p>
         </div>
-        {/* Classification chip */}
-        <span
-          className={cn(
-            "inline-flex shrink-0 items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-semibold",
-            meta.chipClass,
+        {/* Right side: classification chip + link-bug button */}
+        <div className="flex shrink-0 items-center gap-2">
+          <span
+            className={cn(
+              "inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-semibold",
+              meta.chipClass,
+            )}
+          >
+            <Icon className="h-3 w-3" />
+            {meta.label}
+          </span>
+
+          {/* Link-bug button — shown whenever there are bugs for this version */}
+          {linkableBugs.length > 0 && (
+            <div className="relative" ref={pickerRef}>
+              <button
+                onClick={() => setPickerOpen((o) => !o)}
+                disabled={linkBug.isPending}
+                title={linkBug.isPending ? "Linking…" : "Link to a bug"}
+                className={cn(
+                  "inline-flex items-center gap-1 rounded border px-2 py-0.5 text-xs font-medium transition-colors",
+                  linkBug.isPending
+                    ? "cursor-not-allowed border-slate-200 bg-slate-50 text-slate-400 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-500"
+                    : pickerOpen
+                      ? "border-slate-400 bg-slate-100 text-slate-700 dark:border-slate-500 dark:bg-slate-700 dark:text-slate-200"
+                      : "border-slate-200 bg-white text-slate-500 hover:border-slate-300 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-400 dark:hover:border-slate-500",
+                )}
+              >
+                {linkBug.isPending ? (
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                ) : (
+                  <Link className="h-3 w-3" />
+                )}
+                {linkBug.isPending ? "Linking…" : "Link bug"}
+              </button>
+
+              {pickerOpen && (
+                <div className="absolute right-0 top-full z-20 mt-1 w-64 rounded-lg border border-slate-200 bg-white shadow-lg dark:border-slate-600 dark:bg-slate-800">
+                  {unlinkedBugs.length === 0 ? (
+                    <p className="px-3 py-2 text-xs text-slate-400">
+                      All bugs for this version are already linked.
+                    </p>
+                  ) : (
+                    <ul className="max-h-52 overflow-y-auto py-1">
+                      {unlinkedBugs.map((bug) => (
+                        <li key={bug.key}>
+                          <button
+                            onClick={() => handleLinkBug(bug.key)}
+                            className="flex w-full items-start gap-2 px-3 py-2 text-left hover:bg-slate-50 dark:hover:bg-slate-700"
+                          >
+                            <span
+                              className={cn(
+                                "mt-0.5 shrink-0 font-bold leading-none",
+                                priorityClass(bug.fields.priority?.name),
+                              )}
+                            >
+                              ●
+                            </span>
+                            <div className="min-w-0">
+                              <p className="truncate text-xs font-medium text-slate-800 dark:text-slate-200">
+                                {bug.fields.summary}
+                              </p>
+                              <p className="font-mono text-[10px] text-slate-400">{bug.key}</p>
+                            </div>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              )}
+            </div>
           )}
-        >
-          <Icon className="h-3 w-3" />
-          {meta.label}
-        </span>
+        </div>
       </div>
 
       {/* History timeline */}
@@ -151,6 +256,28 @@ function FailedTestRow({ test }: { test: TestRunHistory }) {
           ))}
         </div>
       )}
+
+      {/* Linked bug badges */}
+      {test.linkedBugKeys.length > 0 && (
+        <div className="mt-2 flex flex-wrap items-center gap-1.5">
+          <Bug className="h-3 w-3 shrink-0 text-slate-400" />
+          {test.linkedBugKeys.map((bugKey) => (
+            <span
+              key={bugKey}
+              className="inline-flex items-center rounded border border-red-200 bg-red-50 px-1.5 py-0.5 font-mono text-[10px] font-medium text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300"
+            >
+              {bugKey}
+            </span>
+          ))}
+        </div>
+      )}
+
+      {/* Link-bug error feedback */}
+      {linkBug.isError && (
+        <p className="mt-1.5 text-xs text-red-600 dark:text-red-400">
+          Failed to link bug: {linkBug.error ?? "Unknown error"}
+        </p>
+      )}
     </div>
   );
 }
@@ -160,9 +287,17 @@ function FailedTestRow({ test }: { test: TestRunHistory }) {
 function FailedTestsAnalysis({
   failedTests,
   isLoading,
+  linkableBugs,
+  linkTypeName,
+  projectKey,
+  versionName,
 }: {
   failedTests: TestRunHistory[];
   isLoading: boolean;
+  linkableBugs: JiraBug[];
+  linkTypeName: string;
+  projectKey: string;
+  versionName: string;
 }) {
   const [showAll, setShowAll] = useState(false);
 
@@ -248,7 +383,14 @@ function FailedTestsAnalysis({
       {/* Rows */}
       <div className="space-y-2">
         {visible.map((t) => (
-          <FailedTestRow key={t.testIssueId} test={t} />
+          <FailedTestRow
+            key={t.testIssueId}
+            test={t}
+            linkableBugs={linkableBugs}
+            linkTypeName={linkTypeName}
+            projectKey={projectKey}
+            versionName={versionName}
+          />
         ))}
       </div>
 
@@ -267,12 +409,20 @@ function FailedTestsAnalysis({
 // ── Version dashboard ─────────────────────────────────────────────────────────
 
 interface VersionDashboardProps {
+  stats: ReturnType<typeof useVersionRunStats>;
   executions: TestExecution[];
   version: JiraVersion;
+  projectKey: string;
+  bugs: JiraBug[];
 }
 
-function VersionDashboard({ executions, version }: VersionDashboardProps) {
-  const stats = useVersionRunStats(executions);
+function VersionDashboard({ stats, executions, version, projectKey, bugs }: VersionDashboardProps) {
+  const { data: linkTypes } = useIssueLinkTypes();
+  const linkTypeName = useMemo(() => {
+    const match = linkTypes?.find((lt) => /test/i.test(lt.name));
+    return match?.name ?? "Test";
+  }, [linkTypes]);
+
   const slices = useMemo(() => buildSlicesFromCounts(stats.counts, stats.total), [stats]);
 
   const isLoading = stats.pagesLoaded < stats.pagesExpected;
@@ -388,7 +538,14 @@ function VersionDashboard({ executions, version }: VersionDashboardProps) {
 
       {/* Failed tests analysis — only rendered once we have executions */}
       {executions.length > 0 && (
-        <FailedTestsAnalysis failedTests={stats.failedTests} isLoading={isLoading} />
+        <FailedTestsAnalysis
+          failedTests={stats.failedTests}
+          isLoading={isLoading}
+          linkableBugs={bugs}
+          linkTypeName={linkTypeName}
+          projectKey={projectKey}
+          versionName={version.name}
+        />
       )}
     </div>
   );
@@ -637,12 +794,27 @@ function FilterChip({
 const PRIORITY_ORDER = ["Highest", "High", "Medium", "Low", "Lowest"];
 
 interface BugsPanelProps {
-  projectKey: string;
-  versionName: string;
+  bugs: JiraBug[] | undefined;
+  isLoading: boolean;
+  isError: boolean;
+  error: unknown;
+  /** Failed test histories for this version — used to show which tests detected each bug. */
+  failedTests: TestRunHistory[];
 }
 
-function BugsPanel({ projectKey, versionName }: BugsPanelProps) {
-  const { data: bugs, isLoading, isError, error } = useBugsByVersion(projectKey, versionName);
+function BugsPanel({ bugs, isLoading, isError, error, failedTests }: BugsPanelProps) {
+  // ── bug key → detecting test keys (from failed test analysis) ─────────────
+  const bugToDetectingTests = useMemo(() => {
+    const map = new Map<string, { testKey: string; testSummary: string }[]>();
+    for (const test of failedTests) {
+      for (const bugKey of test.linkedBugKeys) {
+        const existing = map.get(bugKey) ?? [];
+        existing.push({ testKey: test.testKey, testSummary: test.testSummary });
+        map.set(bugKey, existing);
+      }
+    }
+    return map;
+  }, [failedTests]);
 
   // ── filter state ──────────────────────────────────────────────────────────
   const [search, setSearch] = useState("");
@@ -851,6 +1023,21 @@ function BugsPanel({ projectKey, versionName }: BugsPanelProps) {
                   {bug.fields.summary}
                 </p>
                 <p className="mt-0.5 font-mono text-xs text-slate-400">{bug.key}</p>
+                {/* Detecting tests */}
+                {(bugToDetectingTests.get(bug.key) ?? []).length > 0 && (
+                  <div className="mt-1.5 flex flex-wrap items-center gap-1">
+                    <span className="text-[10px] text-slate-400">Detected by:</span>
+                    {bugToDetectingTests.get(bug.key)!.map(({ testKey, testSummary }) => (
+                      <span
+                        key={testKey}
+                        title={testSummary}
+                        className="inline-flex items-center rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 font-mono text-[10px] text-slate-600 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-300"
+                      >
+                        {testKey}
+                      </span>
+                    ))}
+                  </div>
+                )}
               </div>
 
               {/* Assignee */}
@@ -895,11 +1082,31 @@ function VersionContent({
   version,
   onSelectExecution,
 }: VersionContentProps) {
+  const {
+    data: bugs,
+    isLoading: bugsLoading,
+    isError: bugsError,
+    error: bugsErr,
+  } = useBugsByVersion(projectKey, version.name);
+  const stats = useVersionRunStats(executions, bugs);
+
   return (
     <>
-      <VersionDashboard executions={executions} version={version} />
+      <VersionDashboard
+        stats={stats}
+        executions={executions}
+        version={version}
+        projectKey={projectKey}
+        bugs={bugs ?? []}
+      />
 
-      <BugsPanel projectKey={projectKey} versionName={version.name} />
+      <BugsPanel
+        bugs={bugs}
+        isLoading={bugsLoading}
+        isError={bugsError}
+        error={bugsErr}
+        failedTests={stats.failedTests}
+      />
 
       {executions.length > 0 && (
         <div className="mt-4">

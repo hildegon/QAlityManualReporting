@@ -343,6 +343,7 @@ impl XrayClient {
                         executedById
                         testType { name kind }
                         gherkin
+                        defects
                         test {
                             issueId
                             jira(fields: ["key", "summary"])
@@ -1101,6 +1102,51 @@ impl XrayClient {
             )
             .await?;
         Ok(())
+    }
+
+    // ── Add Defects to Test Run ───────────────────────────────────────────────
+
+    /// Link one or more Jira bug keys to a test run as defects.
+    ///
+    /// Uses Xray's `addDefectsToTestRun` GraphQL mutation. Returns the list of
+    /// defect issue keys that were actually added (may be a subset if some were
+    /// already linked).
+    pub async fn add_defects_to_test_run(
+        &self,
+        run_id: &str,
+        issue_keys: &[String],
+    ) -> Result<Vec<String>> {
+        #[derive(serde::Deserialize)]
+        #[allow(non_snake_case)]
+        struct AddDefectsData {
+            addDefectsToTestRun: AddDefectsPayload,
+        }
+        #[derive(serde::Deserialize)]
+        #[allow(non_snake_case)]
+        struct AddDefectsPayload {
+            addedDefects: Option<Vec<String>>,
+            #[allow(dead_code)]
+            warnings: Option<Vec<String>>,
+        }
+
+        let query = r#"
+            mutation AddDefectsToTestRun($id: String!, $issues: [String]!) {
+                addDefectsToTestRun(id: $id, issues: $issues) {
+                    addedDefects
+                    warnings
+                }
+            }
+        "#;
+        let result: AddDefectsData = self
+            .graphql(
+                query,
+                serde_json::json!({
+                    "id": run_id,
+                    "issues": issue_keys,
+                }),
+            )
+            .await?;
+        Ok(result.addDefectsToTestRun.addedDefects.unwrap_or_default())
     }
 
     /// Update the status of a single step within a test run.

@@ -5,6 +5,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type {
   JiraBug,
   JiraComponent,
+  JiraIssueLink,
+  JiraIssueLinkType,
   JiraProject,
   JiraTransition,
   JiraUser,
@@ -70,6 +72,16 @@ export function useSearchUsers(query: string) {
     enabled: query.length >= 2,
     staleTime: 30 * 1000,
     retry: false,
+  });
+}
+
+/** Fetch all issue link types configured in the Jira instance. */
+export function useIssueLinkTypes(enabled = true) {
+  return useQuery<JiraIssueLinkType[]>({
+    queryKey: queryKeys.issueLinkTypes,
+    queryFn: api.getIssueLinkTypes,
+    enabled,
+    staleTime: 10 * 60 * 1_000,
   });
 }
 
@@ -157,6 +169,64 @@ export function useRenameIssue() {
     },
     onSettled: (_data, _err, { queryKey }) => {
       void queryClient.invalidateQueries({ queryKey });
+    },
+  });
+}
+
+// ── Link bug to test ──────────────────────────────────────────────────────────
+
+interface LinkBugToTestVars {
+  bugKey: string;
+  testKey: string;
+  linkTypeName: string;
+  projectKey: string;
+  versionName: string;
+}
+
+export function useLinkBugToTest() {
+  const queryClient = useQueryClient();
+  return useMutation<void, string, LinkBugToTestVars>({
+    mutationFn: ({ bugKey, testKey, linkTypeName }) =>
+      api.createIssueLink(bugKey, testKey, linkTypeName),
+    onMutate: async ({ bugKey, testKey, linkTypeName, projectKey, versionName }) => {
+      const queryKey = queryKeys.bugsByVersion(projectKey, versionName);
+      await queryClient.cancelQueries({ queryKey });
+      const previous = queryClient.getQueryData<JiraBug[]>(queryKey);
+      queryClient.setQueryData<JiraBug[]>(queryKey, (old) =>
+        (old ?? []).map((bug) => {
+          if (bug.key !== bugKey) return bug;
+          const alreadyLinked = (bug.fields.issue_links ?? []).some(
+            (l) => (l.outward_issue?.key ?? l.inward_issue?.key) === testKey,
+          );
+          if (alreadyLinked) return bug;
+          const newLink: JiraIssueLink = {
+            id: `optimistic-${testKey}`,
+            link_type: { outward: linkTypeName },
+            outward_issue: {
+              id: testKey,
+              key: testKey,
+              fields: { summary: testKey, issue_type: { name: "Test" } },
+            },
+          };
+          return {
+            ...bug,
+            fields: {
+              ...bug.fields,
+              issue_links: [...(bug.fields.issue_links ?? []), newLink],
+            },
+          };
+        }),
+      );
+      return { previous, queryKey };
+    },
+    onError: (_err: string, _vars, context) => {
+      const ctx = context as { previous: unknown; queryKey: readonly unknown[] } | undefined;
+      if (ctx) queryClient.setQueryData(ctx.queryKey, ctx.previous);
+    },
+    onSettled: (_data, _err, { projectKey, versionName }) => {
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.bugsByVersion(projectKey, versionName),
+      });
     },
   });
 }

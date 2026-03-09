@@ -134,6 +134,47 @@ pub struct JiraVersion {
     pub release_date: Option<String>,
 }
 
+/// The "type" sub-object of an issue link (holds the link direction name).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct JiraIssueLinkType {
+    /// Human-readable name of the outward direction, e.g. "is detected by".
+    #[serde(rename(deserialize = "outward"))]
+    pub outward: Option<String>,
+    /// Human-readable name of the inward direction, e.g. "detects".
+    #[serde(rename(deserialize = "inward"))]
+    pub inward: Option<String>,
+}
+
+/// Slim representation of the linked issue inside an issue link.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct JiraLinkedIssue {
+    pub id: String,
+    pub key: String,
+    pub fields: JiraLinkedIssueFields,
+}
+
+/// Minimal fields we need from a linked issue.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct JiraLinkedIssueFields {
+    pub summary: String,
+    #[serde(rename(deserialize = "issuetype"))]
+    pub issue_type: Option<JiraIssueType>,
+}
+
+/// A single issue link as returned by Jira's `issuelinks` field.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct JiraIssueLink {
+    pub id: String,
+    #[serde(rename(deserialize = "type"))]
+    pub link_type: JiraIssueLinkType,
+    /// Present when this issue is the "outward" side of the link.
+    #[serde(rename(deserialize = "outwardIssue"))]
+    pub outward_issue: Option<JiraLinkedIssue>,
+    /// Present when this issue is the "inward" side of the link.
+    #[serde(rename(deserialize = "inwardIssue"))]
+    pub inward_issue: Option<JiraLinkedIssue>,
+}
+
 /// Fields returned for a bug issue from JQL search.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct JiraBugFields {
@@ -141,6 +182,9 @@ pub struct JiraBugFields {
     pub status: Option<JiraStatus>,
     pub priority: Option<JiraPriority>,
     pub assignee: Option<JiraUser>,
+    /// Issue links — used to find which Xray tests are linked to this bug.
+    #[serde(default, rename(deserialize = "issuelinks"))]
+    pub issue_links: Vec<JiraIssueLink>,
 }
 
 /// A single bug issue returned by a JQL search.
@@ -149,6 +193,22 @@ pub struct JiraBug {
     pub id: String,
     pub key: String,
     pub fields: JiraBugFields,
+}
+
+/// A single issue link type as returned by `GET /rest/api/3/issueLinkType`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IssueLinkType {
+    pub id: String,
+    pub name: String,
+    pub inward: String,
+    pub outward: String,
+}
+
+/// Response from `GET /rest/api/3/issueLinkType`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IssueLinkTypesResponse {
+    #[serde(rename = "issueLinkTypes")]
+    pub issue_link_types: Vec<IssueLinkType>,
 }
 
 /// Response from `POST /rest/api/3/search/jql` (enhanced search, cursor-based).

@@ -4,7 +4,8 @@ use crate::{
     api::jira_client::JiraClient,
     commands::config::load_config,
     models::jira::{
-        JiraBug, JiraComponent, JiraProject, JiraTransition, JiraUserSearchResult, JiraVersion,
+        IssueLinkType, JiraBug, JiraComponent, JiraProject, JiraTransition, JiraUserSearchResult,
+        JiraVersion,
     },
 };
 
@@ -125,6 +126,31 @@ pub async fn update_issue_summary(
     let client = make_jira_client(&app)?;
     client
         .update_issue_summary(&issue_key, &summary)
+        .await
+        .map_err(format_err)
+}
+
+/// Fetch all issue link types configured in the Jira instance.
+#[tauri::command]
+pub async fn get_issue_link_types(app: AppHandle) -> Result<Vec<IssueLinkType>, String> {
+    let client = make_jira_client(&app)?;
+    client.get_issue_link_types().await.map_err(format_err)
+}
+
+/// Create an issue link between two Jira issues.
+///
+/// `link_type_name` is the Jira link type name, e.g. `"is detected by"`.
+/// The bug is the inward issue and the test is the outward issue by convention.
+#[tauri::command]
+pub async fn create_issue_link(
+    app: AppHandle,
+    inward_issue_key: String,
+    outward_issue_key: String,
+    link_type_name: String,
+) -> Result<(), String> {
+    let client = make_jira_client(&app)?;
+    client
+        .create_issue_link(&inward_issue_key, &outward_issue_key, &link_type_name)
         .await
         .map_err(format_err)
 }

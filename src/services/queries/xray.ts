@@ -16,6 +16,7 @@ import type {
   CreateTestResult,
   CreateTestSetResult,
   CreateTestStepInput,
+  JiraBug,
   TestExecution,
   TestPlan,
   TestRun,
@@ -560,6 +561,11 @@ export interface TestRunHistory {
     statusName: string;
   }>;
   classification: "fixed" | "failing" | "flaky" | "never-passed";
+  /**
+   * Keys of bugs in Jira that are linked to this test (via Jira issue links).
+   * Only populated when bugs data is passed to useVersionRunStats.
+   */
+  linkedBugKeys: string[];
 }
 
 export interface RunStats {
@@ -587,7 +593,7 @@ function classifyHistory(history: TestRunHistory["history"]): TestRunHistory["cl
   return "failing";
 }
 
-export function useVersionRunStats(executions: TestExecution[]): RunStats {
+export function useVersionRunStats(executions: TestExecution[], bugs?: JiraBug[]): RunStats {
   const PAGE_SIZE = TEST_RUNS_PAGE_SIZE;
 
   const phase1 = useQueries({
@@ -675,6 +681,21 @@ export function useVersionRunStats(executions: TestExecution[]): RunStats {
     const failedTests: TestRunHistory[] = [];
 
     if (allLoaded) {
+      // Build a map: testKey → bug keys that link to it (via Jira issuelinks).
+      const testKeyToBugKeys = new Map<string, string[]>();
+      for (const bug of bugs ?? []) {
+        for (const link of bug.fields.issue_links ?? []) {
+          const linked = link.outward_issue ?? link.inward_issue;
+          if (!linked) continue;
+          const issueType = linked.fields.issue_type?.name?.toLowerCase() ?? "";
+          if (issueType === "test") {
+            const existing = testKeyToBugKeys.get(linked.key) ?? [];
+            existing.push(bug.key);
+            testKeyToBugKeys.set(linked.key, existing);
+          }
+        }
+      }
+
       for (const [testIssueId, meta] of testMap) {
         const hasPassOrFail = [...meta.byExec.values()].some(
           (s) => FAIL_STATUSES.has(s.toUpperCase()) || PASS_STATUSES.has(s.toUpperCase()),
@@ -699,6 +720,7 @@ export function useVersionRunStats(executions: TestExecution[]): RunStats {
           testSummary: meta.testSummary,
           history,
           classification: classifyHistory(history),
+          linkedBugKeys: testKeyToBugKeys.get(meta.testKey) ?? [],
         });
       }
 
@@ -712,5 +734,5 @@ export function useVersionRunStats(executions: TestExecution[]): RunStats {
     }
 
     return { counts, total, pagesLoaded, pagesExpected, failedTests };
-  }, [executions, extraPageQueries, phase1, phase2]);
+  }, [executions, extraPageQueries, phase1, phase2, bugs]);
 }
