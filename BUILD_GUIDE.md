@@ -321,6 +321,38 @@ variables, or configure `bundle.windows.certificateThumbprint` in `tauri.conf.js
 
 ---
 
+## Troubleshooting
+
+### macOS: "QAlity is damaged and can't be opened"
+
+If you download a built `.app` or `.dmg` from GitHub Actions and see this error, macOS has quarantined the app because it's not code-signed.
+
+**Fix — Run this command:**
+
+```bash
+xattr -cr /path/to/QAlity.app
+```
+
+Example:
+
+```bash
+xattr -cr ~/Downloads/QAlity.app
+# or for DMG:
+xattr -cr /Applications/QAlity.app
+```
+
+**Alternative — Open via right-click:**
+
+1. Right-click on QAlity.app
+2. Select "Open"
+3. Click "Open" in the dialog
+
+You only need to do this once per downloaded version. After that, the app launches normally.
+
+**Note:** To fully fix this for distribution to other users, you need to join the Apple Developer Program ($99/year) and code-sign the app. See the [Code signing and notarisation](#code-signing-and-notarisation) section above.
+
+---
+
 ## Useful scripts reference
 
 | Command | Description |

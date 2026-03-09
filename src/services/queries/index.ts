@@ -41,6 +41,7 @@ export {
   useCreateTestPlan,
   useAddTestsToTestPlan,
   useRemoveTestsFromTestPlan,
+  useAddTestsToTestExecution,
   useCreateTest,
   useVersionRunStats,
   type TestSetInfo,

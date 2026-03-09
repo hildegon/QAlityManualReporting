@@ -494,6 +494,26 @@ export function useAddTestsToTestPlan() {
   });
 }
 
+export function useAddTestsToTestExecution() {
+  const queryClient = useQueryClient();
+  return useMutation<
+    void,
+    Error,
+    { testExecIssueId: string; testIssueIds: string[]; executionProjectKey: string }
+  >({
+    mutationFn: ({ testExecIssueId, testIssueIds }) =>
+      api.addTestsToTestExecution(testExecIssueId, testIssueIds),
+    onSuccess: (_data, { testExecIssueId, executionProjectKey }) => {
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.testRuns(testExecIssueId),
+      });
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.testExecutions(executionProjectKey),
+      });
+    },
+  });
+}
+
 export function useRemoveTestsFromTestPlan() {
   const queryClient = useQueryClient();
   return useMutation<

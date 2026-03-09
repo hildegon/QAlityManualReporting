@@ -732,6 +732,30 @@ export function useAddTestsToTestPlan() {
   });
 }
 
+// ── Add Tests to Test Execution ───────────────────────────────────────────────
+
+export function useAddTestsToTestExecution() {
+  const queryClient = useQueryClient();
+  return useMutation<
+    void,
+    Error,
+    { testExecIssueId: string; testIssueIds: string[]; executionProjectKey: string }
+  >({
+    mutationFn: ({ testExecIssueId, testIssueIds }) =>
+      api.addTestsToTestExecution(testExecIssueId, testIssueIds),
+    onSuccess: (_data, { testExecIssueId, executionProjectKey }) => {
+      // Refresh the test run list inside this execution.
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.testRuns(testExecIssueId),
+      });
+      // Refresh the executions list so run counts stay accurate.
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.testExecutions(executionProjectKey),
+      });
+    },
+  });
+}
+
 // ── Remove Tests from Test Plan ───────────────────────────────────────────────
 
 export function useRemoveTestsFromTestPlan() {
