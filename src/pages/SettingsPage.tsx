@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Spinner } from "@/components/ui/spinner";
 import { CheckCircle, ExternalLink, XCircle } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { getVersion } from "@tauri-apps/api/app";
 import type { AppConfig } from "@/types";
 
 const EMPTY_CONFIG: AppConfig = {
@@ -28,6 +29,7 @@ export function SettingsPage() {
   const { data: savedConfig, isLoading } = useConfig();
   const saveConfig = useSaveConfig();
   const queryClient = useQueryClient();
+  const [appVersion, setAppVersion] = useState<string | null>(null);
 
   const [form, setForm] = useState<AppConfig>(EMPTY_CONFIG);
   const [jiraValidation, setJiraValidation] = useState<ValidationState>("idle");
@@ -39,6 +41,13 @@ export function SettingsPage() {
   useEffect(() => {
     if (savedConfig) setForm(savedConfig);
   }, [savedConfig]);
+
+  // Load app version
+  useEffect(() => {
+    getVersion()
+      .then(setAppVersion)
+      .catch(() => setAppVersion(null));
+  }, []);
 
   const handleChange = (key: keyof AppConfig) => (e: React.ChangeEvent<HTMLInputElement>) => {
     setForm((prev) => ({ ...prev, [key]: e.target.value }));
@@ -249,6 +258,10 @@ export function SettingsPage() {
 
       {saveConfig.isSuccess && (
         <p className="mt-3 text-sm text-emerald-600 dark:text-emerald-400">Settings saved.</p>
+      )}
+
+      {appVersion && (
+        <p className="mt-6 text-xs text-slate-400 dark:text-slate-500">Version {appVersion}</p>
       )}
     </div>
   );
