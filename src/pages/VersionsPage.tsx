@@ -686,9 +686,17 @@ interface ExecutionListPanelProps {
   projectKey: string;
   version: JiraVersion;
   onSelectExecution: (exec: TestExecution) => void;
+  onReload: () => void;
+  isRefreshing: boolean;
 }
 
-function ExecutionListPanel({ projectKey, version, onSelectExecution }: ExecutionListPanelProps) {
+function ExecutionListPanel({
+  projectKey,
+  version,
+  onSelectExecution,
+  onReload,
+  isRefreshing,
+}: ExecutionListPanelProps) {
   const {
     data: executions,
     isLoading,
@@ -735,12 +743,25 @@ function ExecutionListPanel({ projectKey, version, onSelectExecution }: Executio
   }
 
   return (
-    <VersionContent
-      projectKey={projectKey}
-      executions={executions ?? []}
-      version={version}
-      onSelectExecution={onSelectExecution}
-    />
+    <div className="space-y-4">
+      <div className="flex items-center justify-end">
+        <button
+          onClick={onReload}
+          disabled={isRefreshing}
+          title="Reload version data"
+          className="flex items-center gap-1.5 rounded px-2 py-1 text-xs text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 disabled:opacity-40 dark:hover:bg-slate-700 dark:text-slate-400"
+        >
+          <RefreshCw className={cn("h-3.5 w-3.5", isRefreshing && "animate-spin")} />
+          Reload
+        </button>
+      </div>
+      <VersionContent
+        projectKey={projectKey}
+        executions={executions ?? []}
+        version={version}
+        onSelectExecution={onSelectExecution}
+      />
+    </div>
   );
 }
 
@@ -1342,6 +1363,8 @@ export function VersionsPage() {
             projectKey={executionProjectKey}
             version={selectedVersion}
             onSelectExecution={setSelectedExecution}
+            onReload={handleReload}
+            isRefreshing={isRefreshing}
           />
         )}
       </div>
