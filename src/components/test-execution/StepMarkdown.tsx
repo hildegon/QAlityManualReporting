@@ -1,10 +1,76 @@
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { Components } from "react-markdown";
+import { ImageIcon } from "lucide-react";
 
 interface StepMarkdownProps {
   children: string;
 }
+
+// ── Xray attachment token handling ────────────────────────────────────────────
+
+/**
+ * Xray wiki-markup attachment syntax:
+ *   !xray-attachment://<uuid>|width=W,height=H!
+ *
+ * `react-markdown` treats this as plain text because it is not valid Markdown.
+ * We pre-process the raw string: split on attachment tokens, render each chunk
+ * separately, and insert a styled placeholder chip in place of each token.
+ */
+const ATTACHMENT_RE = /!xray-attachment:\/\/([0-9a-f-]+)(?:\|[^!]*)!/gi;
+
+interface AttachmentChip {
+  type: "attachment";
+  uuid: string;
+}
+
+interface TextChunk {
+  type: "text";
+  value: string;
+}
+
+type Segment = TextChunk | AttachmentChip;
+
+function splitAttachments(raw: string): Segment[] {
+  const segments: Segment[] = [];
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+  // Reset lastIndex before loop (the regex has the `g` flag).
+  ATTACHMENT_RE.lastIndex = 0;
+
+  while ((match = ATTACHMENT_RE.exec(raw)) !== null) {
+    // Text before this match
+    if (match.index > lastIndex) {
+      segments.push({ type: "text", value: raw.slice(lastIndex, match.index) });
+    }
+    segments.push({ type: "attachment", uuid: match[1] ?? "" });
+    lastIndex = match.index + match[0].length;
+  }
+
+  // Remaining text after the last match
+  if (lastIndex < raw.length) {
+    segments.push({ type: "text", value: raw.slice(lastIndex) });
+  }
+
+  return segments;
+}
+
+/** Inline placeholder chip shown where an Xray attachment token was. */
+function AttachmentPlaceholder({ uuid }: { uuid: string }) {
+  // Show only the first 8 characters of the UUID to keep the chip compact.
+  const short = uuid.slice(0, 8);
+  return (
+    <span
+      title={`Xray attachment: ${uuid}`}
+      className="inline-flex items-center gap-1 rounded border border-slate-200 bg-slate-100 px-1.5 py-0.5 font-mono text-[10px] text-slate-500 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-400"
+    >
+      <ImageIcon className="h-3 w-3 flex-shrink-0" />
+      {short}…
+    </span>
+  );
+}
+
+// ── Markdown component overrides ──────────────────────────────────────────────
 
 const components: Components = {
   // Paragraphs — inherit size/leading from parent block
@@ -96,14 +162,42 @@ const components: Components = {
   ),
 };
 
+// ── Component ─────────────────────────────────────────────────────────────────
+
 /**
  * Renders markdown content inside a test step field.
  * Uses react-markdown + remark-gfm with scoped Tailwind styles.
+ *
+ * Xray wiki-markup attachment tokens (`!xray-attachment://UUID|...!`) are
+ * detected before markdown parsing and replaced with inline placeholder chips.
  */
 export const StepMarkdown = ({ children }: StepMarkdownProps) => {
+  // Fast path: no attachment tokens → plain markdown render.
+  if (!children.includes("!xray-attachment://")) {
+    return (
+      <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
+        {children}
+      </ReactMarkdown>
+    );
+  }
+
+  // Split on attachment tokens and render each segment.
+  const segments = splitAttachments(children);
+
   return (
-    <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
-      {children}
-    </ReactMarkdown>
+    <>
+      {segments.map((seg, i) => {
+        if (seg.type === "attachment") {
+          return <AttachmentPlaceholder key={i} uuid={seg.uuid} />;
+        }
+        // Only render a ReactMarkdown block if there is non-whitespace content.
+        if (!seg.value.trim()) return null;
+        return (
+          <ReactMarkdown key={i} remarkPlugins={[remarkGfm]} components={components}>
+            {seg.value}
+          </ReactMarkdown>
+        );
+      })}
+    </>
   );
 };
