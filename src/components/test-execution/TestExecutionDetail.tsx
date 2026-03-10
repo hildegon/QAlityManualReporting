@@ -14,6 +14,8 @@ import {
   useGetTests,
   useGetTestSets,
   useAddTestsToTestExecution,
+  useIterationStepResults,
+  useUpdateIterationStatus,
   queryKeys,
 } from "@/services/queries";
 import * as api from "@/services/tauri";
@@ -42,6 +44,7 @@ import type {
   CucumberResult,
   TestExecution,
   TestRun,
+  TestRunIteration,
   TestRunStep,
   XrayStepStatus,
   XrayTestRunStatus,
@@ -1106,6 +1109,17 @@ export function TestExecutionDetail({
                           isSaving={updateStep.isPending}
                         />
                       )}
+                      {isExpanded &&
+                        hasManualSteps &&
+                        (run.iterations?.results.length ?? 0) > 0 && (
+                          <IterationsPanel
+                            testRunId={run.id}
+                            iterations={run.iterations!.results}
+                            steps={run.steps!}
+                            stepStatuses={stepStatuses}
+                            executionIssueId={execution.issue_id}
+                          />
+                        )}
                     </div>
                   );
                 })}
@@ -1311,6 +1325,14 @@ interface StepsPanelProps {
   onBulkStepStatus: (status: string) => void;
   isPending: boolean;
   isSaving: boolean;
+}
+
+interface IterationsPanelProps {
+  testRunId: string;
+  iterations: TestRunIteration[];
+  steps: TestRunStep[];
+  stepStatuses: XrayTestRunStatus[];
+  executionIssueId: string;
 }
 
 function StepsPanel({
@@ -1593,6 +1615,195 @@ function StepsPanel({
                     })}
                   </div>
                 </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function IterationsPanel({
+  testRunId,
+  iterations,
+  steps,
+  stepStatuses,
+  executionIssueId,
+}: IterationsPanelProps) {
+  const [expandedIterations, setExpandedIterations] = useState<Set<string>>(new Set());
+  // Fetch step results lazily — only fires once the panel mounts (i.e. user expanded a run).
+  const { data: stepResultsData, isLoading: isLoadingStepResults } =
+    useIterationStepResults(testRunId);
+  const updateIterationStatus = useUpdateIterationStatus();
+
+  const toggleIteration = (rank: string) => {
+    setExpandedIterations((prev) => {
+      const next = new Set(prev);
+      if (next.has(rank)) {
+        next.delete(rank);
+      } else {
+        next.add(rank);
+      }
+      return next;
+    });
+  };
+
+  return (
+    <div className="border-b border-teal-100 bg-teal-50/40 dark:border-teal-900/40 dark:bg-teal-900/10">
+      <div className="px-6 py-2">
+        <p className="mb-2 text-xs font-medium uppercase tracking-wide text-teal-500 dark:text-teal-400">
+          Iterations ({iterations.length})
+        </p>
+        <div className="space-y-1">
+          {iterations.map((iteration) => {
+            const rank = iteration.rank ?? "?";
+            const isOpen = expandedIterations.has(rank);
+            // Match the step results for this iteration from the lazy-loaded data
+            const iterationStepResults = stepResultsData?.find((r) => r.rank === rank);
+
+            return (
+              <div
+                key={rank}
+                className="rounded-md border border-teal-200 bg-white dark:border-teal-800 dark:bg-slate-800"
+              >
+                {/* Iteration header row */}
+                <div className="flex w-full items-center gap-2 px-3 py-2">
+                  <button
+                    className="flex flex-1 items-center gap-2 text-left"
+                    onClick={() => toggleIteration(rank)}
+                  >
+                    {isOpen ? (
+                      <ChevronDown className="h-3.5 w-3.5 flex-shrink-0 text-teal-400" />
+                    ) : (
+                      <ChevronRight className="h-3.5 w-3.5 flex-shrink-0 text-teal-400" />
+                    )}
+                    <span className="text-xs font-semibold text-teal-700 dark:text-teal-300">
+                      Iteration {rank}
+                    </span>
+                    {/* Parameter chips */}
+                    <div className="flex flex-1 flex-wrap gap-1">
+                      {iteration.parameters.map((p, i) => (
+                        <span
+                          key={i}
+                          className="rounded border border-teal-200 bg-teal-50 px-1.5 py-0.5 text-[10px] text-teal-700 dark:border-teal-700 dark:bg-teal-900/30 dark:text-teal-300"
+                        >
+                          {p.name && p.value ? `${p.name}=${p.value}` : (p.value ?? p.name ?? "")}
+                        </span>
+                      ))}
+                    </div>
+                  </button>
+                  {/* Iteration status buttons */}
+                  <div className="ml-auto flex flex-shrink-0 items-center gap-1">
+                    {stepStatuses.map((s) => {
+                      const isActive =
+                        iteration.status?.name?.toUpperCase() === s.name.toUpperCase();
+                      return (
+                        <button
+                          key={s.name}
+                          title={`Set iteration ${rank} to ${s.name}`}
+                          disabled={updateIterationStatus.isPending}
+                          onClick={() =>
+                            updateIterationStatus.mutate({
+                              testRunId,
+                              iterationRank: rank,
+                              status: s.name,
+                              executionIssueId,
+                            })
+                          }
+                          style={statusButtonStyle(s.color, isActive)}
+                          className={cn(
+                            "rounded border px-1.5 py-0.5 text-[10px] font-medium transition-colors",
+                            isActive
+                              ? "ring-1 ring-offset-1"
+                              : !s.color &&
+                                  "border-transparent bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600",
+                          )}
+                        >
+                          {s.name}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Expanded: step results */}
+                {isOpen && (
+                  <div className="border-t border-teal-100 px-3 pb-2 pt-1 dark:border-teal-800">
+                    {isLoadingStepResults ? (
+                      <p className="py-2 text-xs text-slate-400">Loading step results…</p>
+                    ) : (
+                      <div className="space-y-1">
+                        {steps.map((step, index) => {
+                          const stepResult = iterationStepResults?.step_results?.results.find(
+                            (sr) => sr.id === step.id,
+                          );
+                          const stepStatusName = stepResult?.status?.name;
+
+                          return (
+                            <div
+                              key={step.id}
+                              className="rounded border border-slate-100 bg-slate-50/60 px-2.5 py-1.5 dark:border-slate-700 dark:bg-slate-700/40"
+                            >
+                              <div className="flex items-start gap-2.5">
+                                {/* Step number */}
+                                <span className="mt-0.5 flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-full bg-slate-200 text-[9px] font-medium text-slate-500 dark:bg-slate-600 dark:text-slate-400">
+                                  {index + 1}
+                                </span>
+
+                                <div className="min-w-0 flex-1 space-y-1">
+                                  {/* Action (read-only) */}
+                                  {step.action && (
+                                    <div className="border-l-2 border-slate-400 pl-2 dark:border-slate-500">
+                                      <p className="mb-0.5 text-[9px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                                        Action
+                                      </p>
+                                      <div className="text-xs leading-relaxed text-slate-700 dark:text-slate-300">
+                                        <StepMarkdown>{step.action}</StepMarkdown>
+                                      </div>
+                                    </div>
+                                  )}
+                                  {/* Actual result (per-iteration, read-only) */}
+                                  {stepResult?.actual_result && (
+                                    <div className="border-l-2 border-emerald-400 pl-2 dark:border-emerald-500">
+                                      <p className="mb-0.5 text-[9px] font-semibold uppercase tracking-wider text-emerald-500 dark:text-emerald-400">
+                                        Actual
+                                      </p>
+                                      <div className="text-xs leading-relaxed text-slate-700 dark:text-slate-300">
+                                        <StepMarkdown>{stepResult.actual_result}</StepMarkdown>
+                                      </div>
+                                    </div>
+                                  )}
+                                  {/* Comment (per-iteration, read-only) */}
+                                  {stepResult?.comment && (
+                                    <div className="border-l-2 border-slate-300 pl-2 dark:border-slate-600">
+                                      <p className="mb-0.5 text-[9px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                                        Comment
+                                      </p>
+                                      <div className="text-xs leading-relaxed text-slate-500 dark:text-slate-400">
+                                        <StepMarkdown>{stepResult.comment}</StepMarkdown>
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+
+                                {/* Step result status */}
+                                {stepStatusName && (
+                                  <Badge
+                                    variant={statusVariant(stepStatusName)}
+                                    className="ml-auto flex-shrink-0 text-[10px]"
+                                  >
+                                    {stepStatusName}
+                                  </Badge>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             );
           })}

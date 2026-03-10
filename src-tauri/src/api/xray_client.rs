@@ -9,11 +9,12 @@ use crate::models::xray::{
     AddTestExecutionsToTestPlanInput, AddTestsToTestPlanInput, CreateTestExecutionInput,
     CreateTestExecutionResponse, CreateTestExecutionResult, CreateTestPlanInput,
     CreateTestPlanResponse, CreateTestPlanResult, CreateTestResponse, CreateTestResult,
-    CreateTestSetResponse, CreateTestSetResult, CreateXrayTestInput, GraphQLRequest,
-    GraphQLResponse, StatusesResult, StepStatusesResult, TestExecutionsResult, TestPlanResult,
-    TestPlansResult, TestRunsResult, TestSetMemberInfo, TestSetMembershipsResponse, TestSetResult,
-    TestSetWithStatusResult, TestSetsResult, TestsResult, UpdateTestRunStatusInput,
-    XrayAuthRequest, XrayStepStatus, XrayTest, XrayTestRunStatus, XrayTestSet, XrayTestWithStatus,
+    CreateTestSetResponse, CreateTestSetResult, CreateXrayTestInput, GetTestRunResult,
+    GraphQLRequest, GraphQLResponse, StatusesResult, StepStatusesResult, TestExecutionsResult,
+    TestPlanResult, TestPlansResult, TestRunIteration, TestRunsResult, TestSetMemberInfo,
+    TestSetMembershipsResponse, TestSetResult, TestSetWithStatusResult, TestSetsResult,
+    TestsResult, UpdateTestRunStatusInput, XrayAuthRequest, XrayStepStatus, XrayTest,
+    XrayTestRunStatus, XrayTestSet, XrayTestWithStatus,
 };
 
 const XRAY_AUTH_URL: &str = "https://xray.cloud.getxray.app/api/v2/authenticate";
@@ -344,6 +345,7 @@ impl XrayClient {
                         testType { name kind }
                         gherkin
                         defects
+                        parameters { name value }
                         test {
                             issueId
                             jira(fields: ["key", "summary"])
@@ -357,6 +359,14 @@ impl XrayClient {
                             comment
                             defects
                             status { name color description }
+                        }
+                        iterations(limit: 100) {
+                            total
+                            results {
+                                rank
+                                parameters { name value }
+                                status { name color description }
+                            }
                         }
                         results {
                             status { name color description }
@@ -376,6 +386,83 @@ impl XrayClient {
             serde_json::json!({ "issueId": test_execution_issue_id, "limit": limit, "start": start }),
         )
         .await
+    }
+
+    // ── Get Iteration Step Results (lazy, per test run) ───────────────────────
+
+    /// Fetch step results for all iterations of a single test run.
+    /// Called lazily when the user expands an iteration in the UI.
+    pub async fn get_iteration_step_results(
+        &self,
+        test_run_id: &str,
+    ) -> Result<Vec<TestRunIteration>> {
+        let query = r#"
+            query GetIterationStepResults($id: String!) {
+                getTestRun(id: $id) {
+                    iterations(limit: 100) {
+                        results {
+                            rank
+                            stepResults(limit: 100) {
+                                results {
+                                    id
+                                    status { name color description }
+                                    comment
+                                    actualResult
+                                    defects
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        "#;
+        let result: GetTestRunResult = self
+            .graphql(query, serde_json::json!({ "id": test_run_id }))
+            .await?;
+        Ok(result
+            .get_test_run
+            .and_then(|r| r.iterations)
+            .map(|p| p.results)
+            .unwrap_or_default())
+    }
+
+    // ── Update Iteration Status ───────────────────────────────────────────────
+
+    /// Set the overall status of a single dataset iteration within a test run.
+    ///
+    /// `iteration_rank` is a 1-based string (e.g. `"1"`, `"2"`).
+    pub async fn update_iteration_status(
+        &self,
+        test_run_id: &str,
+        iteration_rank: &str,
+        status: &str,
+    ) -> Result<()> {
+        let query = r#"
+            mutation UpdateIterationStatus(
+                $testRunId: String!,
+                $iterationRank: String!,
+                $status: String!
+            ) {
+                updateIterationStatus(
+                    testRunId: $testRunId,
+                    iterationRank: $iterationRank,
+                    status: $status
+                ) {
+                    warnings
+                }
+            }
+        "#;
+        let _: serde_json::Value = self
+            .graphql(
+                query,
+                serde_json::json!({
+                    "testRunId": test_run_id,
+                    "iterationRank": iteration_rank,
+                    "status": status,
+                }),
+            )
+            .await?;
+        Ok(())
     }
 
     // ── Update Test Run Status ────────────────────────────────────────────────

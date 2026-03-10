@@ -19,6 +19,8 @@ export const queryKeys = {
   testExecutionsByVersion: (projectKey: string, versionName: string) =>
     ["xray", "test-executions-by-version", projectKey, versionName] as const,
   testRuns: (executionIssueId: string) => ["xray", "test-runs", executionIssueId] as const,
+  iterationStepResults: (testRunId: string) =>
+    ["xray", "iteration-step-results", testRunId] as const,
   tests: (projectKey: string) => ["xray", "tests", projectKey] as const,
   testSets: (projectKey: string) => ["xray", "test-sets", projectKey] as const,
   testSetTests: (issueId: string) => ["xray", "test-set-tests", issueId] as const,

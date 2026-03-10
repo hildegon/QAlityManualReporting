@@ -94,6 +94,12 @@ pub struct TestRun {
     /// Jira issue keys of defects (bugs) linked to this test run via Xray.
     #[serde(default)]
     pub defects: Vec<String>,
+    /// Parameter names used by this test run (present when a dataset is attached).
+    #[serde(default)]
+    pub parameters: Vec<TestRunParameter>,
+    /// Iteration results for parametrized manual tests (one entry per dataset row).
+    #[serde(default)]
+    pub iterations: Option<TestRunIterationsPage>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -148,6 +154,61 @@ pub struct StepStatus {
     pub name: String,
     pub description: Option<String>,
     pub color: Option<String>,
+}
+
+// ── Dataset / Iterations (parametrized manual tests) ─────────────────────────
+
+/// A single parameter name/value pair on a test run or iteration.
+/// Returned by `TestRun.parameters` and `TestRunIteration.parameters`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TestRunParameter {
+    pub name: Option<String>,
+    pub value: Option<String>,
+}
+
+/// One iteration of a parametrized manual test run.
+/// Returned by `TestRun.iterations(limit, start).results`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TestRunIteration {
+    /// 1-based rank string ("1", "2", …).
+    pub rank: Option<String>,
+    /// Parameter values for this iteration row.
+    #[serde(default)]
+    pub parameters: Vec<TestRunParameter>,
+    /// Overall status of this iteration.
+    pub status: Option<StepStatus>,
+    /// Per-step results for this iteration (unwrapped from the paginated wrapper).
+    #[serde(rename(deserialize = "stepResults"))]
+    pub step_results: Option<TestRunIterationStepResultsPage>,
+}
+
+/// Paginated wrapper returned by `TestRunIteration.stepResults(limit, start)`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TestRunIterationStepResultsPage {
+    pub results: Vec<TestRunIterationStepResult>,
+}
+
+/// Paginated wrapper returned by `TestRun.iterations(limit, start)`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TestRunIterationsPage {
+    pub total: Option<u32>,
+    pub start: Option<u32>,
+    pub limit: Option<u32>,
+    pub results: Vec<TestRunIteration>,
+}
+
+/// Per-step result inside a single iteration.
+/// Returned by `TestRunIteration.stepResults(limit, start).results`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TestRunIterationStepResult {
+    /// ID of the test run step this result belongs to.
+    pub id: Option<String>,
+    pub status: Option<StepStatus>,
+    pub comment: Option<String>,
+    #[serde(rename(deserialize = "actualResult"))]
+    pub actual_result: Option<String>,
+    #[serde(default)]
+    pub defects: Vec<String>,
 }
 
 // ── Cucumber / BDD Results ────────────────────────────────────────────────────
@@ -645,6 +706,19 @@ pub struct TestExecutionsPage {
 pub struct TestRunsResult {
     #[serde(rename(deserialize = "getTestRuns"))]
     pub test_runs: TestRunsPage,
+}
+
+/// Response wrapper for the `getTestRun(id:)` single-run query.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GetTestRunResult {
+    #[serde(rename(deserialize = "getTestRun"))]
+    pub get_test_run: Option<TestRunIterationsResponse>,
+}
+
+/// Minimal test-run projection returned by the lazy iteration step-results query.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TestRunIterationsResponse {
+    pub iterations: Option<TestRunIterationsPage>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
