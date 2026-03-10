@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { StepMarkdown } from "./StepMarkdown";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -1423,121 +1424,143 @@ function StepsPanel({
                   </span>
 
                   {/* Step content */}
-                  <div className="min-w-0 flex-1">
+                  <div className="min-w-0 flex-1 space-y-2">
                     {step.action && (
-                      <p className="text-sm text-slate-700 dark:text-slate-300">{step.action}</p>
+                      <div className="border-l-2 border-slate-400 pl-2 dark:border-slate-500">
+                        <p className="mb-0.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                          Action
+                        </p>
+                        <div className="text-sm leading-relaxed text-slate-800 dark:text-slate-200">
+                          <StepMarkdown>{step.action}</StepMarkdown>
+                        </div>
+                      </div>
                     )}
                     {step.data && (
-                      <p className="mt-0.5 text-xs text-slate-400">
-                        <span className="font-medium text-slate-500 dark:text-slate-400">
-                          Data:{" "}
-                        </span>
-                        {step.data}
-                      </p>
+                      <div className="border-l-2 border-amber-400 pl-2 dark:border-amber-500">
+                        <p className="mb-0.5 text-[10px] font-semibold uppercase tracking-wider text-amber-500 dark:text-amber-400">
+                          Data
+                        </p>
+                        <div className="text-sm leading-relaxed text-slate-700 dark:text-slate-300">
+                          <StepMarkdown>{step.data}</StepMarkdown>
+                        </div>
+                      </div>
                     )}
                     {step.result && (
-                      <p className="mt-0.5 text-xs text-slate-400">
-                        <span className="font-medium text-slate-500 dark:text-slate-400">
-                          Expected:{" "}
-                        </span>
-                        {step.result}
-                      </p>
+                      <div className="border-l-2 border-indigo-400 pl-2 dark:border-indigo-500">
+                        <p className="mb-0.5 text-[10px] font-semibold uppercase tracking-wider text-indigo-500 dark:text-indigo-400">
+                          Expected
+                        </p>
+                        <div className="text-sm leading-relaxed text-slate-700 dark:text-slate-300">
+                          <StepMarkdown>{step.result}</StepMarkdown>
+                        </div>
+                      </div>
                     )}
 
                     {/* Actual result — editable */}
-                    {isEditingActual ? (
-                      <div className="mt-1 flex items-center gap-1">
-                        <input
-                          autoFocus
-                          className="flex-1 rounded border border-slate-200 bg-white px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-slate-400 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200"
-                          placeholder="Actual result..."
-                          value={editValue}
-                          onChange={(e) => setEditValue(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") saveAndClose(step);
-                            if (e.key === "Escape") cancelEditing();
-                            e.stopPropagation();
-                          }}
-                        />
-                        <Button
-                          size="sm"
-                          className="h-6 px-2 text-xs"
-                          disabled={isSaving}
-                          onClick={() => saveAndClose(step)}
-                        >
-                          Save
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          className="h-6 px-2 text-xs"
-                          onClick={cancelEditing}
-                        >
-                          Cancel
-                        </Button>
-                      </div>
-                    ) : (
-                      <p
-                        className="mt-0.5 group flex cursor-pointer items-center gap-1 text-xs text-slate-400 hover:text-slate-600"
-                        onClick={() => startEditing(step, "actualResult")}
-                      >
-                        <span className="font-medium text-slate-500 dark:text-slate-400">
-                          Actual:{" "}
-                        </span>
-                        {step.actual_result || (
-                          <span className="italic text-slate-300 dark:text-slate-600">
-                            click to add
-                          </span>
-                        )}
-                        <Pencil className="ml-1 hidden h-3 w-3 group-hover:inline-block" />
+                    <div className="border-l-2 border-emerald-400 pl-2 dark:border-emerald-500">
+                      <p className="mb-0.5 text-[10px] font-semibold uppercase tracking-wider text-emerald-500 dark:text-emerald-400">
+                        Actual
                       </p>
-                    )}
+                      {isEditingActual ? (
+                        <div className="flex items-center gap-1">
+                          <input
+                            autoFocus
+                            className="flex-1 rounded border border-slate-200 bg-white px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-slate-400 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200"
+                            placeholder="Actual result..."
+                            value={editValue}
+                            onChange={(e) => setEditValue(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") saveAndClose(step);
+                              if (e.key === "Escape") cancelEditing();
+                              e.stopPropagation();
+                            }}
+                          />
+                          <Button
+                            size="sm"
+                            className="h-6 px-2 text-xs"
+                            disabled={isSaving}
+                            onClick={() => saveAndClose(step)}
+                          >
+                            Save
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-6 px-2 text-xs"
+                            onClick={cancelEditing}
+                          >
+                            Cancel
+                          </Button>
+                        </div>
+                      ) : (
+                        <div
+                          className="group cursor-pointer text-sm leading-relaxed text-slate-700 hover:text-slate-900 dark:text-slate-300 dark:hover:text-slate-100"
+                          onClick={() => startEditing(step, "actualResult")}
+                        >
+                          {step.actual_result ? (
+                            <StepMarkdown>{step.actual_result}</StepMarkdown>
+                          ) : (
+                            <span className="italic text-slate-300 dark:text-slate-600">
+                              click to add
+                            </span>
+                          )}
+                          <Pencil className="mt-0.5 hidden h-3 w-3 group-hover:inline-block" />
+                        </div>
+                      )}
+                    </div>
 
                     {/* Comment — editable */}
-                    {isEditingComment ? (
-                      <div className="mt-1 flex items-center gap-1">
-                        <input
-                          autoFocus
-                          className="flex-1 rounded border border-slate-200 bg-white px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-slate-400 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200"
-                          placeholder="Step comment..."
-                          value={editValue}
-                          onChange={(e) => setEditValue(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") saveAndClose(step);
-                            if (e.key === "Escape") cancelEditing();
-                            e.stopPropagation();
-                          }}
-                        />
-                        <Button
-                          size="sm"
-                          className="h-6 px-2 text-xs"
-                          disabled={isSaving}
-                          onClick={() => saveAndClose(step)}
-                        >
-                          Save
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          className="h-6 px-2 text-xs"
-                          onClick={cancelEditing}
-                        >
-                          Cancel
-                        </Button>
-                      </div>
-                    ) : (
-                      <p
-                        className="mt-0.5 group flex cursor-pointer items-center gap-1 text-xs italic text-slate-400 hover:text-slate-600"
-                        onClick={() => startEditing(step, "comment")}
-                      >
-                        {step.comment || (
-                          <span className="not-italic text-slate-300 dark:text-slate-600">
-                            add comment...
-                          </span>
-                        )}
-                        <Pencil className="ml-1 hidden h-3 w-3 group-hover:inline-block" />
+                    <div className="border-l-2 border-slate-300 pl-2 dark:border-slate-600">
+                      <p className="mb-0.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                        Comment
                       </p>
-                    )}
+                      {isEditingComment ? (
+                        <div className="flex items-center gap-1">
+                          <input
+                            autoFocus
+                            className="flex-1 rounded border border-slate-200 bg-white px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-slate-400 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200"
+                            placeholder="Step comment..."
+                            value={editValue}
+                            onChange={(e) => setEditValue(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") saveAndClose(step);
+                              if (e.key === "Escape") cancelEditing();
+                              e.stopPropagation();
+                            }}
+                          />
+                          <Button
+                            size="sm"
+                            className="h-6 px-2 text-xs"
+                            disabled={isSaving}
+                            onClick={() => saveAndClose(step)}
+                          >
+                            Save
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-6 px-2 text-xs"
+                            onClick={cancelEditing}
+                          >
+                            Cancel
+                          </Button>
+                        </div>
+                      ) : (
+                        <div
+                          className="group cursor-pointer text-sm leading-relaxed text-slate-400 hover:text-slate-600 dark:hover:text-slate-300"
+                          onClick={() => startEditing(step, "comment")}
+                        >
+                          {step.comment ? (
+                            <StepMarkdown>{step.comment}</StepMarkdown>
+                          ) : (
+                            <span className="italic text-slate-300 dark:text-slate-600">
+                              add comment...
+                            </span>
+                          )}
+                          <Pencil className="mt-0.5 hidden h-3 w-3 group-hover:inline-block" />
+                        </div>
+                      )}
+                    </div>
                   </div>
 
                   {/* Step status + buttons */}
