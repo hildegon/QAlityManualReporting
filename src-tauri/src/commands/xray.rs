@@ -6,8 +6,8 @@ use crate::{
     models::xray::{
         AddTestsToTestPlanInput, CreateTestExecutionInput, CreateTestExecutionResult,
         CreateTestPlanInput, CreateTestPlanResult, CreateTestResult, CreateTestSetResult,
-        CreateTestStepInput, CreateXrayTestInput, TestExecution, TestPlan, TestRunsPage,
-        TestSetMembershipsResponse, UpdateTestRunStatusInput, UpdateTestRunStepData,
+        CreateTestStepInput, CreateXrayTestInput, TestExecution, TestPlan, TestRunIteration,
+        TestRunsPage, TestSetMembershipsResponse, UpdateTestRunStatusInput, UpdateTestRunStepData,
         XrayStepStatus, XrayTest, XrayTestRunStatus, XrayTestSet, XrayTestWithStatus,
     },
     state::XrayClientState,
@@ -90,6 +90,20 @@ pub async fn get_test_runs(
         .await
         .map_err(format_err)?;
     Ok(result.test_runs)
+}
+
+#[tauri::command]
+/// Fetch step results for all iterations of a single test run (lazy load).
+pub async fn get_iteration_step_results(
+    app: AppHandle,
+    state: State<'_, XrayClientState>,
+    test_run_id: String,
+) -> Result<Vec<TestRunIteration>, String> {
+    let client = get_xray_client(&app, &state).await?;
+    client
+        .get_iteration_step_results(&test_run_id)
+        .await
+        .map_err(format_err)
 }
 
 #[tauri::command]
@@ -480,6 +494,24 @@ pub async fn get_test_executions_by_version(
         .await
         .map_err(format_err)?;
     Ok(result.test_executions.results)
+}
+
+/// Set the overall status of a single dataset iteration within a test run.
+///
+/// `iteration_rank` is a 1-based string such as `"1"` or `"2"`.
+#[tauri::command]
+pub async fn update_iteration_status(
+    app: AppHandle,
+    state: State<'_, XrayClientState>,
+    test_run_id: String,
+    iteration_rank: String,
+    status: String,
+) -> Result<(), String> {
+    let client = get_xray_client(&app, &state).await?;
+    client
+        .update_iteration_status(&test_run_id, &iteration_rank, &status)
+        .await
+        .map_err(format_err)
 }
 
 /// Link one or more Jira bug keys to a test run as Xray defects.

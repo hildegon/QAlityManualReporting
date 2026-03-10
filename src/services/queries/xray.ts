@@ -20,6 +20,7 @@ import type {
   TestExecution,
   TestPlan,
   TestRun,
+  TestRunIteration,
   TestRunsPage,
   TestSetMemberInfo,
   XrayStepStatus,
@@ -82,6 +83,20 @@ export function useTestRuns(executionIssueId: string | null) {
     },
     enabled: !!executionIssueId,
     staleTime: 2 * 60 * 1_000,
+  });
+}
+
+/**
+ * Fetches step results for all iterations of a single test run.
+ * Only enabled when `testRunId` is provided (i.e. the user has expanded a run
+ * that has iterations). Results are cached for 5 minutes.
+ */
+export function useIterationStepResults(testRunId: string | null) {
+  return useQuery<TestRunIteration[]>({
+    queryKey: queryKeys.iterationStepResults(testRunId ?? ""),
+    queryFn: () => api.getIterationStepResults(testRunId!),
+    enabled: !!testRunId,
+    staleTime: 5 * 60 * 1_000,
   });
 }
 
@@ -281,6 +296,62 @@ export function useUpdateTestRunComment() {
     },
     onSettled: (_data, _err, { executionIssueId }) => {
       debouncedInvalidateTestRuns(queryClient, executionIssueId);
+    },
+  });
+}
+
+interface UpdateIterationStatusVars {
+  testRunId: string;
+  iterationRank: string;
+  status: string;
+  executionIssueId: string;
+}
+
+/**
+ * Set the overall status of a dataset iteration within a test run.
+ * Applies an optimistic update to the testRuns infinite cache so the
+ * iteration status badge updates instantly, then invalidates to confirm.
+ */
+export function useUpdateIterationStatus() {
+  const queryClient = useQueryClient();
+  return useMutation<void, Error, UpdateIterationStatusVars>({
+    mutationFn: ({ testRunId, iterationRank, status }) =>
+      api.updateIterationStatus(testRunId, iterationRank, status),
+
+    onMutate: async ({ testRunId, iterationRank, status, executionIssueId }) => {
+      const key = queryKeys.testRuns(executionIssueId);
+      await queryClient.cancelQueries({ queryKey: key });
+      const previous = queryClient.getQueryData<TestRunsInfiniteData>(key);
+      queryClient.setQueryData<TestRunsInfiniteData>(key, (old) =>
+        mapRunsAcrossPages(old, (run) => {
+          if (run.id !== testRunId || !run.iterations) return run;
+          return {
+            ...run,
+            iterations: {
+              ...run.iterations,
+              results: run.iterations.results.map((iter) =>
+                iter.rank === iterationRank
+                  ? { ...iter, status: { ...(iter.status ?? {}), name: status } }
+                  : iter,
+              ),
+            },
+          };
+        }),
+      );
+      return { previous };
+    },
+
+    onError: (_err, { executionIssueId }, context) => {
+      const ctx = context as { previous?: TestRunsInfiniteData } | undefined;
+      if (ctx?.previous)
+        queryClient.setQueryData(queryKeys.testRuns(executionIssueId), ctx.previous);
+    },
+
+    onSettled: (_data, _err, { executionIssueId, testRunId }) => {
+      debouncedInvalidateTestRuns(queryClient, executionIssueId);
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.iterationStepResults(testRunId),
+      });
     },
   });
 }

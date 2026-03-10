@@ -179,6 +179,13 @@ export interface TestRun {
   executed_by_id?: string;
   /** Jira issue keys of defects (bugs) linked to this test run via Xray. */
   defects?: string[];
+  /** Parameter names used when a dataset is attached (e.g. [{name:"env"},{name:"user"}]). */
+  parameters?: TestRunParameter[];
+  /** Iteration results for parametrized manual tests (one entry per dataset row). */
+  iterations?: {
+    total?: number;
+    results: TestRunIteration[];
+  };
 }
 
 export interface TestRunStatus {
@@ -203,6 +210,35 @@ export interface StepStatus {
   name: string;
   description?: string;
   color?: string;
+}
+
+// ── Dataset / Iterations (parametrized manual tests) ─────────────────────────
+
+/** A single parameter name/value pair on a test run or iteration. */
+export interface TestRunParameter {
+  name?: string;
+  value?: string;
+}
+
+/** Per-step result inside a single iteration. */
+export interface TestRunIterationStepResult {
+  /** ID matching the corresponding TestRunStep.id */
+  id?: string;
+  status?: StepStatus;
+  comment?: string;
+  actual_result?: string;
+  defects?: string[];
+}
+
+/** One row of a parametrized manual test run (one dataset row). */
+export interface TestRunIteration {
+  /** 1-based rank ("1", "2", …) */
+  rank?: string;
+  parameters: TestRunParameter[];
+  status?: StepStatus;
+  step_results?: {
+    results: TestRunIterationStepResult[];
+  };
 }
 
 /** Full status object returned by Xray's getStatuses API. */

@@ -18,6 +18,7 @@ import type {
   JiraUser,
   JiraVersion,
   TestExecution,
+  TestRunIteration,
   TestPlan,
   TestRunsPage,
   TestSetMembershipsResponse,
@@ -116,8 +117,18 @@ export const getTestRuns = (
   start?: number,
 ): Promise<TestRunsPage> => invoke("get_test_runs", { testExecutionIssueId, limit, start });
 
+export const getIterationStepResults = (testRunId: string): Promise<TestRunIteration[]> =>
+  invoke("get_iteration_step_results", { testRunId });
+
 export const updateTestRunStatus = (testRunId: string, status: string): Promise<void> =>
   invoke("update_test_run_status", { testRunId, status });
+
+/** Set the overall status of a single dataset iteration within a test run. */
+export const updateIterationStatus = (
+  testRunId: string,
+  iterationRank: string,
+  status: string,
+): Promise<void> => invoke("update_iteration_status", { testRunId, iterationRank, status });
 
 export const updateTestRunComment = (testRunId: string, comment: string): Promise<void> =>
   invoke("update_test_run_comment", { testRunId, comment });
