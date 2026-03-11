@@ -283,7 +283,7 @@ impl XrayClient {
                     results {
                         issueId
                         projectId
-                        jira(fields: ["key", "summary", "status", "assignee"])
+                        jira(fields: ["key", "summary", "status", "assignee", "fixVersions"])
                     }
                 }
             }
@@ -311,7 +311,7 @@ impl XrayClient {
                     results {
                         issueId
                         projectId
-                        jira(fields: ["key", "summary", "status", "assignee"])
+                        jira(fields: ["key", "summary", "status", "assignee", "fixVersions"])
                     }
                 }
             }

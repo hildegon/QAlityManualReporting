@@ -93,6 +93,10 @@ export const createIssueLink = (
 export const updateIssueSummary = (issueKey: string, summary: string): Promise<void> =>
   invoke("update_issue_summary", { issueKey, summary });
 
+/** Update the fix version of any Jira issue. Pass an empty string to clear. */
+export const updateIssueFixVersion = (issueKey: string, versionId: string): Promise<void> =>
+  invoke("update_issue_fix_version", { issueKey, versionId });
+
 // ── Xray ──────────────────────────────────────────────────────────────────────
 
 export const authenticateXray = (): Promise<void> => invoke("authenticate_xray");

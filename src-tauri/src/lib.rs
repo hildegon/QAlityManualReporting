@@ -8,8 +8,8 @@ use commands::{
     jira::{
         create_issue_link, get_bugs_by_version, get_issue_link_types, get_issue_transitions,
         get_jira_projects, get_project_components, get_project_versions, get_version_issues,
-        search_users, transition_issue, update_assignee, update_issue_summary,
-        validate_jira_credentials,
+        search_users, transition_issue, update_assignee, update_issue_fix_version,
+        update_issue_summary, validate_jira_credentials,
     },
     xray::{
         add_defects_to_test_run, add_tests_to_test_execution, add_tests_to_test_plan,
@@ -48,6 +48,7 @@ pub fn run() {
             transition_issue,
             update_assignee,
             update_issue_summary,
+            update_issue_fix_version,
             search_users,
             // Xray
             authenticate_xray,

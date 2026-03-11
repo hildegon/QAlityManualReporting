@@ -132,6 +132,7 @@ export interface TestExecution {
     summary: string;
     status?: { name: string };
     assignee?: { account_id?: string; display_name?: string };
+    fix_versions?: Array<{ id: string; name: string }>;
   };
 }
 
