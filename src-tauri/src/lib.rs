@@ -11,6 +11,7 @@ use commands::{
         search_users, transition_issue, update_assignee, update_issue_fix_version,
         update_issue_summary, validate_jira_credentials,
     },
+    utils::write_text_file,
     xray::{
         add_defects_to_test_run, add_tests_to_test_execution, add_tests_to_test_plan,
         add_tests_to_test_set, authenticate_xray, create_test, create_test_execution,
@@ -29,6 +30,8 @@ use state::XrayClientState;
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_fs::init())
         .manage(XrayClientState::new())
         .invoke_handler(tauri::generate_handler![
             // Config
@@ -80,6 +83,8 @@ pub fn run() {
             add_tests_to_test_plan,
             remove_tests_from_test_plan,
             add_defects_to_test_run,
+            // Utils
+            write_text_file,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

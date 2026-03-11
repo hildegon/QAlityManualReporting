@@ -30,4 +30,5 @@ export const queryKeys = {
   testPlanTests: (issueId: string) => ["xray", "test-plan-tests", issueId] as const,
   xrayStatuses: (projectId: string) => ["xray", "statuses", projectId] as const,
   stepStatuses: (projectId: string) => ["xray", "step-statuses", projectId] as const,
+  execSummary: (executionIssueId: string) => ["xray", "exec-summary", executionIssueId] as const,
 };

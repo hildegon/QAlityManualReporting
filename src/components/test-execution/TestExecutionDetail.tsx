@@ -18,11 +18,12 @@ import {
   useUpdateIterationStatus,
   useUpdateExecutionFixVersion,
   useProjectVersions,
+  useAddDefectsToTestRun,
   queryKeys,
 } from "@/services/queries";
 import * as api from "@/services/tauri";
 import { parseRateLimitError } from "@/stores/uiStore";
-import { buildSlicesFromCounts } from "@/components/charts/StatusCharts";
+import { MiniStackedBar, buildSlicesFromCounts } from "@/components/charts/StatusCharts";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Badge, statusVariant } from "@/components/ui/badge";
@@ -30,11 +31,11 @@ import { cn } from "@/components/ui/utils";
 import {
   ArrowLeft,
   ArrowUpDown,
+  Bug,
   CheckCheck,
   ChevronDown,
   ChevronRight,
   ClipboardList,
-  Layers,
   Loader2,
   MessageSquare,
   Pencil,
@@ -83,10 +84,22 @@ const FALLBACK_STEP_STATUSES: XrayStepStatus[] = [
   { name: "FAIL" },
 ];
 
-/** Sentinel value meaning "show all runs regardless of test set". */
-const FILTER_ALL = "__all__";
-/** Sentinel value meaning "show only runs whose test is in no test set". */
+/** Sentinel value meaning "runs whose test belongs to no test set". */
 const FILTER_NONE = "__none__";
+
+/**
+ * Discriminated union for virtual rows — either a section header or a test run.
+ */
+type VirtualItem =
+  | {
+      type: "header";
+      setIssueId: string;
+      label: string;
+      setKey: string;
+      runs: TestRun[];
+      counts: Record<string, number>;
+    }
+  | { type: "run"; run: TestRun; sectionId: string };
 
 /**
  * Status sort priority — lower number = shown first.
@@ -132,13 +145,47 @@ export function TestExecutionDetail({
   const [activeComment, setActiveComment] = useState<string | null>(null);
   const [commentValue, setCommentValue] = useState("");
   const [expandedRuns, setExpandedRuns] = useState<Set<string>>(new Set());
-  const [testSetFilter, setTestSetFilter] = useState<string>(FILTER_ALL);
+  const [collapsedSets, setCollapsedSets] = useState<Set<string>>(new Set());
   const [testSearch, setTestSearch] = useState("");
   const [sortByStatus, setSortByStatus] = useState(false);
   const [loadingAll, setLoadingAll] = useState(false);
   /** Status name to filter by, or null to show all. */
   const [statusFilter, setStatusFilter] = useState<string | null>(null);
+  /** Bulk selection mode state */
+  const [isSelectMode, setIsSelectMode] = useState(false);
+  const [selectedRunIds, setSelectedRunIds] = useState<Set<string>>(new Set());
+  /** Defect picker state */
+  const addDefects = useAddDefectsToTestRun();
+  const [defectPickerOpen, setDefectPickerOpen] = useState<string | null>(null);
+  const [defectInputValue, setDefectInputValue] = useState("");
+  const defectPickerRef = useRef<HTMLDivElement>(null);
   const parentRef = useRef<HTMLDivElement>(null);
+  const [listHeight, setListHeight] = useState(600);
+
+  // Resize the virtualised list to fill available space dynamically.
+  useEffect(() => {
+    const el = parentRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (entry) setListHeight(entry.contentRect.height);
+    });
+    ro.observe(el.parentElement ?? el);
+    return () => ro.disconnect();
+  }, []);
+
+  // Dismiss defect picker when clicking outside it.
+  useEffect(() => {
+    if (!defectPickerOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (defectPickerRef.current && !defectPickerRef.current.contains(e.target as Node)) {
+        setDefectPickerOpen(null);
+        setDefectInputValue("");
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [defectPickerOpen]);
 
   // ── Add-tests panel state ──────────────────────────────────────────────────
   const [addPanelOpen, setAddPanelOpen] = useState(false);
@@ -150,12 +197,14 @@ export function TestExecutionDetail({
   /** issueId of the test set currently being expanded into selectedTestIds */
   const [loadingSetId, setLoadingSetId] = useState<string | null>(null);
 
-  // Only fetch tests/sets when the panel is open to avoid unnecessary calls.
+  // Only fetch tests when the panel is open to avoid unnecessary calls.
   const { data: allTests, isLoading: testsLoading } = useGetTests(
     addPanelOpen ? (contentProjectKey ?? undefined) : undefined,
   );
+  // Always pass projectKey so results land in the shared cache slot every other page reads from.
+  // The enabled: !!projectKey guard inside the hook prevents network calls when key is absent.
   const { data: allTestSets, isLoading: testSetsLoading } = useGetTestSets(
-    addPanelOpen ? (contentProjectKey ?? undefined) : undefined,
+    contentProjectKey ?? undefined,
   );
 
   const filteredAddSets = useMemo(() => {
@@ -235,32 +284,11 @@ export function TestExecutionDetail({
   // Flatten all pages into a single runs array
   const runs = useMemo(() => data?.pages.flatMap((page) => page.results) ?? [], [data]);
 
-  // Count how many currently-loaded runs belong to each test set.
-  // Used for the count badge on each pill; updates automatically as more pages load.
-  const testSetCounts = useMemo(() => {
-    const map = new Map<string, number>();
-    for (const run of runs) {
-      for (const s of membership.get(run.test.issue_id) ?? []) {
-        map.set(s.issueId, (map.get(s.issueId) ?? 0) + 1);
-      }
-    }
-    return map;
-  }, [runs, membership]);
-
-  // Apply test-set filter, then text search, then optional status sort.
+  // Apply text search, optional status filter, then optional status sort.
   const filteredRuns = useMemo(() => {
     let result = runs;
 
-    // 1. Test-set filter
-    if (testSetFilter === FILTER_NONE) {
-      result = result.filter((r) => !membership.has(r.test.issue_id));
-    } else if (testSetFilter !== FILTER_ALL) {
-      result = result.filter((r) =>
-        membership.get(r.test.issue_id)?.some((s) => s.issueId === testSetFilter),
-      );
-    }
-
-    // 2. Key / name search
+    // 1. Key / name search
     const q = testSearch.trim().toLowerCase();
     if (q) {
       result = result.filter(
@@ -270,12 +298,12 @@ export function TestExecutionDetail({
       );
     }
 
-    // 3. Status filter
+    // 2. Status filter
     if (statusFilter) {
       result = result.filter((r) => r.status.name.toUpperCase() === statusFilter.toUpperCase());
     }
 
-    // 4. Status sort (stable — preserves original order within the same status group)
+    // 3. Status sort (stable — preserves original order within the same status group)
     if (sortByStatus) {
       result = [...result].sort((a, b) => {
         const oa = STATUS_SORT_ORDER[a.status.name.toUpperCase()] ?? 99;
@@ -285,7 +313,7 @@ export function TestExecutionDetail({
     }
 
     return result;
-  }, [runs, testSetFilter, membership, testSearch, sortByStatus, statusFilter]);
+  }, [runs, testSearch, sortByStatus, statusFilter]);
 
   // Total count from the server (available from the first page)
   const totalFromServer = data?.pages[0]?.total ?? 0;
@@ -308,15 +336,119 @@ export function TestExecutionDetail({
     });
   };
 
+  const toggleCollapsed = (setIssueId: string) => {
+    setCollapsedSets((prev) => {
+      const next = new Set(prev);
+      if (next.has(setIssueId)) {
+        next.delete(setIssueId);
+      } else {
+        next.add(setIssueId);
+      }
+      return next;
+    });
+  };
+
+  // Build the virtualised row list: group filteredRuns by test set, inserting
+  // collapsible section headers. If no test sets are loaded, show runs flat.
+  const virtualRows = useMemo((): VirtualItem[] => {
+    // If no test-set data, just show a flat list.
+    if (testSets.length === 0) {
+      return filteredRuns.map((run) => ({ type: "run" as const, run, sectionId: "" }));
+    }
+
+    // Build ordered sections map (preserving testSets order).
+    const sections = new Map<string, { label: string; setKey: string; runs: TestRun[] }>();
+    for (const ts of testSets) {
+      if (!sections.has(ts.issue_id)) {
+        sections.set(ts.issue_id, {
+          label: ts.jira.summary,
+          setKey: ts.jira.key,
+          runs: [],
+        });
+      }
+    }
+
+    const ungroupedRuns: TestRun[] = [];
+
+    for (const run of filteredRuns) {
+      const sets = membership.get(run.test.issue_id) ?? [];
+      if (sets.length === 0) {
+        ungroupedRuns.push(run);
+      } else {
+        // Place run in first matching section; fall back to ungrouped.
+        let placed = false;
+        for (const s of sets) {
+          if (sections.has(s.issueId)) {
+            sections.get(s.issueId)!.runs.push(run);
+            placed = true;
+            break;
+          }
+        }
+        if (!placed) ungroupedRuns.push(run);
+      }
+    }
+
+    const rows: VirtualItem[] = [];
+
+    for (const [setIssueId, section] of sections) {
+      if (section.runs.length === 0) continue;
+      const counts: Record<string, number> = {};
+      for (const run of section.runs) {
+        const k = run.status.name.toUpperCase();
+        counts[k] = (counts[k] ?? 0) + 1;
+      }
+      rows.push({
+        type: "header",
+        setIssueId,
+        label: section.label,
+        setKey: section.setKey,
+        runs: section.runs,
+        counts,
+      });
+      if (!collapsedSets.has(setIssueId)) {
+        for (const run of section.runs) {
+          rows.push({ type: "run", run, sectionId: setIssueId });
+        }
+      }
+    }
+
+    if (ungroupedRuns.length > 0) {
+      const counts: Record<string, number> = {};
+      for (const run of ungroupedRuns) {
+        const k = run.status.name.toUpperCase();
+        counts[k] = (counts[k] ?? 0) + 1;
+      }
+      rows.push({
+        type: "header",
+        setIssueId: FILTER_NONE,
+        label: "No Test Set",
+        setKey: "—",
+        runs: ungroupedRuns,
+        counts,
+      });
+      if (!collapsedSets.has(FILTER_NONE)) {
+        for (const run of ungroupedRuns) {
+          rows.push({ type: "run", run, sectionId: FILTER_NONE });
+        }
+      }
+    }
+
+    return rows;
+  }, [filteredRuns, testSets, membership, collapsedSets]);
+
   const virtualizer = useVirtualizer({
-    count: filteredRuns.length,
+    count: virtualRows.length,
     getScrollElement: () => parentRef.current,
-    estimateSize: () => 56,
+    estimateSize: (i) => {
+      const item = virtualRows[i];
+      return item?.type === "header" ? 52 : 56;
+    },
     overscan: 10,
-    // Use the run id as the stable measurement key so the virtualizer
-    // doesn't reuse a cached height from a different run when the list
-    // reorders (e.g. after a bulk-status update with sort-by-status on).
-    getItemKey: (index) => filteredRuns[index]?.id ?? index,
+    getItemKey: (i) => {
+      const item = virtualRows[i];
+      if (!item) return i;
+      return item.type === "header" ? `h:${item.setIssueId}` : item.run.id;
+    },
   });
 
   // Track only the ordered list of run IDs (not their data) so we can
@@ -333,21 +465,10 @@ export function TestExecutionDetail({
     virtualizer.measure();
   }, [filteredRunKeys, virtualizer]);
 
-  // Auto-load next page when the user scrolls near the bottom
+  // Pagination is entirely user-driven (Load more / Load all buttons in the footer).
+  // Auto-fetching on scroll is intentionally disabled to avoid hammering the Xray API,
+  // especially when a status filter is active and each new page triggers an extra call.
   const virtualItems = virtualizer.getVirtualItems();
-  useEffect(() => {
-    const lastItem = virtualItems[virtualItems.length - 1];
-    if (!lastItem) return;
-
-    // If the last visible item is within 5 rows of the end, fetch more
-    if (lastItem.index >= runs.length - 5 && hasNextPage && !isFetchingNextPage) {
-      void fetchNextPage();
-    }
-  }, [virtualItems, hasNextPage, isFetchingNextPage, runs.length, fetchNextPage]);
-
-  // No automatic background prefetch — pagination is scroll-driven only.
-  // Users can click "Load all" in the footer when they need complete data
-  // (e.g. for test-set filter accuracy on large executions).
 
   const handleStatusChange = (run: TestRun, newStatus: string) => {
     updateStatus.mutate({
@@ -650,11 +771,6 @@ export function TestExecutionDetail({
     return buildSlicesFromCounts(rawCounts, total);
   }, [filteredRuns, total]);
 
-  const noSetCount = useMemo(
-    () => runs.filter((r) => !membership.has(r.test.issue_id)).length,
-    [runs, membership],
-  );
-
   return (
     <div className="flex h-full flex-col">
       {/* Header */}
@@ -826,79 +942,6 @@ export function TestExecutionDetail({
         <>
           {/* Filters */}
           <div className="mb-3 space-y-2">
-            {/* Test set filter — pill buttons.
-                Hide the panel entirely once all pages are loaded and no set overlaps
-                with this execution (testSetCounts is empty). */}
-            {testSets.length > 0 &&
-              (hasNextPage || isFetchingNextPage || testSetCounts.size > 0) && (
-                <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 shadow-sm dark:border-slate-700 dark:bg-slate-800">
-                  <div className="mb-1.5 flex items-center gap-1.5">
-                    <Layers className="h-3.5 w-3.5 shrink-0 text-slate-400" />
-                    <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
-                      Test Set
-                    </span>
-                  </div>
-                  <div className="flex flex-wrap gap-1.5">
-                    {/* "All" pill */}
-                    <button
-                      onClick={() => setTestSetFilter(FILTER_ALL)}
-                      className={cn(
-                        "rounded-full border px-2.5 py-0.5 text-xs font-medium transition-colors",
-                        testSetFilter === FILTER_ALL
-                          ? "border-slate-800 bg-slate-800 text-white"
-                          : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:border-slate-500 dark:hover:bg-slate-700",
-                      )}
-                    >
-                      All ({runs.length})
-                    </button>
-
-                    {/* "No set" pill — only when some runs have no set */}
-                    {noSetCount > 0 ? (
-                      <button
-                        onClick={() => setTestSetFilter(FILTER_NONE)}
-                        className={cn(
-                          "rounded-full border px-2.5 py-0.5 text-xs font-medium transition-colors",
-                          testSetFilter === FILTER_NONE
-                            ? "border-slate-800 bg-slate-800 text-white"
-                            : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:border-slate-500 dark:hover:bg-slate-700",
-                        )}
-                      >
-                        No set ({noSetCount})
-                      </button>
-                    ) : null}
-
-                    {/* One pill per test set that has at least one run in this execution.
-                      While pages are still loading we keep every set visible so pills
-                      don't disappear mid-load; once all pages are fetched the count
-                      is definitive and zero-count sets are hidden. */}
-                    {testSets.map((ts) => {
-                      const count = testSetCounts.get(ts.issue_id) ?? 0;
-                      if (count === 0 && !hasNextPage && !isFetchingNextPage) return null;
-                      const isActive = testSetFilter === ts.issue_id;
-                      return (
-                        <button
-                          key={ts.issue_id}
-                          title={`${ts.jira.key} — ${ts.jira.summary}`}
-                          onClick={() =>
-                            setTestSetFilter((prev) =>
-                              prev === ts.issue_id ? FILTER_ALL : ts.issue_id,
-                            )
-                          }
-                          className={cn(
-                            "max-w-[18rem] truncate rounded-full border px-2.5 py-0.5 text-xs font-medium transition-colors",
-                            isActive
-                              ? "border-slate-800 bg-slate-800 text-white"
-                              : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:border-slate-500 dark:hover:bg-slate-700",
-                          )}
-                        >
-                          {ts.jira.summary} ({count})
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-
             {/* Key / name search + sort toggle + add tests */}
             <div className="flex items-center gap-2">
               <div className="flex flex-1 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 shadow-sm dark:border-slate-700 dark:bg-slate-800">
@@ -945,6 +988,22 @@ export function TestExecutionDetail({
               >
                 <Plus className="h-3.5 w-3.5" />
                 Add tests
+              </button>
+              <button
+                onClick={() => {
+                  setIsSelectMode((prev) => !prev);
+                  setSelectedRunIds(new Set());
+                }}
+                title={isSelectMode ? "Exit select mode" : "Select runs to bulk-update status"}
+                className={cn(
+                  "flex items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-medium shadow-sm transition-colors",
+                  isSelectMode
+                    ? "border-blue-600 bg-blue-600 text-white"
+                    : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:border-slate-500 dark:hover:bg-slate-700",
+                )}
+              >
+                <CheckCheck className="h-3.5 w-3.5" />
+                {isSelectMode ? "Cancel" : "Select"}
               </button>
             </div>
 
@@ -1024,21 +1083,91 @@ export function TestExecutionDetail({
 
           <div className="rounded-lg border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
             {/* Table header */}
-            <div className="grid grid-cols-[auto_2fr_1fr_auto_auto] gap-4 border-b border-slate-100 bg-slate-50 px-4 py-2.5 text-xs font-medium uppercase tracking-wide text-slate-500 dark:border-slate-700 dark:bg-slate-700/60 dark:text-slate-400">
+            <div className="grid grid-cols-[auto_2fr_1fr_auto_auto_auto] gap-4 border-b border-slate-100 bg-slate-50 px-4 py-2.5 text-xs font-medium uppercase tracking-wide text-slate-500 dark:border-slate-700 dark:bg-slate-700/60 dark:text-slate-400">
               <span className="w-5"></span>
               <span>Test</span>
               <span>Status</span>
               <span>Update status</span>
               <span></span>
+              <span></span>
             </div>
 
             {/* Virtualised rows */}
-            <div ref={parentRef} className="overflow-auto" style={{ height: 600 }}>
+            <div ref={parentRef} className="overflow-auto" style={{ height: listHeight }}>
               <div style={{ height: virtualizer.getTotalSize(), position: "relative" }}>
                 {virtualItems.map((virtualRow) => {
-                  const run = filteredRuns[virtualRow.index];
-                  if (!run) return null;
+                  const item = virtualRows[virtualRow.index];
+                  if (!item) return null;
 
+                  // ── Section header ──────────────────────────────────────────
+                  if (item.type === "header") {
+                    const isCollapsed = collapsedSets.has(item.setIssueId);
+                    return (
+                      <div
+                        key={`h:${item.setIssueId}`}
+                        data-index={virtualRow.index}
+                        ref={virtualizer.measureElement}
+                        style={{
+                          position: "absolute",
+                          top: 0,
+                          left: 0,
+                          width: "100%",
+                          transform: `translateY(${virtualRow.start}px)`,
+                        }}
+                      >
+                        <div className="flex items-center gap-2 border-b border-slate-100 bg-slate-50 px-4 py-3 dark:border-slate-700 dark:bg-slate-700/60">
+                          {isSelectMode && (
+                            <input
+                              type="checkbox"
+                              title="Select all in section"
+                              className="h-4 w-4 shrink-0 accent-blue-600"
+                              checked={
+                                item.runs.length > 0 &&
+                                item.runs.every((r) => selectedRunIds.has(r.id))
+                              }
+                              onChange={(e) => {
+                                e.stopPropagation();
+                                setSelectedRunIds((prev) => {
+                                  const next = new Set(prev);
+                                  if (e.target.checked) {
+                                    for (const r of item.runs) next.add(r.id);
+                                  } else {
+                                    for (const r of item.runs) next.delete(r.id);
+                                  }
+                                  return next;
+                                });
+                              }}
+                            />
+                          )}
+                          <button
+                            onClick={() => toggleCollapsed(item.setIssueId)}
+                            className="rounded p-0.5 text-slate-400 hover:bg-slate-200 hover:text-slate-700 dark:hover:bg-slate-600"
+                            aria-label={isCollapsed ? "Expand section" : "Collapse section"}
+                          >
+                            {isCollapsed ? (
+                              <ChevronRight className="h-4 w-4" />
+                            ) : (
+                              <ChevronDown className="h-4 w-4" />
+                            )}
+                          </button>
+                          <span className="font-mono text-xs text-slate-400">{item.setKey}</span>
+                          <span className="flex-1 truncate text-sm font-medium text-slate-700 dark:text-slate-300">
+                            {item.label}
+                          </span>
+                          <span className="rounded-full bg-slate-200 px-2 py-0.5 text-xs text-slate-600 dark:bg-slate-600 dark:text-slate-300">
+                            {item.runs.length}
+                          </span>
+                          <MiniStackedBar
+                            slices={buildSlicesFromCounts(item.counts, item.runs.length)}
+                            className="w-24"
+                          />
+                        </div>
+                      </div>
+                    );
+                  }
+
+                  // ── Test run row ────────────────────────────────────────────
+                  const { run } = item;
                   const hasManualSteps = (run.steps?.length ?? 0) > 0;
                   const isCucumber =
                     run.test_type?.name?.toLowerCase() === "cucumber" || !!run.gherkin;
@@ -1058,7 +1187,35 @@ export function TestExecutionDetail({
                         transform: `translateY(${virtualRow.start}px)`,
                       }}
                     >
-                      <div className="grid grid-cols-[2fr_1fr_auto_auto] items-center gap-4 border-b border-slate-50 px-4 py-3 last:border-0 hover:bg-slate-50/50 dark:border-slate-700 dark:hover:bg-slate-700/40">
+                      <div
+                        className={cn(
+                          "grid items-center gap-4 border-b border-slate-50 px-4 py-3 last:border-0 hover:bg-slate-50/50 dark:border-slate-700 dark:hover:bg-slate-700/40",
+                          isSelectMode
+                            ? "grid-cols-[auto_2fr_1fr_auto_auto_auto]"
+                            : "grid-cols-[2fr_1fr_auto_auto_auto]",
+                        )}
+                      >
+                        {/* Select checkbox (only in select mode) */}
+                        {isSelectMode && (
+                          <input
+                            type="checkbox"
+                            className="h-4 w-4 shrink-0 accent-blue-600"
+                            checked={selectedRunIds.has(run.id)}
+                            onChange={(e) => {
+                              e.stopPropagation();
+                              setSelectedRunIds((prev) => {
+                                const next = new Set(prev);
+                                if (next.has(run.id)) {
+                                  next.delete(run.id);
+                                } else {
+                                  next.add(run.id);
+                                }
+                                return next;
+                              });
+                            }}
+                            onClick={(e) => e.stopPropagation()}
+                          />
+                        )}
                         {/* Expand toggle + test identity (unified click target) */}
                         <button
                           onClick={() => hasSteps && toggleExpanded(run.id)}
@@ -1153,6 +1310,107 @@ export function TestExecutionDetail({
                         >
                           <MessageSquare className="h-4 w-4" />
                         </button>
+
+                        {/* Defect chips + bug link button */}
+                        <div className="flex items-center gap-1">
+                          {(run.defects ?? []).map((key) => (
+                            <span
+                              key={key}
+                              className="rounded border border-red-200 bg-red-50 px-1.5 py-0.5 font-mono text-[10px] font-medium text-red-700 dark:border-red-800 dark:bg-red-950/40 dark:text-red-400"
+                            >
+                              {key}
+                            </span>
+                          ))}
+                          <div className="relative">
+                            <button
+                              title="Link defect"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setDefectPickerOpen((prev) => (prev === run.id ? null : run.id));
+                                setDefectInputValue("");
+                              }}
+                              className={cn(
+                                "rounded p-1 hover:bg-slate-100 dark:hover:bg-slate-700",
+                                (run.defects?.length ?? 0) > 0
+                                  ? "text-red-400 hover:text-red-600"
+                                  : "text-slate-400 hover:text-slate-700",
+                              )}
+                            >
+                              <Bug className="h-4 w-4" />
+                            </button>
+                            {defectPickerOpen === run.id && (
+                              <div
+                                ref={defectPickerRef}
+                                className="absolute right-0 top-full z-20 mt-1 w-60 rounded-md border border-slate-200 bg-white p-3 shadow-lg dark:border-slate-700 dark:bg-slate-800"
+                              >
+                                <p className="mb-1.5 text-xs font-medium text-slate-600 dark:text-slate-300">
+                                  Link defect(s)
+                                </p>
+                                <input
+                                  autoFocus
+                                  value={defectInputValue}
+                                  onChange={(e) => setDefectInputValue(e.target.value)}
+                                  placeholder="BUG-123, BUG-456"
+                                  className="w-full rounded border border-slate-200 px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-slate-400 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200"
+                                  onKeyDown={(e) => {
+                                    e.stopPropagation();
+                                    if (e.key === "Enter") {
+                                      const keys = defectInputValue
+                                        .split(",")
+                                        .map((k) => k.trim())
+                                        .filter(Boolean);
+                                      if (keys.length) {
+                                        addDefects.mutate({
+                                          testRunId: run.id,
+                                          issueKeys: keys,
+                                          executionIssueId: execution.issue_id,
+                                        });
+                                      }
+                                      setDefectPickerOpen(null);
+                                      setDefectInputValue("");
+                                    }
+                                    if (e.key === "Escape") {
+                                      setDefectPickerOpen(null);
+                                      setDefectInputValue("");
+                                    }
+                                  }}
+                                />
+                                <div className="mt-2 flex justify-end gap-1.5">
+                                  <button
+                                    onClick={() => {
+                                      setDefectPickerOpen(null);
+                                      setDefectInputValue("");
+                                    }}
+                                    className="rounded px-2 py-1 text-xs text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700"
+                                  >
+                                    Cancel
+                                  </button>
+                                  <button
+                                    disabled={!defectInputValue.trim()}
+                                    onClick={() => {
+                                      const keys = defectInputValue
+                                        .split(",")
+                                        .map((k) => k.trim())
+                                        .filter(Boolean);
+                                      if (keys.length) {
+                                        addDefects.mutate({
+                                          testRunId: run.id,
+                                          issueKeys: keys,
+                                          executionIssueId: execution.issue_id,
+                                        });
+                                      }
+                                      setDefectPickerOpen(null);
+                                      setDefectInputValue("");
+                                    }}
+                                    className="rounded bg-slate-800 px-2 py-1 text-xs text-white disabled:opacity-40 hover:bg-slate-700 dark:bg-slate-600 dark:hover:bg-slate-500"
+                                  >
+                                    Link
+                                  </button>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </div>
                       </div>
 
                       {/* Inline comment editor */}
@@ -1278,6 +1536,48 @@ export function TestExecutionDetail({
               )}
             </div>
           </div>
+
+          {/* ── Bulk action floating bar ── */}
+          {isSelectMode && selectedRunIds.size > 0 && (
+            <div className="fixed bottom-6 left-1/2 z-30 flex -translate-x-1/2 items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 shadow-lg dark:border-slate-700 dark:bg-slate-800">
+              <span className="text-sm font-medium text-slate-700 dark:text-slate-200">
+                {selectedRunIds.size} selected
+              </span>
+              <button
+                onClick={() => setSelectedRunIds(new Set())}
+                className="rounded-full p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-700"
+                title="Clear selection"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+              <div className="mx-1 h-4 w-px bg-slate-200 dark:bg-slate-700" />
+              {statuses.map((s) => (
+                <button
+                  key={s.name}
+                  title={`Set all selected to ${s.name}`}
+                  style={statusButtonStyle(s.color, false)}
+                  className={cn(
+                    "rounded-full border px-2.5 py-0.5 text-xs font-medium transition-colors",
+                    !s.color &&
+                      "border-slate-200 bg-slate-100 text-slate-600 hover:bg-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600",
+                  )}
+                  onClick={() => {
+                    for (const id of selectedRunIds) {
+                      updateStatus.mutate({
+                        testRunId: id,
+                        status: s.name,
+                        executionIssueId: execution.issue_id,
+                      });
+                    }
+                    setSelectedRunIds(new Set());
+                    setIsSelectMode(false);
+                  }}
+                >
+                  {s.name}
+                </button>
+              ))}
+            </div>
+          )}
         </>
       )}
     </div>
@@ -1730,6 +2030,53 @@ function IterationsPanel({
     useIterationStepResults(testRunId);
   const updateIterationStatus = useUpdateIterationStatus();
 
+  // Editable iteration step fields
+  const queryClient = useQueryClient();
+  const updateStep = useUpdateTestRunStep();
+  const [editingIterStep, setEditingIterStep] = useState<{
+    stepId: string;
+    iterRank: string;
+    field: "actualResult" | "comment";
+  } | null>(null);
+  const [editIterValue, setEditIterValue] = useState("");
+
+  const startIterStepEdit = (
+    stepId: string,
+    iterRank: string,
+    field: "actualResult" | "comment",
+    currentValue: string,
+  ) => {
+    setEditingIterStep({ stepId, iterRank, field });
+    setEditIterValue(currentValue);
+  };
+
+  const saveIterStep = () => {
+    if (!editingIterStep) return;
+    updateStep.mutate(
+      {
+        testRunId,
+        stepId: editingIterStep.stepId,
+        ...(editingIterStep.field === "actualResult"
+          ? { actualResult: editIterValue }
+          : { comment: editIterValue }),
+        executionIssueId,
+      },
+      {
+        onSuccess: () =>
+          void queryClient.invalidateQueries({
+            queryKey: queryKeys.iterationStepResults(testRunId),
+          }),
+      },
+    );
+    setEditingIterStep(null);
+    setEditIterValue("");
+  };
+
+  const cancelIterStepEdit = () => {
+    setEditingIterStep(null);
+    setEditIterValue("");
+  };
+
   const toggleIteration = (rank: string) => {
     setExpandedIterations((prev) => {
       const next = new Set(prev);
@@ -1856,26 +2203,168 @@ function IterationsPanel({
                                       </div>
                                     </div>
                                   )}
-                                  {/* Actual result (per-iteration, read-only) */}
-                                  {stepResult?.actual_result && (
+                                  {/* Actual result (per-iteration, editable) */}
+                                  {editingIterStep?.stepId === step.id &&
+                                  editingIterStep.iterRank === rank &&
+                                  editingIterStep.field === "actualResult" ? (
                                     <div className="border-l-2 border-emerald-400 pl-2 dark:border-emerald-500">
                                       <p className="mb-0.5 text-[9px] font-semibold uppercase tracking-wider text-emerald-500 dark:text-emerald-400">
                                         Actual
                                       </p>
-                                      <div className="text-xs leading-relaxed text-slate-700 dark:text-slate-300">
-                                        <StepMarkdown>{stepResult.actual_result}</StepMarkdown>
+                                      <textarea
+                                        autoFocus
+                                        rows={3}
+                                        value={editIterValue}
+                                        onChange={(e) => setEditIterValue(e.target.value)}
+                                        onKeyDown={(e) => {
+                                          if (e.key === "Enter" && !e.shiftKey) {
+                                            e.preventDefault();
+                                            saveIterStep();
+                                          } else if (e.key === "Escape") {
+                                            cancelIterStepEdit();
+                                          }
+                                        }}
+                                        className="w-full rounded border border-emerald-300 bg-white px-2 py-1 text-xs text-slate-800 outline-none focus:ring-1 focus:ring-emerald-400 dark:border-emerald-600 dark:bg-slate-700 dark:text-slate-100"
+                                      />
+                                      <div className="mt-1 flex gap-1">
+                                        <button
+                                          onClick={saveIterStep}
+                                          disabled={updateStep.isPending}
+                                          className="rounded bg-emerald-500 px-2 py-0.5 text-[10px] font-medium text-white hover:bg-emerald-600 disabled:opacity-50"
+                                        >
+                                          Save
+                                        </button>
+                                        <button
+                                          onClick={cancelIterStepEdit}
+                                          className="rounded bg-slate-200 px-2 py-0.5 text-[10px] font-medium text-slate-600 hover:bg-slate-300 dark:bg-slate-600 dark:text-slate-300 dark:hover:bg-slate-500"
+                                        >
+                                          Cancel
+                                        </button>
                                       </div>
                                     </div>
+                                  ) : (
+                                    <div
+                                      role="button"
+                                      tabIndex={0}
+                                      title="Click to edit actual result"
+                                      onClick={() =>
+                                        startIterStepEdit(
+                                          step.id,
+                                          rank,
+                                          "actualResult",
+                                          stepResult?.actual_result ?? "",
+                                        )
+                                      }
+                                      onKeyDown={(e) => {
+                                        if (e.key === "Enter" || e.key === " ") {
+                                          e.preventDefault();
+                                          startIterStepEdit(
+                                            step.id,
+                                            rank,
+                                            "actualResult",
+                                            stepResult?.actual_result ?? "",
+                                          );
+                                        }
+                                      }}
+                                      className="group cursor-pointer border-l-2 border-emerald-400 pl-2 dark:border-emerald-500"
+                                    >
+                                      <p className="mb-0.5 text-[9px] font-semibold uppercase tracking-wider text-emerald-500 dark:text-emerald-400">
+                                        Actual
+                                        <span className="ml-1 opacity-0 transition-opacity group-hover:opacity-60">
+                                          <Pencil className="inline h-2.5 w-2.5" />
+                                        </span>
+                                      </p>
+                                      {stepResult?.actual_result ? (
+                                        <div className="text-xs leading-relaxed text-slate-700 dark:text-slate-300">
+                                          <StepMarkdown>{stepResult.actual_result}</StepMarkdown>
+                                        </div>
+                                      ) : (
+                                        <p className="text-[10px] italic text-slate-400 group-hover:text-emerald-400 dark:text-slate-500 dark:group-hover:text-emerald-500">
+                                          Add actual result…
+                                        </p>
+                                      )}
+                                    </div>
                                   )}
-                                  {/* Comment (per-iteration, read-only) */}
-                                  {stepResult?.comment && (
+                                  {/* Comment (per-iteration, editable) */}
+                                  {editingIterStep?.stepId === step.id &&
+                                  editingIterStep.iterRank === rank &&
+                                  editingIterStep.field === "comment" ? (
                                     <div className="border-l-2 border-slate-300 pl-2 dark:border-slate-600">
                                       <p className="mb-0.5 text-[9px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
                                         Comment
                                       </p>
-                                      <div className="text-xs leading-relaxed text-slate-500 dark:text-slate-400">
-                                        <StepMarkdown>{stepResult.comment}</StepMarkdown>
+                                      <textarea
+                                        autoFocus
+                                        rows={3}
+                                        value={editIterValue}
+                                        onChange={(e) => setEditIterValue(e.target.value)}
+                                        onKeyDown={(e) => {
+                                          if (e.key === "Enter" && !e.shiftKey) {
+                                            e.preventDefault();
+                                            saveIterStep();
+                                          } else if (e.key === "Escape") {
+                                            cancelIterStepEdit();
+                                          }
+                                        }}
+                                        className="w-full rounded border border-slate-300 bg-white px-2 py-1 text-xs text-slate-800 outline-none focus:ring-1 focus:ring-slate-400 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100"
+                                      />
+                                      <div className="mt-1 flex gap-1">
+                                        <button
+                                          onClick={saveIterStep}
+                                          disabled={updateStep.isPending}
+                                          className="rounded bg-emerald-500 px-2 py-0.5 text-[10px] font-medium text-white hover:bg-emerald-600 disabled:opacity-50"
+                                        >
+                                          Save
+                                        </button>
+                                        <button
+                                          onClick={cancelIterStepEdit}
+                                          className="rounded bg-slate-200 px-2 py-0.5 text-[10px] font-medium text-slate-600 hover:bg-slate-300 dark:bg-slate-600 dark:text-slate-300 dark:hover:bg-slate-500"
+                                        >
+                                          Cancel
+                                        </button>
                                       </div>
+                                    </div>
+                                  ) : (
+                                    <div
+                                      role="button"
+                                      tabIndex={0}
+                                      title="Click to edit comment"
+                                      onClick={() =>
+                                        startIterStepEdit(
+                                          step.id,
+                                          rank,
+                                          "comment",
+                                          stepResult?.comment ?? "",
+                                        )
+                                      }
+                                      onKeyDown={(e) => {
+                                        if (e.key === "Enter" || e.key === " ") {
+                                          e.preventDefault();
+                                          startIterStepEdit(
+                                            step.id,
+                                            rank,
+                                            "comment",
+                                            stepResult?.comment ?? "",
+                                          );
+                                        }
+                                      }}
+                                      className="group cursor-pointer border-l-2 border-slate-300 pl-2 dark:border-slate-600"
+                                    >
+                                      <p className="mb-0.5 text-[9px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                                        Comment
+                                        <span className="ml-1 opacity-0 transition-opacity group-hover:opacity-60">
+                                          <Pencil className="inline h-2.5 w-2.5" />
+                                        </span>
+                                      </p>
+                                      {stepResult?.comment ? (
+                                        <div className="text-xs leading-relaxed text-slate-500 dark:text-slate-400">
+                                          <StepMarkdown>{stepResult.comment}</StepMarkdown>
+                                        </div>
+                                      ) : (
+                                        <p className="text-[10px] italic text-slate-400 group-hover:text-slate-500 dark:text-slate-500 dark:group-hover:text-slate-400">
+                                          Add comment…
+                                        </p>
+                                      )}
                                     </div>
                                   )}
                                 </div>
