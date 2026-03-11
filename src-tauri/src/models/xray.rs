@@ -59,12 +59,21 @@ pub struct TestExecution {
     pub jira: TestExecutionJira,
 }
 
+/// A slim version reference as returned inside `jira(fields: ["fixVersions"])` from Xray.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FixVersion {
+    pub id: String,
+    pub name: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TestExecutionJira {
     pub key: String,
     pub summary: String,
     pub status: Option<XrayStatus>,
     pub assignee: Option<XrayUser>,
+    #[serde(rename(deserialize = "fixVersions"))]
+    pub fix_versions: Option<Vec<FixVersion>>,
 }
 
 // ── Tests in an Execution ─────────────────────────────────────────────────────

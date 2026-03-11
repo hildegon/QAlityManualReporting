@@ -16,6 +16,8 @@ import {
   useAddTestsToTestExecution,
   useIterationStepResults,
   useUpdateIterationStatus,
+  useUpdateExecutionFixVersion,
+  useProjectVersions,
   queryKeys,
 } from "@/services/queries";
 import * as api from "@/services/tauri";
@@ -42,6 +44,7 @@ import {
 } from "lucide-react";
 import type {
   CucumberResult,
+  JiraVersion,
   TestExecution,
   TestRun,
   TestRunIteration,
@@ -117,6 +120,14 @@ export function TestExecutionDetail({
 
   // Test-set membership data for the filter
   const { testSets, membership } = useTestSetMembership(contentProjectKey ?? null);
+
+  // ── Fix version state ──────────────────────────────────────────────────────
+  // Derive the Jira project key from the issue key (e.g. "PROJ-123" → "PROJ").
+  const execProjectKey = execution.jira.key.split("-")[0] ?? null;
+  const { data: projectVersions } = useProjectVersions(execProjectKey);
+  const updateFixVersion = useUpdateExecutionFixVersion();
+  const [versionPickerOpen, setVersionPickerOpen] = useState(false);
+  const [versionSearch, setVersionSearch] = useState("");
 
   const [activeComment, setActiveComment] = useState<string | null>(null);
   const [commentValue, setCommentValue] = useState("");
@@ -657,7 +668,80 @@ export function TestExecutionDetail({
         </button>
         <div className="flex-1">
           <h1 className="text-xl font-semibold">{execution.jira.summary}</h1>
-          <p className="mt-0.5 font-mono text-xs text-slate-400">{execution.jira.key}</p>
+          <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
+            <p className="font-mono text-xs text-slate-400">{execution.jira.key}</p>
+            {/* Fix Version display + picker */}
+            <div className="relative">
+              <button
+                onClick={() => {
+                  setVersionPickerOpen((v) => !v);
+                  setVersionSearch("");
+                }}
+                className="flex items-center gap-1 rounded px-1.5 py-0.5 text-xs text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-700"
+                title="Set fix version"
+              >
+                <span className="text-slate-400">fixVersion:</span>
+                <span className="font-medium text-slate-600 dark:text-slate-300">
+                  {execution.jira.fix_versions?.[0]?.name ?? "—"}
+                </span>
+                <Pencil className="h-3 w-3 opacity-50" />
+              </button>
+              {versionPickerOpen && (
+                <div className="absolute left-0 top-full z-20 mt-1 w-56 rounded-md border border-slate-200 bg-white shadow-lg dark:border-slate-700 dark:bg-slate-800">
+                  <div className="p-1.5">
+                    <input
+                      autoFocus
+                      placeholder="Search versions…"
+                      value={versionSearch}
+                      onChange={(e) => setVersionSearch(e.target.value)}
+                      className="w-full rounded border border-slate-200 px-2 py-1 text-xs outline-none focus:border-blue-400 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100"
+                    />
+                  </div>
+                  <div className="max-h-48 overflow-y-auto">
+                    {/* Clear option */}
+                    <button
+                      className="flex w-full items-center px-3 py-1.5 text-left text-xs text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700"
+                      onClick={() => {
+                        setVersionPickerOpen(false);
+                        updateFixVersion.mutate({
+                          issueKey: execution.jira.key,
+                          versionId: "",
+                          executionProjectKey: execProjectKey ?? "",
+                        });
+                      }}
+                    >
+                      — clear —
+                    </button>
+                    {(projectVersions ?? [])
+                      .filter(
+                        (v: JiraVersion) =>
+                          !versionSearch ||
+                          v.name.toLowerCase().includes(versionSearch.toLowerCase()),
+                      )
+                      .map((v: JiraVersion) => (
+                        <button
+                          key={v.id}
+                          className="flex w-full items-center px-3 py-1.5 text-left text-xs hover:bg-slate-50 dark:hover:bg-slate-700"
+                          onClick={() => {
+                            setVersionPickerOpen(false);
+                            updateFixVersion.mutate({
+                              issueKey: execution.jira.key,
+                              versionId: v.id,
+                              executionProjectKey: execProjectKey ?? "",
+                            });
+                          }}
+                        >
+                          {v.name}
+                        </button>
+                      ))}
+                    {projectVersions?.length === 0 && (
+                      <p className="px-3 py-2 text-xs text-slate-400">No versions found</p>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       </div>
 

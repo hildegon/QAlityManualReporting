@@ -1503,6 +1503,7 @@ export function VersionsPage() {
   const [selectedVersion, setSelectedVersion] = useState<JiraVersion | null>(null);
   const [selectedExecution, setSelectedExecution] = useState<TestExecution | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [versionFilter, setVersionFilter] = useState("");
 
   const handleBack = () => setSelectedExecution(null);
 
@@ -1594,14 +1595,24 @@ export function VersionsPage() {
   }
 
   const allVersions = versions ?? [];
+  const filterQ = versionFilter.trim().toLowerCase();
   const favouriteVersions = allVersions.filter(
-    (v) => executionProjectKey && isFavourite(executionProjectKey, v.id),
+    (v) =>
+      executionProjectKey &&
+      isFavourite(executionProjectKey, v.id) &&
+      (!filterQ || v.name.toLowerCase().includes(filterQ)),
   );
   const activeVersions = allVersions.filter(
-    (v) => !v.archived && !(executionProjectKey && isFavourite(executionProjectKey, v.id)),
+    (v) =>
+      !v.archived &&
+      !(executionProjectKey && isFavourite(executionProjectKey, v.id)) &&
+      (!filterQ || v.name.toLowerCase().includes(filterQ)),
   );
   const archivedVersions = allVersions.filter(
-    (v) => v.archived && !(executionProjectKey && isFavourite(executionProjectKey, v.id)),
+    (v) =>
+      v.archived &&
+      !(executionProjectKey && isFavourite(executionProjectKey, v.id)) &&
+      (!filterQ || v.name.toLowerCase().includes(filterQ)),
   );
 
   function handleToggleFavourite(e: React.MouseEvent, version: JiraVersion) {
@@ -1621,7 +1632,7 @@ export function VersionsPage() {
   return (
     <div className="flex h-full gap-6">
       {/* Sidebar — version list */}
-      <div className="w-60 shrink-0 space-y-1 overflow-y-auto">
+      <div className="w-72 shrink-0 space-y-1 overflow-y-auto">
         <div className="mb-2 flex items-center justify-between">
           <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">Versions</p>
           <button
@@ -1632,6 +1643,27 @@ export function VersionsPage() {
           >
             <RefreshCw className={cn("h-3.5 w-3.5", isRefreshing && "animate-spin")} />
           </button>
+        </div>
+
+        {/* Filter input */}
+        <div className="relative mb-3">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+          <input
+            type="text"
+            placeholder="Filter versions…"
+            value={versionFilter}
+            onChange={(e) => setVersionFilter(e.target.value)}
+            className="w-full rounded-md border border-slate-200 bg-white py-1.5 pl-8 pr-3 text-sm text-slate-700 placeholder:text-slate-400 focus:border-slate-400 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:placeholder:text-slate-500 dark:focus:border-slate-500"
+          />
+          {versionFilter && (
+            <button
+              onClick={() => setVersionFilter("")}
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300"
+              aria-label="Clear filter"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          )}
         </div>
 
         {favouriteVersions.length > 0 && (

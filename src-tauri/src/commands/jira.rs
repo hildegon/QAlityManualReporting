@@ -130,6 +130,22 @@ pub async fn update_issue_summary(
         .map_err(format_err)
 }
 
+/// Update the fix version of any Jira issue (Test Plan, Test Set, Test Execution, etc.).
+///
+/// Pass an empty string for `version_id` to clear all fix versions.
+#[tauri::command]
+pub async fn update_issue_fix_version(
+    app: AppHandle,
+    issue_key: String,
+    version_id: String,
+) -> Result<(), String> {
+    let client = make_jira_client(&app)?;
+    client
+        .update_issue_fix_version(&issue_key, &version_id)
+        .await
+        .map_err(format_err)
+}
+
 /// Fetch all issue link types configured in the Jira instance.
 #[tauri::command]
 pub async fn get_issue_link_types(app: AppHandle) -> Result<Vec<IssueLinkType>, String> {

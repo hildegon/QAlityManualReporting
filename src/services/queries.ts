@@ -208,6 +208,28 @@ export function useUpdateAssignee() {
   });
 }
 
+// ── Update Jira issue fix version ────────────────────────────────────────────
+
+interface UpdateExecutionFixVersionVars {
+  issueKey: string;
+  versionId: string;
+  /** Execution project key — used to invalidate the executions list on success. */
+  executionProjectKey: string;
+}
+
+/** Update (or clear) the fix version of a Test Execution and invalidate the executions list. */
+export function useUpdateExecutionFixVersion() {
+  const queryClient = useQueryClient();
+  return useMutation<void, Error, UpdateExecutionFixVersionVars>({
+    mutationFn: ({ issueKey, versionId }) => api.updateIssueFixVersion(issueKey, versionId),
+    onSuccess: (_data, { executionProjectKey }) => {
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.testExecutions(executionProjectKey),
+      });
+    },
+  });
+}
+
 // ── Test Plans ────────────────────────────────────────────────────────────────
 
 export function useTestPlans(projectKey: string | null) {
