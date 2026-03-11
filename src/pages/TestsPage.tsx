@@ -1,4 +1,6 @@
-import { useState, useMemo, useRef, useCallback, useEffect } from "react";
+import { memo, useState, useMemo, useRef, useCallback, useEffect } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import {
   useGetTests,
   useGetTestSets,
@@ -24,6 +26,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
+  AlertTriangle,
   FlaskConical,
   Layers,
   Search,
@@ -45,9 +48,16 @@ import type { XrayTest, XrayTestSet } from "@/types";
 
 // ── Drag ghost ────────────────────────────────────────────────────────────────
 
-function DragGhost({ drag }: { drag: DragState }) {
+function DragGhost({
+  drag,
+  ghostRef,
+}: {
+  drag: DragState;
+  ghostRef: (el: HTMLElement | null) => void;
+}) {
   return (
     <div
+      ref={ghostRef}
       className="pointer-events-none fixed z-50 flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-700 px-3 py-2 text-xs font-medium text-white shadow-lg"
       style={{ left: drag.x + 12, top: drag.y - 14 }}
     >
@@ -67,7 +77,13 @@ interface TestRowProps {
   onMouseDown: (e: React.MouseEvent) => void;
 }
 
-function TestRow({ test, selected, memberOf, onToggle, onMouseDown }: TestRowProps) {
+const TestRow = memo(function TestRow({
+  test,
+  selected,
+  memberOf,
+  onToggle,
+  onMouseDown,
+}: TestRowProps) {
   return (
     <div
       onMouseDown={onMouseDown}
@@ -125,7 +141,7 @@ function TestRow({ test, selected, memberOf, onToggle, onMouseDown }: TestRowPro
       />
     </div>
   );
-}
+});
 
 // ── Left panel: all tests ─────────────────────────────────────────────────────
 
@@ -133,6 +149,7 @@ interface TestsPanelProps {
   projectKey: string;
   selectedIds: Set<string>;
   membership: Map<string, TestSetInfo[]>;
+  enabled: boolean;
   onToggle: (id: string) => void;
   onSelectAll: (ids: string[]) => void;
   onClearAll: () => void;
@@ -144,14 +161,19 @@ function TestsPanel({
   projectKey,
   selectedIds,
   membership,
+  enabled,
   onToggle,
   onSelectAll,
   onClearAll,
   onBeginDrag,
   onRegisterReload,
 }: TestsPanelProps) {
-  const { data: tests, isLoading, isError, error, refetch } = useGetTests(projectKey);
-  onRegisterReload(refetch);
+  const { data: tests, isLoading, isError, error, refetch } = useGetTests(projectKey, enabled);
+
+  useEffect(() => {
+    onRegisterReload(refetch);
+  }, [onRegisterReload, refetch]);
+
   const [search, setSearch] = useState("");
 
   const q = search.trim().toLowerCase();
@@ -164,9 +186,19 @@ function TestsPanel({
     [tests, q],
   );
 
-  const filteredIds = filtered.map((t) => t.issue_id);
+  const filteredIds = useMemo(() => filtered.map((t) => t.issue_id), [filtered]);
   const allFilteredSelected =
     filteredIds.length > 0 && filteredIds.every((id) => selectedIds.has(id));
+
+  // ── Virtualized test list ──────────────────────────────────────────────────
+  const parentRef = useRef<HTMLDivElement>(null);
+  const virtualizer = useVirtualizer({
+    count: filtered.length,
+    getScrollElement: () => parentRef.current,
+    estimateSize: () => 44,
+    overscan: 15,
+    getItemKey: (index) => filtered[index]?.issue_id ?? index,
+  });
 
   /** We track mousedown start position so we only begin a drag after 5px of movement. */
   const mouseDownRef = useRef<{
@@ -212,9 +244,22 @@ function TestsPanel({
     };
   }, [selectedIds, onBeginDrag]);
 
+  if (!enabled && !tests) {
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-3 text-sm text-slate-400">
+        <FlaskConical className="h-8 w-8 text-slate-300" />
+        <p>Confirm loading to fetch tests.</p>
+      </div>
+    );
+  }
+
   if (isLoading) {
     return (
       <div className="flex h-full flex-col gap-3">
+        <div className="flex items-center gap-2 text-sm text-slate-500">
+          <Spinner size="sm" />
+          <span>Loading tests from Xray…</span>
+        </div>
         <Skeleton className="h-8 w-full" />
         {Array.from({ length: 8 }).map((_, i) => (
           <div
@@ -254,7 +299,7 @@ function TestsPanel({
 
       {/* Select-all / clear */}
       <div className="flex items-center justify-between text-xs text-slate-500">
-        <span>
+        <span className="flex items-center gap-1.5">
           {filtered.length} test{filtered.length !== 1 ? "s" : ""}
           {selectedIds.size > 0 && (
             <span className="ml-1.5 rounded-full bg-slate-700 px-1.5 py-0.5 text-white">
@@ -273,23 +318,49 @@ function TestsPanel({
         )}
       </div>
 
-      {/* List */}
-      <div className="flex-1 space-y-1.5 overflow-y-auto">
+      {/* List (virtualised) */}
+      <div ref={parentRef} className="flex-1 overflow-y-auto">
         {filtered.length === 0 ? (
           <p className="py-6 text-center text-sm italic text-slate-400">
             {q ? "No tests match the filter." : `No tests found in ${projectKey}.`}
           </p>
         ) : (
-          filtered.map((test) => (
-            <TestRow
-              key={test.issue_id}
-              test={test}
-              selected={selectedIds.has(test.issue_id)}
-              memberOf={membership.get(test.issue_id) ?? []}
-              onToggle={() => onToggle(test.issue_id)}
-              onMouseDown={(e) => handleMouseDown(e, test)}
-            />
-          ))
+          <div
+            style={{
+              height: virtualizer.getTotalSize(),
+              width: "100%",
+              position: "relative",
+            }}
+          >
+            {virtualizer.getVirtualItems().map((virtualRow) => {
+              const test = filtered[virtualRow.index];
+              if (!test) return null;
+              return (
+                <div
+                  key={virtualRow.key}
+                  data-index={virtualRow.index}
+                  ref={virtualizer.measureElement}
+                  style={{
+                    position: "absolute",
+                    top: 0,
+                    left: 0,
+                    width: "100%",
+                    transform: `translateY(${virtualRow.start}px)`,
+                  }}
+                >
+                  <div className="pb-1.5">
+                    <TestRow
+                      test={test}
+                      selected={selectedIds.has(test.issue_id)}
+                      memberOf={membership.get(test.issue_id) ?? []}
+                      onToggle={() => onToggle(test.issue_id)}
+                      onMouseDown={(e) => handleMouseDown(e, test)}
+                    />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         )}
       </div>
 
@@ -317,7 +388,7 @@ interface TestSetDropTargetProps {
   onToast: (msg: string, variant: "success" | "error") => void;
 }
 
-function TestSetDropTarget({
+const TestSetDropTarget = memo(function TestSetDropTarget({
   testSet,
   isExpanded,
   isDragging,
@@ -537,7 +608,7 @@ function TestSetDropTarget({
       )}
     </div>
   );
-}
+});
 
 // ── Right panel: test sets ────────────────────────────────────────────────────
 
@@ -561,7 +632,11 @@ function TestSetsPanel({
   onToast,
 }: TestSetsPanelProps) {
   const { data: testSets, isLoading, isError, error, refetch } = useGetTestSets(projectKey);
-  onRegisterReload(refetch);
+
+  useEffect(() => {
+    onRegisterReload(refetch);
+  }, [onRegisterReload, refetch]);
+
   const [search, setSearch] = useState("");
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
@@ -578,6 +653,10 @@ function TestSetsPanel({
   if (isLoading) {
     return (
       <div className="flex h-full flex-col gap-3">
+        <div className="flex items-center gap-2 text-sm text-slate-500">
+          <Spinner size="sm" />
+          <span>Loading test sets from Xray…</span>
+        </div>
         <Skeleton className="h-8 w-full" />
         {Array.from({ length: 5 }).map((_, i) => (
           <div
@@ -709,7 +788,7 @@ function CreateTestSetDialog({ open, onOpenChange, projectKey }: CreateTestSetDi
         <Dialog.Content className="fixed left-1/2 top-1/2 w-full max-w-md -translate-x-1/2 -translate-y-1/2 rounded-xl bg-white shadow-xl dark:bg-slate-800">
           {/* Header */}
           <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4 dark:border-slate-700">
-            <Dialog.Title className="text-lg font-semibold">New Test Set</Dialog.Title>
+            <Dialog.Title className="text-lg font-semibold dark:text-slate-100">New Test Set</Dialog.Title>
             <Dialog.Close asChild>
               <button
                 className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-700 dark:text-slate-400"
@@ -882,13 +961,21 @@ function CreateTestSetDialog({ open, onOpenChange, projectKey }: CreateTestSetDi
 
 export function TestsPage() {
   const projectKey = useContentProjectKey();
+  const queryClient = useQueryClient();
   const addTestsToTestSet = useAddTestsToTestSet();
   const { membership } = useTestSetMembership(projectKey);
 
+  /* Check whether we already have cached test data for this project.
+     If so, skip the warning dialog — data is already in memory. */
+  const hasCachedTests = !!queryClient.getQueryData(queryKeys.tests(projectKey ?? ""));
+
+  // true = user confirmed loading | null = user dismissed/cancelled (page shown, tests not loaded) | false = dialog not yet answered
+  const [loadConfirmed, setLoadConfirmed] = useState<boolean | null>(hasCachedTests ? true : false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [pendingSetId, setPendingSetId] = useState<string | null>(null);
   const [toast, setToast] = useState<ToastMessage | null>(null);
-  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isRefreshingTests, setIsRefreshingTests] = useState(false);
+  const [isRefreshingTestSets, setIsRefreshingTestSets] = useState(false);
   const [createSetOpen, setCreateSetOpen] = useState(false);
 
   const testsRefetchRef = useRef<(() => Promise<unknown>) | null>(null);
@@ -929,14 +1016,47 @@ export function TestsPage() {
 
   const {
     drag,
+    ghostRef,
     hoveredTargetId: hoveredSetId,
     startDrag,
   } = useDragAndDrop(dropTargetRefs, handleDropTests);
 
-  const handleReload = useCallback(async () => {
-    setIsRefreshing(true);
-    await Promise.all([testsRefetchRef.current?.(), testSetsRefetchRef.current?.()]);
-    setIsRefreshing(false);
+  const handleReloadTests = useCallback(async () => {
+    setIsRefreshingTests(true);
+    await testsRefetchRef.current?.();
+    setIsRefreshingTests(false);
+  }, []);
+
+  const handleReloadTestSets = useCallback(async () => {
+    setIsRefreshingTestSets(true);
+    await testSetsRefetchRef.current?.();
+    setIsRefreshingTestSets(false);
+  }, []);
+
+  const handleToggle = useCallback(
+    (id: string) => {
+      // Don't toggle if we just finished a drag.
+      if (drag) return;
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        if (next.has(id)) next.delete(id);
+        else next.add(id);
+        return next;
+      });
+    },
+    [drag],
+  );
+
+  const handleSelectAll = useCallback((ids: string[]) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      for (const id of ids) next.add(id);
+      return next;
+    });
+  }, []);
+
+  const handleClearAll = useCallback(() => {
+    setSelectedIds(new Set());
   }, []);
 
   if (!projectKey) {
@@ -945,31 +1065,55 @@ export function TestsPage() {
     );
   }
 
-  function handleToggle(id: string) {
-    // Don't toggle if we just finished a drag.
-    if (drag) return;
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }
-
-  function handleSelectAll(ids: string[]) {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      for (const id of ids) next.add(id);
-      return next;
-    });
-  }
-
-  function handleClearAll() {
-    setSelectedIds(new Set());
-  }
-
   return (
     <>
+      {/* ── Warning dialog (shown once per launch when tests aren't cached) ── */}
+      <Dialog.Root
+        open={loadConfirmed === false}
+        onOpenChange={(open) => {
+          if (!open) setLoadConfirmed(null); // null = dismissed (page shown, tests not loaded)
+        }}
+      >
+        <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 z-50 bg-black/50" />
+          <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-full max-w-md -translate-x-1/2 -translate-y-1/2 rounded-lg border border-slate-200 bg-white p-6 shadow-lg dark:border-slate-700 dark:bg-slate-900">
+            <div className="flex items-start gap-3">
+              <AlertTriangle className="mt-0.5 h-6 w-6 shrink-0 text-amber-500" />
+              <div className="space-y-3">
+                <Dialog.Title className="text-lg font-semibold dark:text-slate-100">
+                  Load all tests?
+                </Dialog.Title>
+                <Dialog.Description className="text-sm leading-relaxed text-slate-600 dark:text-slate-400">
+                  Loading every test for{" "}
+                  <span className="font-medium text-slate-800 dark:text-slate-200">
+                    {projectKey}
+                  </span>{" "}
+                  requires fetching all pages from the Xray API. Depending on the number of tests
+                  this can take a <span className="font-medium">significant amount of time</span>.
+                </Dialog.Description>
+                <p className="text-sm leading-relaxed text-slate-600 dark:text-slate-400">
+                  The results are cached for the rest of this session, so this is a{" "}
+                  <span className="font-medium text-slate-800 dark:text-slate-200">
+                    one-time operation per app launch
+                  </span>{" "}
+                  unless you explicitly reload.
+                </p>
+                <div className="flex items-center justify-end gap-2 pt-2">
+                  <Dialog.Close asChild>
+                    <Button variant="outline" size="sm">
+                      Cancel
+                    </Button>
+                  </Dialog.Close>
+                  <Button size="sm" onClick={() => setLoadConfirmed(true)}>
+                    Load Tests
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
+
       {/* Header */}
       <div className="mb-4 flex items-center justify-between">
         <div className="flex items-center gap-2">
@@ -984,14 +1128,6 @@ export function TestsPage() {
             <Plus className="h-4 w-4" />
             New Test Set
           </Button>
-          <button
-            onClick={() => void handleReload()}
-            disabled={isRefreshing}
-            title="Reload tests and test sets"
-            className="rounded p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 disabled:opacity-40 dark:hover:bg-slate-700 dark:text-slate-400"
-          >
-            <RefreshCw className={cn("h-4 w-4", isRefreshing && "animate-spin")} />
-          </button>
         </div>
       </div>
 
@@ -999,14 +1135,25 @@ export function TestsPage() {
       <div className="flex h-[calc(100vh-10rem)] gap-6">
         {/* Left: all tests */}
         <div className="flex min-w-0 flex-1 flex-col">
-          <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-400">
-            All Tests
-          </p>
+          <div className="mb-3 flex items-center justify-between">
+            <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+              All Tests
+            </p>
+            <button
+              onClick={() => void handleReloadTests()}
+              disabled={isRefreshingTests || !loadConfirmed}
+              title="Reload tests"
+              className="rounded p-1 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 disabled:opacity-40 dark:hover:bg-slate-700 dark:text-slate-400"
+            >
+              <RefreshCw className={cn("h-3.5 w-3.5", isRefreshingTests && "animate-spin")} />
+            </button>
+          </div>
           <div className="flex-1 overflow-hidden">
             <TestsPanel
               projectKey={projectKey}
               selectedIds={selectedIds}
               membership={membership}
+              enabled={loadConfirmed === true}
               onToggle={handleToggle}
               onSelectAll={handleSelectAll}
               onClearAll={handleClearAll}
@@ -1023,9 +1170,19 @@ export function TestsPage() {
 
         {/* Right: test sets */}
         <div className="flex min-w-0 flex-1 flex-col">
-          <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-400">
-            Test Sets
-          </p>
+          <div className="mb-3 flex items-center justify-between">
+            <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+              Test Sets
+            </p>
+            <button
+              onClick={() => void handleReloadTestSets()}
+              disabled={isRefreshingTestSets}
+              title="Reload test sets"
+              className="rounded p-1 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 disabled:opacity-40 dark:hover:bg-slate-700 dark:text-slate-400"
+            >
+              <RefreshCw className={cn("h-3.5 w-3.5", isRefreshingTestSets && "animate-spin")} />
+            </button>
+          </div>
           <div className="flex-1 overflow-hidden">
             <TestSetsPanel
               projectKey={projectKey}
@@ -1043,7 +1200,7 @@ export function TestsPage() {
       </div>
 
       {/* Floating drag ghost */}
-      {drag && <DragGhost drag={drag} />}
+      {drag && <DragGhost drag={drag} ghostRef={ghostRef} />}
 
       <Toast message={toast} />
 

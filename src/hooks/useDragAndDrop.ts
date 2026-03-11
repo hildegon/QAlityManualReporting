@@ -8,6 +8,11 @@ import { useState, useRef, useCallback, useEffect } from "react";
  * implements the same behaviour using mousedown → mousemove → mouseup
  * with a floating ghost element rendered by the caller.
  *
+ * Performance: the ghost position is updated via direct DOM manipulation
+ * (bypassing React state) so that mousemove events (~60fps) do NOT
+ * trigger component re-renders. React state is only set on drag start
+ * and drag end.
+ *
  * @param dropTargetRefs  A ref-map from target-id → DOM element. The hook
  *                        performs hit-testing against these elements on every
  *                        mouse-move and calls `onDrop` when the mouse is
@@ -16,8 +21,10 @@ import { useState, useRef, useCallback, useEffect } from "react";
  *                        valid target.
  *
  * @returns
- *   - `drag`           Current drag state, or null when idle. Pass to your
- *                      `<DragGhost drag={drag} />` component.
+ *   - `drag`           Current drag state, or null when idle. Only changes on
+ *                      drag start/end — use to conditionally render the ghost.
+ *   - `ghostRef`       Callback ref — attach to the ghost DOM element so the
+ *                      hook can update its position directly.
  *   - `hoveredTargetId` The drop-target currently under the cursor, or null.
  *   - `startDrag`      Call this from an item's `onMouseDown` handler, passing
  *                      the ids being dragged and the mouse event.
@@ -35,6 +42,12 @@ export function useDragAndDrop(
   const [drag, setDrag] = useState<DragState | null>(null);
   const [hoveredTargetId, setHoveredTargetId] = useState<string | null>(null);
   const dragRef = useRef<DragState | null>(null);
+  const ghostElRef = useRef<HTMLElement | null>(null);
+
+  /** Callback ref for the ghost element — attach via `ref={ghostRef}`. */
+  const ghostRef = useCallback((el: HTMLElement | null) => {
+    ghostElRef.current = el;
+  }, []);
 
   const startDrag = useCallback((ids: string[], e: React.MouseEvent) => {
     e.preventDefault();
@@ -46,9 +59,13 @@ export function useDragAndDrop(
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
       if (!dragRef.current) return;
-      const next: DragState = { ...dragRef.current, x: e.pageX, y: e.pageY };
-      dragRef.current = next;
-      setDrag(next);
+      dragRef.current = { ...dragRef.current, x: e.pageX, y: e.pageY };
+
+      // Update ghost position directly via DOM — no React re-render.
+      if (ghostElRef.current) {
+        ghostElRef.current.style.left = `${e.pageX + 12}px`;
+        ghostElRef.current.style.top = `${e.pageY - 14}px`;
+      }
 
       // Hit-test all registered drop targets.
       let hit: string | null = null;
@@ -101,5 +118,5 @@ export function useDragAndDrop(
     };
   }, [dropTargetRefs, onDrop]);
 
-  return { drag, hoveredTargetId, startDrag };
+  return { drag, ghostRef, hoveredTargetId, startDrag };
 }

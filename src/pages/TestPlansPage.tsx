@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect, useMemo } from "react";
+import { memo, useState, useRef, useCallback, useEffect, useMemo } from "react";
 import {
   useTestPlans,
   useGetTestPlanTests,
@@ -46,9 +46,16 @@ import * as api from "@/services/tauri";
 
 // ── Drag ghost ────────────────────────────────────────────────────────────────
 
-function DragGhost({ drag }: { drag: DragState }) {
+function DragGhost({
+  drag,
+  ghostRef,
+}: {
+  drag: DragState;
+  ghostRef: (el: HTMLElement | null) => void;
+}) {
   return (
     <div
+      ref={ghostRef}
       className="pointer-events-none fixed z-50 flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-700 px-3 py-2 text-xs font-medium text-white shadow-lg"
       style={{ left: drag.x + 12, top: drag.y - 14 }}
     >
@@ -67,7 +74,12 @@ interface TestSetRowProps {
   onMouseDown: (e: React.MouseEvent) => void;
 }
 
-function TestSetRow({ testSet, selected, onToggle, onMouseDown }: TestSetRowProps) {
+const TestSetRow = memo(function TestSetRow({
+  testSet,
+  selected,
+  onToggle,
+  onMouseDown,
+}: TestSetRowProps) {
   return (
     <div
       onMouseDown={onMouseDown}
@@ -93,7 +105,7 @@ function TestSetRow({ testSet, selected, onToggle, onMouseDown }: TestSetRowProp
       />
     </div>
   );
-}
+});
 
 // ── Left panel: all test sets ─────────────────────────────────────────────────
 
@@ -117,7 +129,10 @@ function TestSetsSourcePanel({
   onRegisterReload,
 }: TestSetsPanelProps) {
   const { data: testSets, isLoading, isError, error, refetch } = useGetTestSets(projectKey);
-  onRegisterReload(refetch);
+
+  useEffect(() => {
+    onRegisterReload(refetch);
+  }, [onRegisterReload, refetch]);
 
   const [search, setSearch] = useState("");
   const q = search.trim().toLowerCase();
@@ -130,7 +145,7 @@ function TestSetsSourcePanel({
     [testSets, q],
   );
 
-  const filteredIds = filtered.map((ts) => ts.issue_id);
+  const filteredIds = useMemo(() => filtered.map((ts) => ts.issue_id), [filtered]);
   const allFilteredSelected =
     filteredIds.length > 0 && filteredIds.every((id) => selectedIds.has(id));
 
@@ -171,6 +186,10 @@ function TestSetsSourcePanel({
   if (isLoading) {
     return (
       <div className="flex h-full flex-col gap-3">
+        <div className="flex items-center gap-2 text-sm text-slate-500">
+          <Spinner size="sm" />
+          <span>Loading test sets from Xray…</span>
+        </div>
         <Skeleton className="h-8 w-full" />
         {Array.from({ length: 6 }).map((_, i) => (
           <div
@@ -267,7 +286,7 @@ interface TestPlanDropTargetProps {
   onToast: (msg: string, variant: "success" | "error") => void;
 }
 
-function TestPlanDropTarget({
+const TestPlanDropTarget = memo(function TestPlanDropTarget({
   testPlan,
   isExpanded,
   isDragging,
@@ -491,7 +510,7 @@ function TestPlanDropTarget({
       )}
     </div>
   );
-}
+});
 
 // ── Right panel: test plans ───────────────────────────────────────────────────
 
@@ -515,7 +534,11 @@ function TestPlansDropPanel({
   onToast,
 }: TestPlansPanelProps) {
   const { data: plans, isLoading, isError, error, refetch } = useTestPlans(projectKey);
-  onRegisterReload(refetch);
+
+  useEffect(() => {
+    onRegisterReload(refetch);
+  }, [onRegisterReload, refetch]);
+
   const [search, setSearch] = useState("");
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
@@ -532,6 +555,10 @@ function TestPlansDropPanel({
   if (isLoading) {
     return (
       <div className="flex h-full flex-col gap-3">
+        <div className="flex items-center gap-2 text-sm text-slate-500">
+          <Spinner size="sm" />
+          <span>Loading test plans from Xray…</span>
+        </div>
         <Skeleton className="h-8 w-full" />
         {Array.from({ length: 5 }).map((_, i) => (
           <div
@@ -678,7 +705,7 @@ function CreatePlanDialog({ open, onOpenChange, projectKey }: CreatePlanDialogPr
         <Dialog.Content className="fixed left-1/2 top-1/2 flex max-h-[90vh] w-full max-w-lg -translate-x-1/2 -translate-y-1/2 flex-col rounded-xl bg-white shadow-xl dark:bg-slate-800">
           {/* Header */}
           <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4 dark:border-slate-700">
-            <Dialog.Title className="text-lg font-semibold">New Test Plan</Dialog.Title>
+            <Dialog.Title className="text-lg font-semibold dark:text-slate-100">New Test Plan</Dialog.Title>
             <Dialog.Close asChild>
               <button
                 className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-700 dark:text-slate-400"
@@ -1040,36 +1067,40 @@ export function TestPlansPage() {
 
   const {
     drag,
+    ghostRef,
     hoveredTargetId: hoveredPlanId,
     startDrag,
   } = useDragAndDrop(dropTargetRefs, handleDropSets);
 
-  if (!projectKey) {
-    return (
-      <EmptyState icon={BookOpen} message="Set a Project Key in Settings to view test plans." />
-    );
-  }
+  const handleToggle = useCallback(
+    (id: string) => {
+      if (drag) return;
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        if (next.has(id)) next.delete(id);
+        else next.add(id);
+        return next;
+      });
+    },
+    [drag],
+  );
 
-  function handleToggle(id: string) {
-    if (drag) return;
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }
-
-  function handleSelectAll(ids: string[]) {
+  const handleSelectAll = useCallback((ids: string[]) => {
     setSelectedIds((prev) => {
       const next = new Set(prev);
       for (const id of ids) next.add(id);
       return next;
     });
-  }
+  }, []);
 
-  function handleClearAll() {
+  const handleClearAll = useCallback(() => {
     setSelectedIds(new Set());
+  }, []);
+
+  if (!projectKey) {
+    return (
+      <EmptyState icon={BookOpen} message="Set a Project Key in Settings to view test plans." />
+    );
   }
 
   return (
@@ -1146,7 +1177,7 @@ export function TestPlansPage() {
       </div>
 
       {/* Floating drag ghost */}
-      {drag && <DragGhost drag={drag} />}
+      {drag && <DragGhost drag={drag} ghostRef={ghostRef} />}
 
       <Toast message={toast} />
 

@@ -123,7 +123,9 @@ export function useGetTests(projectKey: string | undefined) {
     queryKey: queryKeys.tests(projectKey ?? ""),
     queryFn: () => api.getTests(projectKey!),
     enabled: !!projectKey,
-    staleTime: 5 * 60 * 1_000,
+    staleTime: Infinity,
+    gcTime: Infinity,
+    meta: { persist: true },
   });
 }
 
@@ -132,7 +134,9 @@ export function useGetTestSets(projectKey: string | undefined) {
     queryKey: queryKeys.testSets(projectKey ?? ""),
     queryFn: () => api.getTestSets(projectKey!),
     enabled: !!projectKey,
-    staleTime: 5 * 60 * 1_000,
+    staleTime: Infinity,
+    gcTime: Infinity,
+    meta: { persist: true },
   });
 }
 
@@ -491,8 +495,18 @@ export function useCreateTestSet() {
   >({
     mutationFn: ({ projectKey, summary, component }) =>
       api.createTestSet(projectKey, summary, component),
-    onSuccess: (_data, { projectKey }) => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.testSets(projectKey) });
+    onSuccess: (data, { projectKey }) => {
+      // Append the new test set directly into the cache instead of
+      // invalidating + refetching all test sets from Xray (very expensive).
+      if (data.test_set) {
+        const newSet: XrayTestSet = {
+          issue_id: data.test_set.issue_id,
+          jira: data.test_set.jira,
+        };
+        queryClient.setQueryData<XrayTestSet[]>(queryKeys.testSets(projectKey), (old) =>
+          old ? [...old, newSet] : [newSet],
+        );
+      }
     },
   });
 }
