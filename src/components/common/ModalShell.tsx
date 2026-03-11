@@ -44,7 +44,7 @@ export function ModalShell({
           {/* Header */}
           <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4 dark:border-slate-700">
             <div>
-              <Dialog.Title className="text-lg font-semibold">{title}</Dialog.Title>
+              <Dialog.Title className="text-lg font-semibold dark:text-slate-100">{title}</Dialog.Title>
               {subtitle && (
                 <p className="mt-0.5 font-mono text-xs text-slate-500 dark:text-slate-400">
                   {subtitle}

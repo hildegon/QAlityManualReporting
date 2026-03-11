@@ -341,13 +341,9 @@ pub async fn get_tests(
     app: AppHandle,
     state: State<'_, XrayClientState>,
     project_key: String,
-    limit: Option<u32>,
 ) -> Result<Vec<XrayTest>, String> {
     let client = get_xray_client(&app, &state).await?;
-    client
-        .get_tests(&project_key, limit.unwrap_or(100))
-        .await
-        .map_err(format_err)
+    client.get_tests(&project_key).await.map_err(format_err)
 }
 
 #[tauri::command]
@@ -355,13 +351,9 @@ pub async fn get_test_sets(
     app: AppHandle,
     state: State<'_, XrayClientState>,
     project_key: String,
-    limit: Option<u32>,
 ) -> Result<Vec<XrayTestSet>, String> {
     let client = get_xray_client(&app, &state).await?;
-    client
-        .get_test_sets(&project_key, limit.unwrap_or(100))
-        .await
-        .map_err(format_err)
+    client.get_test_sets(&project_key).await.map_err(format_err)
 }
 
 #[tauri::command]
@@ -400,11 +392,10 @@ pub async fn get_all_test_set_memberships(
     app: AppHandle,
     state: State<'_, XrayClientState>,
     project_key: String,
-    limit: Option<u32>,
 ) -> Result<TestSetMembershipsResponse, String> {
     let client = get_xray_client(&app, &state).await?;
     client
-        .get_all_test_set_memberships(&project_key, limit.unwrap_or(100))
+        .get_all_test_set_memberships(&project_key)
         .await
         .map_err(format_err)
 }

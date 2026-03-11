@@ -628,14 +628,21 @@ export function TestExecutionDetail({
 
   // ── Progress summary (over filtered runs) ──────────────────────────────────
   const total = filteredRuns.length;
-  const rawCounts = filteredRuns.reduce<Record<string, number>>((acc, run) => {
-    const name = run.status.name.toUpperCase();
-    acc[name] = (acc[name] ?? 0) + 1;
-    return acc;
-  }, {});
-  // buildSlicesFromCounts merges aliases (PASSED→PASS, NOT RUN→TODO, etc.) and
-  // keeps N/A and any other custom status as its own distinct slice.
-  const summarySlices = buildSlicesFromCounts(rawCounts, total);
+  const summarySlices = useMemo(() => {
+    const rawCounts = filteredRuns.reduce<Record<string, number>>((acc, run) => {
+      const name = run.status.name.toUpperCase();
+      acc[name] = (acc[name] ?? 0) + 1;
+      return acc;
+    }, {});
+    // buildSlicesFromCounts merges aliases (PASSED→PASS, NOT RUN→TODO, etc.) and
+    // keeps N/A and any other custom status as its own distinct slice.
+    return buildSlicesFromCounts(rawCounts, total);
+  }, [filteredRuns, total]);
+
+  const noSetCount = useMemo(
+    () => runs.filter((r) => !membership.has(r.test.issue_id)).length,
+    [runs, membership],
+  );
 
   return (
     <div className="flex h-full flex-col">
@@ -657,6 +664,10 @@ export function TestExecutionDetail({
       {/* Loading */}
       {isLoading && (
         <div className="flex flex-col gap-2">
+          <div className="flex items-center gap-2 text-sm text-slate-500">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            <span>Loading test runs from Xray…</span>
+          </div>
           {/* Filter/toolbar skeleton */}
           <div className="flex items-center gap-2 pb-1">
             <Skeleton className="h-8 flex-1" />
@@ -758,24 +769,19 @@ export function TestExecutionDetail({
                     </button>
 
                     {/* "No set" pill — only when some runs have no set */}
-                    {(() => {
-                      const noSetCount = runs.filter(
-                        (r) => !membership.has(r.test.issue_id),
-                      ).length;
-                      return noSetCount > 0 ? (
-                        <button
-                          onClick={() => setTestSetFilter(FILTER_NONE)}
-                          className={cn(
-                            "rounded-full border px-2.5 py-0.5 text-xs font-medium transition-colors",
-                            testSetFilter === FILTER_NONE
-                              ? "border-slate-800 bg-slate-800 text-white"
-                              : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:border-slate-500 dark:hover:bg-slate-700",
-                          )}
-                        >
-                          No set ({noSetCount})
-                        </button>
-                      ) : null;
-                    })()}
+                    {noSetCount > 0 ? (
+                      <button
+                        onClick={() => setTestSetFilter(FILTER_NONE)}
+                        className={cn(
+                          "rounded-full border px-2.5 py-0.5 text-xs font-medium transition-colors",
+                          testSetFilter === FILTER_NONE
+                            ? "border-slate-800 bg-slate-800 text-white"
+                            : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:border-slate-500 dark:hover:bg-slate-700",
+                        )}
+                      >
+                        No set ({noSetCount})
+                      </button>
+                    ) : null}
 
                     {/* One pill per test set that has at least one run in this execution.
                       While pages are still loading we keep every set visible so pills
@@ -968,15 +974,13 @@ export function TestExecutionDetail({
                         transform: `translateY(${virtualRow.start}px)`,
                       }}
                     >
-                      <div className="grid grid-cols-[auto_2fr_1fr_auto_auto] items-center gap-4 border-b border-slate-50 px-4 py-3 last:border-0 hover:bg-slate-50/50 dark:border-slate-700 dark:hover:bg-slate-700/40">
-                        {/* Expand toggle */}
+                      <div className="grid grid-cols-[2fr_1fr_auto_auto] items-center gap-4 border-b border-slate-50 px-4 py-3 last:border-0 hover:bg-slate-50/50 dark:border-slate-700 dark:hover:bg-slate-700/40">
+                        {/* Expand toggle + test identity (unified click target) */}
                         <button
                           onClick={() => hasSteps && toggleExpanded(run.id)}
                           className={cn(
-                            "flex h-5 w-5 items-center justify-center rounded",
-                            hasSteps
-                              ? "text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-700 dark:hover:text-slate-300"
-                              : "cursor-default text-transparent",
+                            "flex min-w-0 items-center gap-2 text-left",
+                            hasSteps ? "cursor-pointer" : "cursor-default",
                           )}
                           aria-label={isExpanded ? "Collapse steps" : "Expand steps"}
                           tabIndex={hasSteps ? 0 : -1}
@@ -987,30 +991,35 @@ export function TestExecutionDetail({
                             }
                           }}
                         >
-                          {hasSteps &&
-                            (isExpanded ? (
-                              <ChevronDown className="h-4 w-4" />
-                            ) : (
-                              <ChevronRight className="h-4 w-4" />
-                            ))}
-                        </button>
-
-                        {/* Test identity */}
-                        <div className="min-w-0">
-                          <p className="truncate text-sm text-slate-800 dark:text-slate-200">
-                            {run.test.jira.summary}
-                          </p>
-                          <p className="font-mono text-xs text-slate-400">
-                            {run.test.jira.key}
-                            {hasSteps && (
-                              <span className="ml-2 text-slate-300 dark:text-slate-600">
-                                {isCucumber
-                                  ? "Cucumber"
-                                  : `${run.steps!.length} step${run.steps!.length !== 1 ? "s" : ""}`}
-                              </span>
+                          <span
+                            className={cn(
+                              "flex h-5 w-5 shrink-0 items-center justify-center rounded",
+                              hasSteps ? "text-slate-400" : "text-transparent",
                             )}
-                          </p>
-                        </div>
+                          >
+                            {hasSteps &&
+                              (isExpanded ? (
+                                <ChevronDown className="h-4 w-4" />
+                              ) : (
+                                <ChevronRight className="h-4 w-4" />
+                              ))}
+                          </span>
+                          <span className="min-w-0">
+                            <p className="truncate text-sm text-slate-800 dark:text-slate-200">
+                              {run.test.jira.summary}
+                            </p>
+                            <p className="font-mono text-xs text-slate-400">
+                              {run.test.jira.key}
+                              {hasSteps && (
+                                <span className="ml-2 text-slate-300 dark:text-slate-600">
+                                  {isCucumber
+                                    ? "Cucumber"
+                                    : `${run.steps!.length} step${run.steps!.length !== 1 ? "s" : ""}`}
+                                </span>
+                              )}
+                            </p>
+                          </span>
+                        </button>
 
                         {/* Current status */}
                         <Badge variant={statusVariant(run.status.name)}>{run.status.name}</Badge>

@@ -299,6 +299,21 @@ pub struct TestsPage {
     pub results: Vec<XrayTest>,
 }
 
+/// Returned by `get_tests` / `get_test_sets` commands.
+///
+/// Contains the first page of results so the UI can render immediately.
+/// If `done` is `false`, remaining pages will be emitted as Tauri events
+/// (`tests:page` / `test-sets:page`) in the background.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FirstPageResult<T> {
+    /// Tests/test-sets in the first page.
+    pub results: Vec<T>,
+    /// Total number of items across all pages.
+    pub total: u32,
+    /// `true` when all items fit in the first page (no background fetching needed).
+    pub done: bool,
+}
+
 // ── Test with latest status (for Coverage page) ───────────────────────────────
 
 /// An Xray test enriched with its latest execution status.

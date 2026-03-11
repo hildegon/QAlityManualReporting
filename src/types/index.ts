@@ -384,3 +384,9 @@ export interface SelectOption {
   value: string;
   label: string;
 }
+
+/**
+ * Returned by `get_tests` / `get_test_sets` Tauri commands.
+ * Contains the first page so the UI can render immediately.
+ * When `done` is `false`, remaining items arrive via background Tauri events.
+ */

@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from "react";
+import { memo, useState, useMemo, useCallback, useRef } from "react";
 import {
   useTestExecutions,
   useCreateTestExecution,
@@ -56,7 +56,7 @@ interface ExecRowProps {
   onClone: (e: React.MouseEvent) => void;
 }
 
-function ExecRow({
+const ExecRow = memo(function ExecRow({
   exec,
   isFavourite,
   renameKey,
@@ -186,7 +186,7 @@ function ExecRow({
       </td>
     </tr>
   );
-}
+});
 
 export function TestExecutionsPage() {
   const executionProjectKey = useExecutionProjectKey();
@@ -211,6 +211,43 @@ export function TestExecutionsPage() {
   const [renameKey, setRenameKey] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
 
+  const q = search.trim().toLowerCase();
+
+  const filtered = useMemo(
+    () =>
+      (executions ?? []).filter((exec) => {
+        if (!showDone && exec.jira.status && isDoneStatus(exec.jira.status.name)) return false;
+        if (!q) return true;
+        return (
+          exec.jira.key.toLowerCase().includes(q) || exec.jira.summary.toLowerCase().includes(q)
+        );
+      }),
+    [executions, showDone, q],
+  );
+
+  const hiddenDoneCount = useMemo(
+    () =>
+      (executions ?? []).filter((exec) => exec.jira.status && isDoneStatus(exec.jira.status.name))
+        .length,
+    [executions],
+  );
+
+  const favouriteExecs = useMemo(
+    () =>
+      executionProjectKey
+        ? filtered.filter((e) => isExecutionFavourite(executionProjectKey, e.issue_id))
+        : [],
+    [executionProjectKey, filtered, isExecutionFavourite],
+  );
+
+  const regularExecs = useMemo(
+    () =>
+      executionProjectKey
+        ? filtered.filter((e) => !isExecutionFavourite(executionProjectKey, e.issue_id))
+        : filtered,
+    [executionProjectKey, filtered, isExecutionFavourite],
+  );
+
   if (!executionProjectKey) {
     return (
       <EmptyState
@@ -227,6 +264,10 @@ export function TestExecutionsPage() {
         <div className="mb-4 flex items-center justify-between">
           <Skeleton className="h-7 w-48" />
           <Skeleton className="h-8 w-20" />
+        </div>
+        <div className="flex items-center gap-2 text-sm text-slate-500">
+          <Spinner size="sm" />
+          <span>Loading test executions from Xray…</span>
         </div>
         {/* Row skeletons mimicking key + summary + badge + assignee */}
         {Array.from({ length: 6 }).map((_, i) => (
@@ -280,24 +321,6 @@ export function TestExecutionsPage() {
       />
     );
   }
-
-  const q = search.trim().toLowerCase();
-  const filtered = (executions ?? []).filter((exec) => {
-    if (!showDone && exec.jira.status && isDoneStatus(exec.jira.status.name)) return false;
-    if (!q) return true;
-    return exec.jira.key.toLowerCase().includes(q) || exec.jira.summary.toLowerCase().includes(q);
-  });
-
-  const hiddenDoneCount = (executions ?? []).filter(
-    (exec) => exec.jira.status && isDoneStatus(exec.jira.status.name),
-  ).length;
-
-  const favouriteExecs = executionProjectKey
-    ? filtered.filter((e) => isExecutionFavourite(executionProjectKey, e.issue_id))
-    : [];
-  const regularExecs = executionProjectKey
-    ? filtered.filter((e) => !isExecutionFavourite(executionProjectKey, e.issue_id))
-    : filtered;
 
   function handleToggleExecFavourite(e: React.MouseEvent, issueId: string) {
     e.stopPropagation();
@@ -624,7 +647,7 @@ function CreateExecutionDialog({
         <Dialog.Content className="fixed left-1/2 top-1/2 flex max-h-[90vh] w-full max-w-xl -translate-x-1/2 -translate-y-1/2 flex-col rounded-xl bg-white shadow-xl dark:bg-slate-800">
           {/* Header */}
           <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4 dark:border-slate-700">
-            <Dialog.Title className="text-lg font-semibold">New Test Execution</Dialog.Title>
+            <Dialog.Title className="text-lg font-semibold dark:text-slate-100">New Test Execution</Dialog.Title>
             <Dialog.Close asChild>
               <button className="rounded p-1 hover:bg-slate-100 dark:hover:bg-slate-700">
                 <X className="h-4 w-4 text-slate-500 dark:text-slate-400" />
@@ -930,7 +953,7 @@ function CloneExecutionDialog({
           {/* Header */}
           <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4 dark:border-slate-700">
             <div>
-              <Dialog.Title className="text-lg font-semibold">Clone Execution</Dialog.Title>
+              <Dialog.Title className="text-lg font-semibold dark:text-slate-100">Clone Execution</Dialog.Title>
               {source && (
                 <p className="mt-0.5 font-mono text-xs text-slate-500 dark:text-slate-400">
                   {source.jira.key}
@@ -1109,7 +1132,7 @@ function EditExecutionDialog({
           {/* Header */}
           <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4 dark:border-slate-700">
             <div>
-              <Dialog.Title className="text-lg font-semibold">Edit Execution</Dialog.Title>
+              <Dialog.Title className="text-lg font-semibold dark:text-slate-100">Edit Execution</Dialog.Title>
               {issueKey && (
                 <p className="mt-0.5 font-mono text-xs text-slate-500 dark:text-slate-400">
                   {issueKey}

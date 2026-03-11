@@ -163,21 +163,18 @@ export const createTestExecution = (
 ): Promise<CreateTestExecutionResult> =>
   invoke("create_test_execution", { projectKey, summary, testPlanId, testIssueIds, description });
 
-export const getTests = (projectKey: string, limit?: number): Promise<XrayTest[]> =>
-  invoke("get_tests", { projectKey, limit });
+export const getTests = (projectKey: string): Promise<XrayTest[]> =>
+  invoke("get_tests", { projectKey });
 
-export const getTestSets = (projectKey: string, limit?: number): Promise<XrayTestSet[]> =>
-  invoke("get_test_sets", { projectKey, limit });
+export const getTestSets = (projectKey: string): Promise<XrayTestSet[]> =>
+  invoke("get_test_sets", { projectKey });
 
 export const getTestSetTests = (issueId: string): Promise<XrayTest[]> =>
   invoke("get_test_set_tests", { issueId });
 
 /** Fetch all test sets and their member tests in a single backend call. */
-export const getAllTestSetMemberships = (
-  projectKey: string,
-  limit?: number,
-): Promise<TestSetMembershipsResponse> =>
-  invoke("get_all_test_set_memberships", { projectKey, limit });
+export const getAllTestSetMemberships = (projectKey: string): Promise<TestSetMembershipsResponse> =>
+  invoke("get_all_test_set_memberships", { projectKey });
 
 export const getTestPlanTests = (issueId: string): Promise<XrayTest[]> =>
   invoke("get_test_plan_tests", { issueId });

@@ -734,6 +734,10 @@ function ExecutionListPanel({
   if (isLoading) {
     return (
       <div className="space-y-2 p-2">
+        <div className="flex items-center gap-2 text-sm text-slate-500">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          <span>Loading executions…</span>
+        </div>
         {Array.from({ length: 3 }).map((_, i) => (
           <div
             key={i}
@@ -936,8 +940,9 @@ function BugsPanel({ bugs, isLoading, isError, error, failedTests }: BugsPanelPr
   // ── render ────────────────────────────────────────────────────────────────
   if (isLoading) {
     return (
-      <div className="flex h-16 items-center justify-center">
-        <Loader2 className="h-4 w-4 animate-spin text-slate-400" />
+      <div className="flex h-16 items-center justify-center gap-2 text-sm text-slate-400">
+        <Loader2 className="h-4 w-4 animate-spin" />
+        <span>Loading bugs…</span>
       </div>
     );
   }
@@ -1151,6 +1156,10 @@ function VersionIssuesPanel({ projectKey, versionName }: VersionIssuesPanelProps
           Version Issues
         </div>
         <div className="space-y-1.5 p-4">
+          <div className="flex items-center gap-2 text-sm text-slate-500">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            <span>Loading version issues…</span>
+          </div>
           {Array.from({ length: 3 }).map((_, i) => (
             <div
               key={i}
@@ -1540,6 +1549,10 @@ export function VersionsPage() {
         <div className="mb-4 flex items-center justify-between">
           <Skeleton className="h-7 w-32" />
           <Skeleton className="h-8 w-20" />
+        </div>
+        <div className="flex items-center gap-2 text-sm text-slate-500">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          <span>Loading project versions…</span>
         </div>
         {Array.from({ length: 4 }).map((_, i) => (
           <div

@@ -9,12 +9,12 @@ use crate::models::xray::{
     AddTestExecutionsToTestPlanInput, AddTestsToTestPlanInput, CreateTestExecutionInput,
     CreateTestExecutionResponse, CreateTestExecutionResult, CreateTestPlanInput,
     CreateTestPlanResponse, CreateTestPlanResult, CreateTestResponse, CreateTestResult,
-    CreateTestSetResponse, CreateTestSetResult, CreateXrayTestInput, GetTestRunResult,
-    GraphQLRequest, GraphQLResponse, StatusesResult, StepStatusesResult, TestExecutionsResult,
-    TestPlanResult, TestPlansResult, TestRunIteration, TestRunsResult, TestSetMemberInfo,
-    TestSetMembershipsResponse, TestSetResult, TestSetWithStatusResult, TestSetsResult,
-    TestsResult, UpdateTestRunStatusInput, XrayAuthRequest, XrayStepStatus, XrayTest,
-    XrayTestRunStatus, XrayTestSet, XrayTestWithStatus,
+    CreateTestSetResponse, CreateTestSetResult, CreateXrayTestInput, FirstPageResult,
+    GetTestRunResult, GraphQLRequest, GraphQLResponse, StatusesResult, StepStatusesResult,
+    TestExecutionsResult, TestPlanResult, TestPlansResult, TestRunIteration, TestRunsResult,
+    TestSetMemberInfo, TestSetMembershipsResponse, TestSetResult, TestSetWithStatusResult,
+    TestSetsResult, TestsResult, UpdateTestRunStatusInput, XrayAuthRequest, XrayStepStatus,
+    XrayTest, XrayTestRunStatus, XrayTestSet, XrayTestWithStatus,
 };
 
 const XRAY_AUTH_URL: &str = "https://xray.cloud.getxray.app/api/v2/authenticate";
@@ -491,13 +491,11 @@ impl XrayClient {
 
     // ── Get Tests ─────────────────────────────────────────────────────────────
 
-    /// Fetch tests for a project using JQL.
-    pub async fn get_tests(&self, project_key: &str, limit: u32) -> Result<Vec<XrayTest>> {
-        validate_project_key(project_key)?;
-        let jql = format!("project = '{project_key}'");
-        let query = r#"
-            query GetTests($jql: String, $limit: Int!) {
-                getTests(jql: $jql, limit: $limit) {
+    /// Shared GraphQL query string for `getTests` pagination.
+    fn tests_gql_query() -> &'static str {
+        r#"
+            query GetTests($jql: String, $limit: Int!, $start: Int) {
+                getTests(jql: $jql, limit: $limit, start: $start) {
                     total
                     start
                     limit
@@ -507,22 +505,88 @@ impl XrayClient {
                     }
                 }
             }
-        "#;
+        "#
+    }
+
+    /// Fetch the **first page** of tests for a project and return immediately.
+    ///
+    /// If there are more pages (`done == false`), the caller is responsible for
+    /// fetching the rest via [`get_tests_from`] and streaming results to the UI.
+    pub async fn get_tests_first_page(
+        &self,
+        project_key: &str,
+    ) -> Result<FirstPageResult<XrayTest>> {
+        const PAGE_SIZE: u32 = 100;
+        validate_project_key(project_key)?;
+        let jql = format!("project = '{project_key}'");
         let result: TestsResult = self
-            .graphql(query, serde_json::json!({ "jql": jql, "limit": limit }))
+            .graphql(
+                Self::tests_gql_query(),
+                serde_json::json!({ "jql": jql, "limit": PAGE_SIZE, "start": 0 }),
+            )
             .await?;
-        Ok(result.get_tests.results)
+        let page = result.get_tests;
+        let fetched = page.results.len() as u32;
+        let total = page.total;
+        Ok(FirstPageResult {
+            done: fetched >= total,
+            results: page.results,
+            total,
+        })
+    }
+
+    /// Fetch all remaining tests starting from `start_offset`.
+    ///
+    /// Used by the background task after [`get_tests_first_page`] has already
+    /// returned the first page to the UI.
+    pub async fn get_tests_from(
+        &self,
+        project_key: &str,
+        mut start: u32,
+        total: u32,
+    ) -> Result<Vec<XrayTest>> {
+        const PAGE_SIZE: u32 = 100;
+        let jql = format!("project = '{project_key}'");
+        let mut all: Vec<XrayTest> = Vec::new();
+        loop {
+            let result: TestsResult = self
+                .graphql(
+                    Self::tests_gql_query(),
+                    serde_json::json!({ "jql": jql, "limit": PAGE_SIZE, "start": start }),
+                )
+                .await?;
+            let page = result.get_tests;
+            let fetched = page.results.len() as u32;
+            all.extend(page.results);
+            start += fetched;
+            if fetched == 0 || start >= total {
+                break;
+            }
+        }
+        Ok(all)
+    }
+
+    /// Fetch **all** tests for a project, paginating automatically.
+    pub async fn get_tests(&self, project_key: &str) -> Result<Vec<XrayTest>> {
+        let first = self.get_tests_first_page(project_key).await?;
+        if first.done {
+            return Ok(first.results);
+        }
+        let mut all = first.results;
+        let rest = self
+            .get_tests_from(project_key, all.len() as u32, first.total)
+            .await?;
+        all.extend(rest);
+        Ok(all)
     }
 
     // ── Test Sets ─────────────────────────────────────────────────────────────
 
-    /// Fetch test sets for a project using JQL.
-    pub async fn get_test_sets(&self, project_key: &str, limit: u32) -> Result<Vec<XrayTestSet>> {
-        validate_project_key(project_key)?;
-        let jql = format!("project = '{project_key}'");
-        let query = r#"
-            query GetTestSets($jql: String!, $limit: Int!) {
-                getTestSets(jql: $jql, limit: $limit) {
+    /// Shared GraphQL query string for `getTestSets` pagination.
+    fn test_sets_gql_query() -> &'static str {
+        r#"
+            query GetTestSets($jql: String!, $limit: Int!, $start: Int) {
+                getTestSets(jql: $jql, limit: $limit, start: $start) {
                     total
                     start
                     limit
@@ -532,11 +596,73 @@ impl XrayClient {
                     }
                 }
             }
-        "#;
+        "#
+    }
+
+    /// Fetch the **first page** of test sets for a project and return immediately.
+    pub async fn get_test_sets_first_page(
+        &self,
+        project_key: &str,
+    ) -> Result<FirstPageResult<XrayTestSet>> {
+        const PAGE_SIZE: u32 = 100;
+        validate_project_key(project_key)?;
+        let jql = format!("project = '{project_key}'");
         let result: TestSetsResult = self
-            .graphql(query, serde_json::json!({ "jql": jql, "limit": limit }))
+            .graphql(
+                Self::test_sets_gql_query(),
+                serde_json::json!({ "jql": jql, "limit": PAGE_SIZE, "start": 0 }),
+            )
             .await?;
-        Ok(result.get_test_sets.results)
+        let page = result.get_test_sets;
+        let fetched = page.results.len() as u32;
+        let total = page.total;
+        Ok(FirstPageResult {
+            done: fetched >= total,
+            results: page.results,
+            total,
+        })
+    }
+
+    /// Fetch all remaining test sets starting from `start_offset`.
+    pub async fn get_test_sets_from(
+        &self,
+        project_key: &str,
+        mut start: u32,
+        total: u32,
+    ) -> Result<Vec<XrayTestSet>> {
+        const PAGE_SIZE: u32 = 100;
+        let jql = format!("project = '{project_key}'");
+        let mut all: Vec<XrayTestSet> = Vec::new();
+        loop {
+            let result: TestSetsResult = self
+                .graphql(
+                    Self::test_sets_gql_query(),
+                    serde_json::json!({ "jql": jql, "limit": PAGE_SIZE, "start": start }),
+                )
+                .await?;
+            let page = result.get_test_sets;
+            let fetched = page.results.len() as u32;
+            all.extend(page.results);
+            start += fetched;
+            if fetched == 0 || start >= total {
+                break;
+            }
+        }
+        Ok(all)
+    }
+
+    /// Fetch **all** test sets for a project, paginating automatically.
+    pub async fn get_test_sets(&self, project_key: &str) -> Result<Vec<XrayTestSet>> {
+        let first = self.get_test_sets_first_page(project_key).await?;
+        if first.done {
+            return Ok(first.results);
+        }
+        let mut all = first.results;
+        let rest = self
+            .get_test_sets_from(project_key, all.len() as u32, first.total)
+            .await?;
+        all.extend(rest);
+        Ok(all)
     }
 
     /// Fetch all tests belonging to a specific test set, including each test's
@@ -606,10 +732,9 @@ impl XrayClient {
     pub async fn get_all_test_set_memberships(
         &self,
         project_key: &str,
-        limit: u32,
     ) -> Result<TestSetMembershipsResponse> {
-        // 1. Fetch all test sets in the project.
-        let test_sets = self.get_test_sets(project_key, limit).await?;
+        // 1. Fetch all test sets in the project (paginated automatically).
+        let test_sets = self.get_test_sets(project_key).await?;
 
         // 2. For each test set, fetch its member tests sequentially.
         let mut memberships: HashMap<String, Vec<TestSetMemberInfo>> = HashMap::new();

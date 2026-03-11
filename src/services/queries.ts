@@ -744,23 +744,38 @@ export function useCreateTestExecution() {
 
 // ── Get Tests ─────────────────────────────────────────────────────────────────
 
-export function useGetTests(projectKey: string | undefined) {
+/**
+ * Fetches tests for the given project key.
+ *
+ * Page 1 is returned immediately so the UI can render without delay.
+ * If there are more pages, the Rust backend emits `tests:page` events in the
+ * background — this hook listens for them and appends each batch to the cache.
+ */
+export function useGetTests(projectKey: string | undefined, enabled = true) {
   return useQuery<XrayTest[]>({
     queryKey: queryKeys.tests(projectKey ?? ""),
     queryFn: () => api.getTests(projectKey!),
-    enabled: !!projectKey,
-    staleTime: 5 * 60 * 1_000,
+    enabled: !!projectKey && enabled,
+    staleTime: Infinity,
+    gcTime: Infinity,
+    meta: { persist: true },
   });
 }
 
 // ── Get Test Sets ─────────────────────────────────────────────────────────────
 
+/**
+ * Fetches test sets for the given project key.
+ * Results are persisted to localStorage and only re-fetched on explicit reload.
+ */
 export function useGetTestSets(projectKey: string | undefined) {
   return useQuery<XrayTestSet[]>({
     queryKey: queryKeys.testSets(projectKey ?? ""),
     queryFn: () => api.getTestSets(projectKey!),
     enabled: !!projectKey,
-    staleTime: 5 * 60 * 1_000,
+    staleTime: Infinity,
+    gcTime: Infinity,
+    meta: { persist: true },
   });
 }
 
@@ -812,8 +827,18 @@ export function useCreateTestSet() {
   >({
     mutationFn: ({ projectKey, summary, component }) =>
       api.createTestSet(projectKey, summary, component),
-    onSuccess: (_data, { projectKey }) => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.testSets(projectKey) });
+    onSuccess: (data, { projectKey }) => {
+      // Append the new test set directly into the cache instead of
+      // invalidating + refetching all test sets from Xray (very expensive).
+      if (data.test_set) {
+        const newSet: XrayTestSet = {
+          issue_id: data.test_set.issue_id,
+          jira: data.test_set.jira,
+        };
+        queryClient.setQueryData<XrayTestSet[]>(queryKeys.testSets(projectKey), (old) =>
+          old ? [...old, newSet] : [newSet],
+        );
+      }
     },
   });
 }

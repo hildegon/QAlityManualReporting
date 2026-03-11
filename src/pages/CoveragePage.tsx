@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef, useEffect } from "react";
+import { memo, useState, useMemo, useRef, useEffect } from "react";
 import { useQueries, useQueryClient } from "@tanstack/react-query";
 import { useGetTestSets, queryKeys } from "@/services/queries";
 import { useContentProjectKey } from "@/hooks/useProjectKey";
@@ -146,7 +146,7 @@ interface TestSetSectionProps {
   testSearch: string;
 }
 
-function TestSetSection({
+const TestSetSection = memo(function TestSetSection({
   testSet,
   tests,
   isLoading,
@@ -285,7 +285,7 @@ function TestSetSection({
       )}
     </div>
   );
-}
+});
 
 // ── Status badge ──────────────────────────────────────────────────────────────
 
@@ -775,6 +775,10 @@ export function CoveragePage() {
           <div className="min-h-0 flex-1 overflow-y-auto">
             {setsLoading && (
               <div className="space-y-2">
+                <div className="flex items-center gap-2 text-sm text-slate-500">
+                  <Spinner size="sm" />
+                  <span>Loading test sets from Xray…</span>
+                </div>
                 {Array.from({ length: 6 }).map((_, i) => (
                   <Skeleton key={i} className="h-9 w-full rounded-lg" />
                 ))}

@@ -1,5 +1,7 @@
 import { HashRouter, Routes, Route, Navigate } from "react-router-dom";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClient } from "@tanstack/react-query";
+import { PersistQueryClientProvider } from "@tanstack/react-query-persist-client";
+import { createSyncStoragePersister } from "@tanstack/query-sync-storage-persister";
 import { AppShell } from "@/components/common/AppShell";
 import { ErrorBoundary } from "@/components/common/ErrorBoundary";
 import { SettingsPage } from "@/pages/SettingsPage";
@@ -33,6 +35,8 @@ function makeQueryClient() {
           return Math.min(1_000 * 2 ** attempt, 30_000);
         },
         refetchOnWindowFocus: false,
+        // Queries tagged with persist:true use gcTime:Infinity on their own;
+        // for everything else keep the default 5-minute garbage collection.
       },
       mutations: {
         retry: (failureCount, error) => {
@@ -49,6 +53,26 @@ function makeQueryClient() {
     },
   });
 }
+
+/** Persister that writes to localStorage. Only queries with meta.persist === true are saved. */
+const localStoragePersister = createSyncStoragePersister({
+  storage: window.localStorage,
+  key: "qality-query-cache",
+  /** Throttle writes to avoid thrashing localStorage on rapid query updates. */
+  throttleTime: 5_000,
+  // If localStorage is full, drop the persisted cache and continue without persistence.
+  // Without a retry handler the persister silently fails and the cache is never saved.
+  retry: ({ error, errorCount }) => {
+    if (errorCount > 1) return undefined; // give up after one attempt
+    console.warn("[QAlity] localStorage write failed, clearing cache and retrying:", error);
+    try {
+      window.localStorage.removeItem("qality-query-cache");
+    } catch {
+      /* ignore */
+    }
+    return undefined; // let the next save succeed into empty storage
+  },
+});
 
 const queryClient = makeQueryClient();
 
@@ -81,7 +105,28 @@ export default function App() {
   };
 
   return (
-    <QueryClientProvider client={queryClient}>
+    <PersistQueryClientProvider
+      client={queryClient}
+      persistOptions={{
+        persister: localStoragePersister,
+        // Never expire the persisted cache — users control freshness via the Reload button.
+        // The TanStack default is 24 hours, which would silently discard the cache after a day.
+        maxAge: Infinity,
+        // Only persist queries explicitly tagged with meta.persist === true.
+        // This keeps credentials, test runs, and other sensitive/large data out of localStorage.
+        dehydrateOptions: {
+          shouldDehydrateQuery: (query) =>
+            query.state.status === "success" && query.meta?.persist === true,
+        },
+      }}
+      onSuccess={() => {
+        // Cache restored successfully — no action needed.
+        // Use onError below to warn about failures.
+      }}
+      onError={() => {
+        console.warn("[QAlity] Failed to restore query cache from localStorage");
+      }}
+    >
       <ErrorBoundary>
         <HashRouter>
           <Routes>
@@ -98,6 +143,6 @@ export default function App() {
           </Routes>
         </HashRouter>
       </ErrorBoundary>
-    </QueryClientProvider>
+    </PersistQueryClientProvider>
   );
 }
