@@ -10,6 +10,7 @@ import {
   useTransitionIssue,
   useUpdateAssignee,
   useRenameIssue,
+  useExecutionRunSummary,
   queryKeys,
 } from "@/services/queries";
 import { useContentProjectKey, useExecutionProjectKey } from "@/hooks/useProjectKey";
@@ -27,11 +28,15 @@ import { Label } from "@/components/ui/label";
 import { Copy, ListChecks, Pencil, Plus, RefreshCw, Star, X } from "lucide-react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { TestExecutionDetail } from "@/components/test-execution/TestExecutionDetail";
+import { MiniStackedBar, buildSlicesFromCounts } from "@/components/charts/StatusCharts";
 import type { JiraUser, TestExecution, TestRunsPage, XrayTest } from "@/types";
 import * as api from "@/services/tauri";
 
 /** Status names considered "closed" — hidden by default. */
 const DONE_STATUSES = new Set(["done", "won't do", "wont do", "closed", "resolved"]);
+
+/** Max executions shown per page in the regular (non-favourite) list. */
+const EXEC_PAGE_SIZE = 10;
 
 function isDoneStatus(name: string) {
   return DONE_STATUSES.has(name.toLowerCase());
@@ -71,6 +76,12 @@ const ExecRow = memo(function ExecRow({
   onEdit,
   onClone,
 }: ExecRowProps) {
+  const {
+    counts,
+    total,
+    hasMore,
+    isLoading: summaryLoading,
+  } = useExecutionRunSummary(exec.issue_id);
   return (
     <tr
       className={cn(
@@ -146,13 +157,23 @@ const ExecRow = memo(function ExecRow({
             </button>
           </form>
         ) : (
-          <span
-            className="group/rename flex cursor-pointer items-center gap-1.5"
-            onClick={onStartRename}
-          >
-            {exec.jira.summary}
-            <Pencil className="h-3.5 w-3.5 shrink-0 text-slate-300 opacity-0 group-hover/rename:opacity-100" />
-          </span>
+          <div onClick={onStartRename} className="cursor-pointer">
+            <span className="group/rename flex items-center gap-1.5">
+              {exec.jira.summary}
+              <Pencil className="h-3.5 w-3.5 shrink-0 text-slate-300 opacity-0 group-hover/rename:opacity-100" />
+            </span>
+            {summaryLoading ? (
+              <Skeleton className="mt-1.5 h-1.5 w-full" />
+            ) : total > 0 ? (
+              <div className="mt-1.5 flex items-center gap-1.5">
+                <MiniStackedBar slices={buildSlicesFromCounts(counts, total)} className="flex-1" />
+                <span className="shrink-0 text-[10px] text-slate-400">
+                  {total}
+                  {hasMore && "+"}
+                </span>
+              </div>
+            ) : null}
+          </div>
         )}
       </td>
 
@@ -210,8 +231,19 @@ export function TestExecutionsPage() {
   /** The issue key currently being renamed inline, or null when not editing. */
   const [renameKey, setRenameKey] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
+  /** How many pages of regular (non-favourite) executions are currently shown. */
+  const [execPage, setExecPage] = useState(1);
 
   const q = search.trim().toLowerCase();
+
+  // Reset to page 1 whenever the visible set changes so the user isn't stuck
+  // on an empty page after toggling a filter or typing in the search box.
+  const prevFilterKey = useRef("");
+  const filterKey = `${q}|${String(showDone)}`;
+  if (filterKey !== prevFilterKey.current) {
+    prevFilterKey.current = filterKey;
+    setExecPage(1);
+  }
 
   const filtered = useMemo(
     () =>
@@ -247,6 +279,10 @@ export function TestExecutionsPage() {
         : filtered,
     [executionProjectKey, filtered, isExecutionFavourite],
   );
+
+  /** Slice of regularExecs currently shown — at most EXEC_PAGE_SIZE × execPage rows. */
+  const visibleRegularExecs = regularExecs.slice(0, execPage * EXEC_PAGE_SIZE);
+  const hasMoreRegularExecs = visibleRegularExecs.length < regularExecs.length;
 
   if (!executionProjectKey) {
     return (
@@ -450,7 +486,7 @@ export function TestExecutionsPage() {
                   )}
                 </>
               )}
-              {regularExecs.map((exec) => (
+              {visibleRegularExecs.map((exec) => (
                 <ExecRow
                   key={exec.issue_id}
                   exec={exec}
@@ -489,6 +525,21 @@ export function TestExecutionsPage() {
               ))}
             </tbody>
           </table>
+          {/* Load more — only mounts new ExecRow components (and their useExecutionRunSummary
+               calls) when the user explicitly requests more, preventing API floods. */}
+          {hasMoreRegularExecs && (
+            <div className="flex items-center justify-between border-t border-slate-100 px-4 py-2 dark:border-slate-700">
+              <span className="text-xs text-slate-400 dark:text-slate-500">
+                Showing {visibleRegularExecs.length} of {regularExecs.length}
+              </span>
+              <button
+                onClick={() => setExecPage((p) => p + 1)}
+                className="rounded px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-700"
+              >
+                Load more ({regularExecs.length - visibleRegularExecs.length} remaining)
+              </button>
+            </div>
+          )}
         </div>
       )}
 
@@ -553,8 +604,12 @@ function CreateExecutionDialog({
   const { data: tests, isLoading: testsLoading } = useGetTests(
     open ? (contentProjectKey ?? undefined) : undefined,
   );
+  // Always pass projectKey (not undefined-when-closed) so the result lands in the shared
+  // ["xray","test-sets",<key>] cache slot that every other page reads from.
+  // The enabled: !!projectKey guard inside the hook prevents any actual network call
+  // when contentProjectKey is absent.
   const { data: testSets, isLoading: testSetsLoading } = useGetTestSets(
-    open ? (contentProjectKey ?? undefined) : undefined,
+    contentProjectKey ?? undefined,
   );
 
   const filteredTests = (tests ?? []).filter((t) => {
@@ -647,7 +702,9 @@ function CreateExecutionDialog({
         <Dialog.Content className="fixed left-1/2 top-1/2 flex max-h-[90vh] w-full max-w-xl -translate-x-1/2 -translate-y-1/2 flex-col rounded-xl bg-white shadow-xl dark:bg-slate-800">
           {/* Header */}
           <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4 dark:border-slate-700">
-            <Dialog.Title className="text-lg font-semibold dark:text-slate-100">New Test Execution</Dialog.Title>
+            <Dialog.Title className="text-lg font-semibold dark:text-slate-100">
+              New Test Execution
+            </Dialog.Title>
             <Dialog.Close asChild>
               <button className="rounded p-1 hover:bg-slate-100 dark:hover:bg-slate-700">
                 <X className="h-4 w-4 text-slate-500 dark:text-slate-400" />
@@ -953,7 +1010,9 @@ function CloneExecutionDialog({
           {/* Header */}
           <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4 dark:border-slate-700">
             <div>
-              <Dialog.Title className="text-lg font-semibold dark:text-slate-100">Clone Execution</Dialog.Title>
+              <Dialog.Title className="text-lg font-semibold dark:text-slate-100">
+                Clone Execution
+              </Dialog.Title>
               {source && (
                 <p className="mt-0.5 font-mono text-xs text-slate-500 dark:text-slate-400">
                   {source.jira.key}
@@ -1132,7 +1191,9 @@ function EditExecutionDialog({
           {/* Header */}
           <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4 dark:border-slate-700">
             <div>
-              <Dialog.Title className="text-lg font-semibold dark:text-slate-100">Edit Execution</Dialog.Title>
+              <Dialog.Title className="text-lg font-semibold dark:text-slate-100">
+                Edit Execution
+              </Dialog.Title>
               {issueKey && (
                 <p className="mt-0.5 font-mono text-xs text-slate-500 dark:text-slate-400">
                   {issueKey}

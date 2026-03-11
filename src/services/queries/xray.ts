@@ -34,7 +34,8 @@ import { queryKeys } from "./keys";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const TEST_RUNS_PAGE_SIZE = 50;
+const TEST_RUNS_PAGE_SIZE = 100;
+const STATS_PAGE_SIZE = 10;
 
 // ── Read hooks ────────────────────────────────────────────────────────────────
 
@@ -679,7 +680,7 @@ function classifyHistory(history: TestRunHistory["history"]): TestRunHistory["cl
 }
 
 export function useVersionRunStats(executions: TestExecution[], bugs?: JiraBug[]): RunStats {
-  const PAGE_SIZE = TEST_RUNS_PAGE_SIZE;
+  const PAGE_SIZE = STATS_PAGE_SIZE;
 
   const phase1 = useQueries({
     queries: executions.map((ex) => ({
@@ -820,4 +821,74 @@ export function useVersionRunStats(executions: TestExecution[], bugs?: JiraBug[]
 
     return { counts, total, pagesLoaded, pagesExpected, failedTests };
   }, [executions, extraPageQueries, phase1, phase2, bugs]);
+}
+
+// ── Execution run summary ─────────────────────────────────────────────────────
+
+export interface ExecSummary {
+  counts: Record<string, number>;
+  total: number;
+  hasMore: boolean;
+  isLoading: boolean;
+}
+
+/**
+ * Fetches the first page of test runs for a single execution and aggregates
+ * status counts. Used to render a mini progress bar on the ExecRow card.
+ */
+export function useExecutionRunSummary(executionIssueId: string | null): ExecSummary {
+  const { data, isLoading } = useQuery<TestRunsPage>({
+    queryKey: queryKeys.execSummary(executionIssueId ?? ""),
+    queryFn: () => api.getTestRuns(executionIssueId!, STATS_PAGE_SIZE, 0),
+    enabled: !!executionIssueId,
+    staleTime: 5 * 60 * 1_000,
+  });
+
+  return useMemo(() => {
+    if (!data) return { counts: {}, total: 0, hasMore: false, isLoading };
+    const c: Record<string, number> = {};
+    for (const run of data.results) {
+      const k = run.status.name.toUpperCase();
+      c[k] = (c[k] ?? 0) + 1;
+    }
+    return { counts: c, total: data.total, hasMore: data.results.length < data.total, isLoading };
+  }, [data, isLoading]);
+}
+
+// ── Defects mutation ──────────────────────────────────────────────────────────
+
+interface AddDefectsVars {
+  testRunId: string;
+  issueKeys: string[];
+  executionIssueId: string;
+}
+
+/**
+ * Optimistically appends defect issue keys to a test run and writes them back
+ * to Xray. Rolls back on error, re-fetches on settle.
+ */
+export function useAddDefectsToTestRun() {
+  const queryClient = useQueryClient();
+  return useMutation<string[], Error, AddDefectsVars>({
+    mutationFn: ({ testRunId, issueKeys }) => api.addDefectsToTestRun(testRunId, issueKeys),
+    onMutate: async ({ testRunId, issueKeys, executionIssueId }) => {
+      const key = queryKeys.testRuns(executionIssueId);
+      await queryClient.cancelQueries({ queryKey: key });
+      const previous = queryClient.getQueryData<TestRunsInfiniteData>(key);
+      queryClient.setQueryData<TestRunsInfiniteData>(key, (old) =>
+        mapRunsAcrossPages(old, (run) =>
+          run.id === testRunId ? { ...run, defects: [...(run.defects ?? []), ...issueKeys] } : run,
+        ),
+      );
+      return { previous };
+    },
+    onError: (_err, { executionIssueId }, context) => {
+      const ctx = context as { previous?: TestRunsInfiniteData } | undefined;
+      if (ctx?.previous)
+        queryClient.setQueryData(queryKeys.testRuns(executionIssueId), ctx.previous);
+    },
+    onSettled: (_data, _err, { executionIssueId }) => {
+      debouncedInvalidateTestRuns(queryClient, executionIssueId);
+    },
+  });
 }

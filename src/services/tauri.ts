@@ -244,3 +244,10 @@ export const getTestSetTestsWithStatus = (issueId: string): Promise<XrayTestWith
  */
 export const addDefectsToTestRun = (runId: string, issueKeys: string[]): Promise<string[]> =>
   invoke("add_defects_to_test_run", { runId, issueKeys });
+
+/**
+ * Write a UTF-8 text file to an absolute path chosen by the user via the
+ * dialog plugin on the frontend.
+ */
+export const writeTextFile = (path: string, content: string): Promise<void> =>
+  invoke("write_text_file", { path, content });
