@@ -19,6 +19,11 @@ import {
   RefreshCw,
   Star,
   Link,
+  XCircle,
+  ListChecks,
+  Activity,
+  BarChart3,
+  Layers,
 } from "lucide-react";
 import {
   DonutChart,
@@ -68,6 +73,343 @@ function FetchProgress({ loaded, expected }: { loaded: number; expected: number 
           style={{ width: `${pct}%` }}
         />
       </div>
+    </div>
+  );
+}
+
+// ── KPI strip ─────────────────────────────────────────────────────────────────
+
+interface KpiTileProps {
+  label: string;
+  value: string | number;
+  subValue?: string;
+  icon: React.ComponentType<{ className?: string }>;
+  colorScheme: "emerald" | "red" | "amber" | "slate" | "blue";
+}
+
+function KpiTile({ label, value, subValue, icon: Icon, colorScheme }: KpiTileProps) {
+  const schemes = {
+    emerald: {
+      border: "border-emerald-200 dark:border-emerald-800",
+      bg: "bg-emerald-50 dark:bg-emerald-950/40",
+      icon: "text-emerald-500",
+      label: "text-emerald-600 dark:text-emerald-400",
+      value: "text-emerald-800 dark:text-emerald-200",
+      sub: "text-emerald-500 dark:text-emerald-400",
+    },
+    red: {
+      border: "border-red-200 dark:border-red-800",
+      bg: "bg-red-50 dark:bg-red-950/40",
+      icon: "text-red-500",
+      label: "text-red-600 dark:text-red-400",
+      value: "text-red-800 dark:text-red-200",
+      sub: "text-red-500 dark:text-red-400",
+    },
+    amber: {
+      border: "border-amber-200 dark:border-amber-800",
+      bg: "bg-amber-50 dark:bg-amber-950/40",
+      icon: "text-amber-500",
+      label: "text-amber-600 dark:text-amber-400",
+      value: "text-amber-800 dark:text-amber-200",
+      sub: "text-amber-500 dark:text-amber-400",
+    },
+    slate: {
+      border: "border-slate-200 dark:border-slate-700",
+      bg: "bg-slate-50 dark:bg-slate-800",
+      icon: "text-slate-400",
+      label: "text-slate-500 dark:text-slate-400",
+      value: "text-slate-800 dark:text-slate-200",
+      sub: "text-slate-400 dark:text-slate-500",
+    },
+    blue: {
+      border: "border-blue-200 dark:border-blue-800",
+      bg: "bg-blue-50 dark:bg-blue-950/40",
+      icon: "text-blue-500",
+      label: "text-blue-600 dark:text-blue-400",
+      value: "text-blue-800 dark:text-blue-200",
+      sub: "text-blue-500 dark:text-blue-400",
+    },
+  };
+
+  const s = schemes[colorScheme];
+
+  return (
+    <div
+      className={cn(
+        "flex flex-1 flex-col gap-1 rounded-xl border px-4 py-3 shadow-sm",
+        s.border,
+        s.bg,
+      )}
+    >
+      <div className="flex items-center gap-1.5">
+        <Icon className={cn("h-3.5 w-3.5 shrink-0", s.icon)} />
+        <span className={cn("text-xs font-semibold uppercase tracking-wider", s.label)}>
+          {label}
+        </span>
+      </div>
+      <p className={cn("text-2xl font-bold leading-none", s.value)}>{value}</p>
+      {subValue && <p className={cn("text-xs", s.sub)}>{subValue}</p>}
+    </div>
+  );
+}
+
+interface VersionKpiStripProps {
+  stats: ReturnType<typeof useVersionRunStats>;
+  executions: TestExecution[];
+  bugs: JiraBug[];
+  versionIssues: JiraBug[];
+}
+
+function VersionKpiStrip({ stats, executions, bugs, versionIssues }: VersionKpiStripProps) {
+  const isLoading = stats.pagesLoaded < stats.pagesExpected;
+
+  // Pass %
+  const passCount = stats.counts["PASS"] ?? stats.counts["PASSED"] ?? 0;
+  const passRate = stats.total > 0 ? Math.round((passCount / stats.total) * 100) : null;
+  const passScheme: KpiTileProps["colorScheme"] =
+    passRate === null ? "slate" : passRate === 100 ? "emerald" : passRate >= 80 ? "blue" : "amber";
+
+  // Failures + Blocked
+  const failCount =
+    (stats.counts["FAIL"] ?? stats.counts["FAILED"] ?? 0) + (stats.counts["BLOCKED"] ?? 0);
+  const failScheme: KpiTileProps["colorScheme"] = failCount === 0 ? "emerald" : "red";
+
+  // Critical / Blocker bugs (unresolved)
+  const CRITICAL_PRIORITIES = new Set(["highest", "critical", "blocker", "p1"]);
+  const criticalBugCount = bugs.filter(
+    (b) =>
+      b.fields.status?.category?.key !== "done" &&
+      CRITICAL_PRIORITIES.has(b.fields.priority?.name?.toLowerCase() ?? ""),
+  ).length;
+  const criticalScheme: KpiTileProps["colorScheme"] = criticalBugCount === 0 ? "emerald" : "red";
+
+  // Stories progress: done + acceptance / total
+  const storiesTotal = versionIssues.length;
+  const storiesDone = versionIssues.filter(
+    (i) =>
+      i.fields.status?.category?.key === "done" || /acceptance/i.test(i.fields.status?.name ?? ""),
+  ).length;
+  const storiesScheme: KpiTileProps["colorScheme"] =
+    storiesTotal === 0
+      ? "slate"
+      : storiesDone === storiesTotal
+        ? "emerald"
+        : storiesDone / storiesTotal >= 0.75
+          ? "blue"
+          : "amber";
+
+  return (
+    <div className="flex flex-wrap gap-3">
+      {/* Pass rate */}
+      <KpiTile
+        label="Pass rate"
+        value={isLoading ? "…" : passRate === null ? "—" : `${passRate}%`}
+        subValue={isLoading ? "Loading…" : `${passCount} / ${stats.total} tests`}
+        icon={Activity}
+        colorScheme={isLoading ? "slate" : passScheme}
+      />
+
+      {/* Failures */}
+      <KpiTile
+        label="Failures & blocked"
+        value={isLoading ? "…" : failCount}
+        subValue={failCount === 0 ? "All clear" : `test runs failing`}
+        icon={XCircle}
+        colorScheme={isLoading ? "slate" : failScheme}
+      />
+
+      {/* Critical bugs */}
+      <KpiTile
+        label="Critical bugs"
+        value={criticalBugCount}
+        subValue={criticalBugCount === 0 ? "No open blockers" : "Unresolved critical/blocker"}
+        icon={Bug}
+        colorScheme={criticalScheme}
+      />
+
+      {/* Stories progress */}
+      <KpiTile
+        label="Stories progress"
+        value={storiesTotal === 0 ? "—" : `${storiesDone} / ${storiesTotal}`}
+        subValue={storiesTotal === 0 ? "No issues linked" : "Done or in acceptance"}
+        icon={Layers}
+        colorScheme={storiesScheme}
+      />
+
+      {/* Executions */}
+      <KpiTile
+        label="Executions"
+        value={executions.length}
+        subValue={executions.length === 0 ? "None linked to version" : "Linked to this version"}
+        icon={BarChart3}
+        colorScheme="slate"
+      />
+    </div>
+  );
+}
+
+// ── Release readiness checklist ────────────────────────────────────────────────
+
+interface ChecklistItem {
+  label: string;
+  detail: string;
+  pass: boolean;
+  loading?: boolean;
+}
+
+interface ReleaseReadinessChecklistProps {
+  stats: ReturnType<typeof useVersionRunStats>;
+  executions: TestExecution[];
+  bugs: JiraBug[];
+  versionIssues: JiraBug[];
+  version: JiraVersion;
+}
+
+function ReleaseReadinessChecklist({
+  stats,
+  executions,
+  bugs,
+  versionIssues,
+  version,
+}: ReleaseReadinessChecklistProps) {
+  const isLoading = stats.pagesLoaded < stats.pagesExpected;
+  const CRITICAL_PRIORITIES = new Set(["highest", "critical", "blocker", "p1"]);
+
+  const todoCount =
+    (stats.counts["TODO"] ?? stats.counts["NOT RUN"] ?? 0) + (stats.counts["EXECUTING"] ?? 0);
+  const failCount =
+    (stats.counts["FAIL"] ?? stats.counts["FAILED"] ?? 0) + (stats.counts["BLOCKED"] ?? 0);
+  const criticalBugCount = bugs.filter(
+    (b) =>
+      b.fields.status?.category?.key !== "done" &&
+      CRITICAL_PRIORITIES.has(b.fields.priority?.name?.toLowerCase() ?? ""),
+  ).length;
+  const storiesTotal = versionIssues.length;
+  const storiesDone = versionIssues.filter(
+    (i) =>
+      i.fields.status?.category?.key === "done" || /acceptance/i.test(i.fields.status?.name ?? ""),
+  ).length;
+
+  const items: ChecklistItem[] = [
+    {
+      label: "Has at least one execution",
+      detail:
+        executions.length === 0
+          ? "No test executions linked to this version"
+          : `${executions.length} execution${executions.length !== 1 ? "s" : ""} linked`,
+      pass: executions.length > 0,
+    },
+    {
+      label: "All tests executed",
+      detail: isLoading
+        ? "Still loading test results…"
+        : todoCount === 0
+          ? "No pending or in-progress tests"
+          : `${todoCount} test${todoCount !== 1 ? "s" : ""} not yet executed`,
+      pass: !isLoading && todoCount === 0 && stats.total > 0,
+      loading: isLoading,
+    },
+    {
+      label: "No failures or blockers",
+      detail: isLoading
+        ? "Still loading test results…"
+        : failCount === 0
+          ? "All executed tests passed"
+          : `${failCount} failure${failCount !== 1 ? "s" : ""} or blocked test${failCount !== 1 ? "s" : ""}`,
+      pass: !isLoading && failCount === 0 && stats.total > 0,
+      loading: isLoading,
+    },
+    {
+      label: "No open critical bugs",
+      detail:
+        criticalBugCount === 0
+          ? "No unresolved critical or blocker bugs"
+          : `${criticalBugCount} unresolved critical/blocker bug${criticalBugCount !== 1 ? "s" : ""}`,
+      pass: criticalBugCount === 0,
+    },
+    {
+      label: "Stories in acceptance or done",
+      detail:
+        storiesTotal === 0
+          ? "No issues linked to this version"
+          : storiesDone === storiesTotal
+            ? `All ${storiesTotal} issues done or in acceptance`
+            : `${storiesDone} / ${storiesTotal} issues done or in acceptance`,
+      pass: storiesTotal > 0 && storiesDone === storiesTotal,
+    },
+  ];
+
+  const passCount = items.filter((i) => i.pass).length;
+  const allPassing = passCount === items.length;
+  const isReleased = version.released === true;
+
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
+      {/* Header */}
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-5 py-3.5 dark:border-slate-700">
+        <div className="flex items-center gap-2">
+          <ListChecks className="h-4 w-4 text-slate-500 dark:text-slate-400" />
+          <h3 className="font-semibold text-slate-800 dark:text-slate-200">Release readiness</h3>
+        </div>
+        <div className="flex items-center gap-2">
+          {isReleased && (
+            <span className="rounded-full border border-green-200 bg-green-50 px-2.5 py-0.5 text-xs font-semibold text-green-700 dark:border-green-800 dark:bg-green-950 dark:text-green-300">
+              Released
+            </span>
+          )}
+          <span
+            className={cn(
+              "rounded-full border px-2.5 py-0.5 text-xs font-semibold",
+              allPassing
+                ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-300"
+                : "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-300",
+            )}
+          >
+            {allPassing ? "Ready to release" : `${passCount} / ${items.length} criteria met`}
+          </span>
+        </div>
+      </div>
+
+      {/* Checklist rows */}
+      <ul className="divide-y divide-slate-100 dark:divide-slate-700">
+        {items.map((item) => (
+          <li key={item.label} className="flex items-start gap-3 px-5 py-3">
+            <span className="mt-0.5 shrink-0">
+              {item.loading ? (
+                <Loader2 className="h-4 w-4 animate-spin text-slate-400" />
+              ) : item.pass ? (
+                <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+              ) : (
+                <XCircle className="h-4 w-4 text-red-500" />
+              )}
+            </span>
+            <div className="min-w-0">
+              <p
+                className={cn(
+                  "text-sm font-medium",
+                  item.pass
+                    ? "text-slate-800 dark:text-slate-200"
+                    : "text-slate-700 dark:text-slate-300",
+                )}
+              >
+                {item.label}
+              </p>
+              <p
+                className={cn(
+                  "text-xs",
+                  item.loading
+                    ? "text-slate-400"
+                    : item.pass
+                      ? "text-emerald-600 dark:text-emerald-400"
+                      : "text-red-600 dark:text-red-400",
+                )}
+              >
+                {item.detail}
+              </p>
+            </div>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
@@ -306,7 +648,8 @@ function FailedTestsAnalysis({
   versionName: string;
 }) {
   const [showAll, setShowAll] = useState(false);
-  const [collapsed, setCollapsed] = useState(true);
+  // Auto-expand when there are failures so production team sees them immediately
+  const [collapsed, setCollapsed] = useState(failedTests.length === 0);
 
   if (isLoading) {
     return (
@@ -586,6 +929,8 @@ interface VersionCardProps {
   isFavourite: boolean;
   onClick: () => void;
   onToggleFavourite: (e: React.MouseEvent) => void;
+  /** Optional health dot: "green" | "amber" | "red" — only shown when data is cached. */
+  healthDot?: "green" | "amber" | "red";
 }
 
 function VersionCard({
@@ -594,7 +939,17 @@ function VersionCard({
   isFavourite,
   onClick,
   onToggleFavourite,
+  healthDot,
 }: VersionCardProps) {
+  const dotColor =
+    healthDot === "green"
+      ? "bg-emerald-400"
+      : healthDot === "amber"
+        ? "bg-amber-400"
+        : healthDot === "red"
+          ? "bg-red-500"
+          : null;
+
   return (
     <button
       onClick={onClick}
@@ -606,7 +961,22 @@ function VersionCard({
       )}
     >
       <div className="flex items-center justify-between gap-2">
-        <span className="truncate font-medium text-sm">{version.name}</span>
+        <div className="flex min-w-0 items-center gap-1.5">
+          {/* Health dot — only rendered when data is available */}
+          {dotColor && (
+            <span
+              className={cn("h-2 w-2 shrink-0 rounded-full", dotColor)}
+              title={
+                healthDot === "green"
+                  ? "All passing"
+                  : healthDot === "amber"
+                    ? "Partial failures"
+                    : "Failures detected"
+              }
+            />
+          )}
+          <span className="truncate font-medium text-sm">{version.name}</span>
+        </div>
         <div className="flex shrink-0 items-center gap-1.5">
           {version.released && (
             <span
@@ -715,6 +1085,7 @@ interface ExecutionListPanelProps {
   onSelectExecution: (exec: TestExecution) => void;
   onReload: () => void;
   isRefreshing: boolean;
+  onHealthUpdate: (versionId: string, dot: "green" | "amber" | "red") => void;
 }
 
 function ExecutionListPanel({
@@ -723,6 +1094,7 @@ function ExecutionListPanel({
   onSelectExecution,
   onReload,
   isRefreshing,
+  onHealthUpdate,
 }: ExecutionListPanelProps) {
   const {
     data: executions,
@@ -791,6 +1163,7 @@ function ExecutionListPanel({
         executions={executions ?? []}
         version={version}
         onSelectExecution={onSelectExecution}
+        onHealthUpdate={onHealthUpdate}
       />
     </div>
   );
@@ -855,6 +1228,24 @@ interface BugsPanelProps {
 }
 
 function BugsPanel({ bugs, isLoading, isError, error, failedTests }: BugsPanelProps) {
+  // ── priority summary counts ───────────────────────────────────────────────
+  const prioritySummary = useMemo(() => {
+    const list = bugs ?? [];
+    const counts: Record<string, number> = {};
+    for (const b of list) {
+      if (b.fields.status?.category?.key === "done") continue; // only unresolved
+      const p = b.fields.priority?.name;
+      if (p) counts[p] = (counts[p] ?? 0) + 1;
+    }
+    return PRIORITY_ORDER.filter((p) => counts[p])
+      .concat(
+        Object.keys(counts)
+          .filter((p) => !PRIORITY_ORDER.includes(p))
+          .sort(),
+      )
+      .map((p) => ({ name: p, count: counts[p] }));
+  }, [bugs]);
+
   // ── bug key → detecting test keys (from failed test analysis) ─────────────
   const bugToDetectingTests = useMemo(() => {
     const map = new Map<string, { testKey: string; testSummary: string }[]>();
@@ -960,13 +1351,31 @@ function BugsPanel({ bugs, isLoading, isError, error, failedTests }: BugsPanelPr
   return (
     <div className="mt-4 overflow-hidden rounded-2xl border border-red-200 bg-white shadow-sm dark:border-red-900/60 dark:bg-slate-800">
       {/* Header strip */}
-      <div className="flex items-center gap-1.5 bg-red-50 px-4 py-2.5 text-xs font-semibold uppercase tracking-wider text-red-500 dark:bg-red-950/60 dark:text-red-400">
-        <Bug className="h-3.5 w-3.5" />
-        Bugs ({list.length})
-        {hasActiveFilters && (
-          <span className="ml-1 rounded-full bg-red-600 px-1.5 py-0.5 text-white">
-            {filtered.length} shown
-          </span>
+      <div className="flex flex-wrap items-center justify-between gap-3 bg-red-50 px-4 py-2.5 dark:bg-red-950/60">
+        <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-red-500 dark:text-red-400">
+          <Bug className="h-3.5 w-3.5" />
+          Bugs ({list.length})
+          {hasActiveFilters && (
+            <span className="ml-1 rounded-full bg-red-600 px-1.5 py-0.5 text-white">
+              {filtered.length} shown
+            </span>
+          )}
+        </div>
+        {/* Priority summary bar — shows unresolved counts per priority */}
+        {prioritySummary.length > 0 && (
+          <div className="flex flex-wrap items-center gap-2">
+            {prioritySummary.map(({ name, count }) => (
+              <span
+                key={name}
+                className="flex items-center gap-1 text-xs text-slate-600 dark:text-slate-300"
+                title={`${count} unresolved ${name} bug${count !== 1 ? "s" : ""}`}
+              >
+                <span className={cn("font-bold leading-none", priorityClass(name))}>●</span>
+                <span className="font-semibold">{name}:</span>
+                <span>{count}</span>
+              </span>
+            ))}
+          </div>
         )}
       </div>
 
@@ -1429,6 +1838,7 @@ interface VersionContentProps {
   executions: TestExecution[];
   version: JiraVersion;
   onSelectExecution: (exec: TestExecution) => void;
+  onHealthUpdate: (versionId: string, dot: "green" | "amber" | "red") => void;
 }
 
 function VersionContent({
@@ -1436,6 +1846,7 @@ function VersionContent({
   executions,
   version,
   onSelectExecution,
+  onHealthUpdate,
 }: VersionContentProps) {
   const {
     data: bugs,
@@ -1443,10 +1854,43 @@ function VersionContent({
     isError: bugsError,
     error: bugsErr,
   } = useBugsByVersion(projectKey, version.name);
+  const { data: versionIssues } = useVersionIssues(projectKey, version.name);
   const stats = useVersionRunStats(executions, bugs);
+
+  // Update health dot once all pages have loaded
+  const allLoaded = stats.pagesLoaded >= stats.pagesExpected && stats.pagesExpected > 0;
+  useEffect(() => {
+    if (!allLoaded || stats.total === 0) return;
+    const failCount =
+      (stats.counts["FAIL"] ?? stats.counts["FAILED"] ?? 0) + (stats.counts["BLOCKED"] ?? 0);
+    const passCount = stats.counts["PASS"] ?? stats.counts["PASSED"] ?? 0;
+    const passRate = passCount / stats.total;
+    const dot: "green" | "amber" | "red" =
+      failCount === 0 ? "green" : passRate >= 0.8 ? "amber" : "red";
+    onHealthUpdate(version.id, dot);
+  }, [allLoaded, stats.counts, stats.total, version.id, onHealthUpdate]);
 
   return (
     <>
+      {/* KPI strip — shown as soon as we have executions */}
+      {executions.length > 0 && (
+        <div className="mb-4 space-y-3">
+          <VersionKpiStrip
+            stats={stats}
+            executions={executions}
+            bugs={bugs ?? []}
+            versionIssues={versionIssues ?? []}
+          />
+          <ReleaseReadinessChecklist
+            stats={stats}
+            executions={executions}
+            bugs={bugs ?? []}
+            versionIssues={versionIssues ?? []}
+            version={version}
+          />
+        </div>
+      )}
+
       <VersionDashboard
         stats={stats}
         executions={executions}
@@ -1504,6 +1948,8 @@ export function VersionsPage() {
   const [selectedExecution, setSelectedExecution] = useState<TestExecution | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [versionFilter, setVersionFilter] = useState("");
+  // Persists health dot colours for visited versions within the session
+  const [healthDotMap, setHealthDotMap] = useState<Record<string, "green" | "amber" | "red">>({});
 
   const handleBack = () => setSelectedExecution(null);
 
@@ -1681,6 +2127,7 @@ export function VersionsPage() {
                   isFavourite={true}
                   onClick={() => handleSelectVersion(v)}
                   onToggleFavourite={(e) => handleToggleFavourite(e, v)}
+                  {...(healthDotMap[v.id] ? { healthDot: healthDotMap[v.id] } : {})}
                 />
               ))}
             </div>
@@ -1700,6 +2147,7 @@ export function VersionsPage() {
                 isFavourite={false}
                 onClick={() => handleSelectVersion(v)}
                 onToggleFavourite={(e) => handleToggleFavourite(e, v)}
+                {...(healthDotMap[v.id] ? { healthDot: healthDotMap[v.id] } : {})}
               />
             ))}
           </div>
@@ -1719,6 +2167,7 @@ export function VersionsPage() {
                   isFavourite={false}
                   onClick={() => handleSelectVersion(v)}
                   onToggleFavourite={(e) => handleToggleFavourite(e, v)}
+                  {...(healthDotMap[v.id] ? { healthDot: healthDotMap[v.id] } : {})}
                 />
               ))}
             </div>
@@ -1740,6 +2189,9 @@ export function VersionsPage() {
             onSelectExecution={setSelectedExecution}
             onReload={handleReload}
             isRefreshing={isRefreshing}
+            onHealthUpdate={(id, dot) =>
+              setHealthDotMap((prev) => (prev[id] === dot ? prev : { ...prev, [id]: dot }))
+            }
           />
         )}
       </div>
