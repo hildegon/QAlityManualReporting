@@ -38,6 +38,7 @@ export function statusVariant(status: string): VariantProps<typeof badgeVariants
     case "FAILED":
       return "fail";
     case "EXECUTING":
+    case "IN PROGRESS":
       return "executing";
     case "BLOCKED":
       return "blocked";
@@ -45,7 +46,12 @@ export function statusVariant(status: string): VariantProps<typeof badgeVariants
     case "NA":
       return "na";
     case "TODO":
-    default:
+    case "TO DO":
+    case "NOT RUN":
       return "todo";
+    default:
+      // Unknown custom statuses: fall back to the neutral "default" variant
+      // rather than "todo" so they are visually distinguishable.
+      return "default";
   }
 }

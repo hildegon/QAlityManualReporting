@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useRef, useEffect } from "react";
+import { useState, useMemo, useCallback, useRef, useEffect, memo } from "react";
 import {
   Tag,
   FileText,
@@ -76,6 +76,10 @@ function FetchProgress({ loaded, expected }: { loaded: number; expected: number 
     </div>
   );
 }
+
+// ── Shared constants ──────────────────────────────────────────────────────────
+
+const CRITICAL_PRIORITIES = new Set(["highest", "critical", "blocker", "p1"]);
 
 // ── KPI strip ─────────────────────────────────────────────────────────────────
 
@@ -182,7 +186,6 @@ function VersionKpiStrip({ stats, executions, bugs, versionIssues }: VersionKpiS
   const failScheme: KpiTileProps["colorScheme"] = failCount === 0 ? "emerald" : "red";
 
   // Critical / Blocker bugs (unresolved)
-  const CRITICAL_PRIORITIES = new Set(["highest", "critical", "blocker", "p1"]);
   const criticalBugCount = bugs.filter(
     (b) =>
       b.fields.status?.category?.key !== "done" &&
@@ -289,7 +292,6 @@ function ReleaseReadinessChecklist({
   version,
 }: ReleaseReadinessChecklistProps) {
   const isLoading = stats.pagesLoaded < stats.pagesExpected;
-  const CRITICAL_PRIORITIES = new Set(["highest", "critical", "blocker", "p1"]);
 
   const todoCount =
     (stats.counts["TODO"] ?? stats.counts["NOT RUN"] ?? 0) + (stats.counts["EXECUTING"] ?? 0);
@@ -945,13 +947,15 @@ interface VersionCardProps {
   version: JiraVersion;
   isActive: boolean;
   isFavourite: boolean;
-  onClick: () => void;
-  onToggleFavourite: (e: React.MouseEvent) => void;
+  /** Stable callback — called with the version id. */
+  onClick: (id: string) => void;
+  /** Stable callback — called with (event, version id). */
+  onToggleFavourite: (e: React.MouseEvent, id: string) => void;
   /** Optional health dot: "green" | "amber" | "red" — only shown when data is cached. */
   healthDot?: "green" | "amber" | "red";
 }
 
-function VersionCard({
+const VersionCard = memo(function VersionCard({
   version,
   isActive,
   isFavourite,
@@ -959,6 +963,11 @@ function VersionCard({
   onToggleFavourite,
   healthDot,
 }: VersionCardProps) {
+  const handleClick = useCallback(() => onClick(version.id), [onClick, version.id]);
+  const handleToggleFavourite = useCallback(
+    (e: React.MouseEvent) => onToggleFavourite(e, version.id),
+    [onToggleFavourite, version.id],
+  );
   const dotColor =
     healthDot === "green"
       ? "bg-emerald-400"
@@ -970,7 +979,7 @@ function VersionCard({
 
   return (
     <button
-      onClick={onClick}
+      onClick={handleClick}
       className={cn(
         "group w-full rounded-lg border px-4 py-3 text-left transition-colors",
         isActive
@@ -1000,7 +1009,9 @@ function VersionCard({
             <span
               className={cn(
                 "rounded-full px-2 py-0.5 text-xs font-medium",
-                isActive ? "bg-white/20 text-white" : "bg-green-100 text-green-700",
+                isActive
+                  ? "bg-white/20 text-white"
+                  : "bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300",
               )}
             >
               Released
@@ -1010,7 +1021,9 @@ function VersionCard({
             <span
               className={cn(
                 "rounded-full px-2 py-0.5 text-xs font-medium",
-                isActive ? "bg-white/20 text-white" : "bg-slate-100 text-slate-500",
+                isActive
+                  ? "bg-white/20 text-white"
+                  : "bg-slate-100 text-slate-500 dark:bg-slate-700 dark:text-slate-400",
               )}
             >
               Archived
@@ -1020,7 +1033,7 @@ function VersionCard({
           <span
             role="button"
             aria-label={isFavourite ? "Remove from favourites" : "Add to favourites"}
-            onClick={onToggleFavourite}
+            onClick={handleToggleFavourite}
             className={cn(
               "rounded p-0.5 transition-colors",
               isFavourite
@@ -1062,7 +1075,7 @@ function VersionCard({
       )}
     </button>
   );
-}
+});
 
 // ── Individual execution row ──────────────────────────────────────────────────
 
@@ -1959,6 +1972,7 @@ export function VersionsPage() {
   const executionProjectKey = useExecutionProjectKey();
   const queryClient = useQueryClient();
   const {
+    favourites,
     isFavourite,
     toggleFavourite,
     selectedVersionId: selectedVersionIdMap,
@@ -1987,13 +2001,17 @@ export function VersionsPage() {
   const [selectedExecution, setSelectedExecution] = useState<TestExecution | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [versionFilter, setVersionFilter] = useState("");
+  const [showReleased, setShowReleased] = useState(false);
 
   const handleBack = () => setSelectedExecution(null);
 
-  const handleSelectVersion = (v: JiraVersion) => {
-    if (executionProjectKey) setSelectedVersionId(executionProjectKey, v.id);
-    setSelectedExecution(null);
-  };
+  const handleSelectVersion = useCallback(
+    (id: string) => {
+      if (executionProjectKey) setSelectedVersionId(executionProjectKey, id);
+      setSelectedExecution(null);
+    },
+    [executionProjectKey, setSelectedVersionId],
+  );
 
   const handleReload = useCallback(async () => {
     if (!executionProjectKey) return;
@@ -2020,6 +2038,72 @@ export function VersionsPage() {
     await Promise.all(toInvalidate);
     setIsRefreshing(false);
   }, [executionProjectKey, selectedVersion, queryClient]);
+
+  // Derived version lists — must be declared before early returns (rules of hooks).
+  const allVersions = useMemo(() => versions ?? [], [versions]);
+  const filterQ = versionFilter.trim().toLowerCase();
+  const favouriteVersions = useMemo(
+    () =>
+      allVersions.filter(
+        (v) =>
+          executionProjectKey &&
+          isFavourite(executionProjectKey, v.id) &&
+          (!filterQ || v.name.toLowerCase().includes(filterQ)),
+      ),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [allVersions, executionProjectKey, favourites, filterQ],
+  );
+  const unreleasedVersions = useMemo(
+    () =>
+      allVersions.filter(
+        (v) =>
+          !v.archived &&
+          !v.released &&
+          !(executionProjectKey && isFavourite(executionProjectKey, v.id)) &&
+          (!filterQ || v.name.toLowerCase().includes(filterQ)),
+      ),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [allVersions, executionProjectKey, favourites, filterQ],
+  );
+  const releasedVersions = useMemo(
+    () =>
+      allVersions.filter(
+        (v) =>
+          !v.archived &&
+          v.released &&
+          !(executionProjectKey && isFavourite(executionProjectKey, v.id)) &&
+          (!filterQ || v.name.toLowerCase().includes(filterQ)),
+      ),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [allVersions, executionProjectKey, favourites, filterQ],
+  );
+  const archivedVersions = useMemo(
+    () =>
+      allVersions.filter(
+        (v) =>
+          v.archived &&
+          !(executionProjectKey && isFavourite(executionProjectKey, v.id)) &&
+          (!filterQ || v.name.toLowerCase().includes(filterQ)),
+      ),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [allVersions, executionProjectKey, favourites, filterQ],
+  );
+
+  const handleToggleFavourite = useCallback(
+    (e: React.MouseEvent, id: string) => {
+      e.stopPropagation();
+      if (!executionProjectKey) return;
+      toggleFavourite(executionProjectKey, id);
+    },
+    [executionProjectKey, toggleFavourite],
+  );
+
+  const handleHealthUpdate = useCallback(
+    (id: string, dot: "green" | "amber" | "red") => {
+      if (executionProjectKey) setHealthDot(executionProjectKey, id, dot);
+    },
+    [executionProjectKey, setHealthDot],
+  );
 
   if (!executionProjectKey) {
     return (
@@ -2075,33 +2159,6 @@ export function VersionsPage() {
         </pre>
       </div>
     );
-  }
-
-  const allVersions = versions ?? [];
-  const filterQ = versionFilter.trim().toLowerCase();
-  const favouriteVersions = allVersions.filter(
-    (v) =>
-      executionProjectKey &&
-      isFavourite(executionProjectKey, v.id) &&
-      (!filterQ || v.name.toLowerCase().includes(filterQ)),
-  );
-  const activeVersions = allVersions.filter(
-    (v) =>
-      !v.archived &&
-      !(executionProjectKey && isFavourite(executionProjectKey, v.id)) &&
-      (!filterQ || v.name.toLowerCase().includes(filterQ)),
-  );
-  const archivedVersions = allVersions.filter(
-    (v) =>
-      v.archived &&
-      !(executionProjectKey && isFavourite(executionProjectKey, v.id)) &&
-      (!filterQ || v.name.toLowerCase().includes(filterQ)),
-  );
-
-  function handleToggleFavourite(e: React.MouseEvent, version: JiraVersion) {
-    e.stopPropagation();
-    if (!executionProjectKey) return;
-    toggleFavourite(executionProjectKey, version.id);
   }
 
   if (allVersions.length === 0) {
@@ -2162,33 +2219,69 @@ export function VersionsPage() {
                   version={v}
                   isActive={selectedVersion?.id === v.id}
                   isFavourite={true}
-                  onClick={() => handleSelectVersion(v)}
-                  onToggleFavourite={(e) => handleToggleFavourite(e, v)}
+                  onClick={handleSelectVersion}
+                  onToggleFavourite={handleToggleFavourite}
                   {...(healthDotMap[v.id] ? { healthDot: healthDotMap[v.id] } : {})}
                 />
               ))}
             </div>
-            {(activeVersions.length > 0 || archivedVersions.length > 0) && (
+            {(unreleasedVersions.length > 0 ||
+              releasedVersions.length > 0 ||
+              archivedVersions.length > 0) && (
               <div className="my-2 border-t border-slate-100 dark:border-slate-700" />
             )}
           </>
         )}
 
-        {activeVersions.length > 0 && (
+        {unreleasedVersions.length > 0 && (
           <div className="space-y-1">
-            {activeVersions.map((v) => (
+            {unreleasedVersions.map((v) => (
               <VersionCard
                 key={v.id}
                 version={v}
                 isActive={selectedVersion?.id === v.id}
                 isFavourite={false}
-                onClick={() => handleSelectVersion(v)}
-                onToggleFavourite={(e) => handleToggleFavourite(e, v)}
+                onClick={handleSelectVersion}
+                onToggleFavourite={handleToggleFavourite}
                 {...(healthDotMap[v.id] ? { healthDot: healthDotMap[v.id] } : {})}
               />
             ))}
           </div>
         )}
+
+        {/* Released versions — hidden by default */}
+        <div className={cn(unreleasedVersions.length > 0 && "mt-3")}>
+          <button
+            onClick={() => setShowReleased((s) => !s)}
+            className="flex w-full items-center justify-between rounded px-1 py-0.5 text-xs font-semibold uppercase tracking-wider text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300 transition-colors"
+          >
+            <span className="flex items-center gap-1">
+              <CheckCircle className="h-3 w-3" />
+              Released ({releasedVersions.length})
+            </span>
+            <ChevronDown
+              className={cn(
+                "h-3 w-3 transition-transform duration-200",
+                showReleased && "rotate-180",
+              )}
+            />
+          </button>
+          {showReleased && releasedVersions.length > 0 && (
+            <div className="mt-1 space-y-1">
+              {releasedVersions.map((v) => (
+                <VersionCard
+                  key={v.id}
+                  version={v}
+                  isActive={selectedVersion?.id === v.id}
+                  isFavourite={false}
+                  onClick={handleSelectVersion}
+                  onToggleFavourite={handleToggleFavourite}
+                  {...(healthDotMap[v.id] ? { healthDot: healthDotMap[v.id] } : {})}
+                />
+              ))}
+            </div>
+          )}
+        </div>
 
         {archivedVersions.length > 0 && (
           <>
@@ -2202,8 +2295,8 @@ export function VersionsPage() {
                   version={v}
                   isActive={selectedVersion?.id === v.id}
                   isFavourite={false}
-                  onClick={() => handleSelectVersion(v)}
-                  onToggleFavourite={(e) => handleToggleFavourite(e, v)}
+                  onClick={handleSelectVersion}
+                  onToggleFavourite={handleToggleFavourite}
                   {...(healthDotMap[v.id] ? { healthDot: healthDotMap[v.id] } : {})}
                 />
               ))}
@@ -2226,9 +2319,7 @@ export function VersionsPage() {
             onSelectExecution={setSelectedExecution}
             onReload={handleReload}
             isRefreshing={isRefreshing}
-            onHealthUpdate={(id, dot) => {
-              if (executionProjectKey) setHealthDot(executionProjectKey, id, dot);
-            }}
+            onHealthUpdate={handleHealthUpdate}
           />
         )}
       </div>

@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import { useJiraProjects } from "@/services/queries";
 import { useProjectStore } from "@/stores/projectStore";
 import { Spinner } from "@/components/ui/spinner";
@@ -43,15 +43,21 @@ export function ProjectSelector({ scope }: ProjectSelectorProps) {
     }
   }, [open]);
 
+  const q = search.trim().toLowerCase();
+  const filtered = useMemo(
+    () =>
+      !q || !projects
+        ? (projects ?? [])
+        : projects.filter(
+            (p) => p.name.toLowerCase().includes(q) || p.key.toLowerCase().includes(q),
+          ),
+    [projects, q],
+  );
+
   if (isLoading) return <Spinner size="sm" />;
   if (isError || !projects?.length) {
     return <span className="text-sm text-slate-400">No projects</span>;
   }
-
-  const q = search.trim().toLowerCase();
-  const filtered = q
-    ? projects.filter((p) => p.name.toLowerCase().includes(q) || p.key.toLowerCase().includes(q))
-    : projects;
 
   return (
     <DropdownMenu.Root open={open} onOpenChange={setOpen}>

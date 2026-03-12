@@ -128,7 +128,7 @@ export function useJiraProjects() {
  */
 export function useProjectComponents(projectKey: string | null | undefined) {
   return useQuery<JiraComponent[]>({
-    queryKey: queryKeys.projectComponents(projectKey ?? ""),
+    queryKey: queryKeys.projectComponents(projectKey!),
     queryFn: () => api.getProjectComponents(projectKey!),
     enabled: !!projectKey,
     staleTime: 10 * 60 * 1000, // components rarely change
@@ -249,7 +249,7 @@ export function useUpdateExecutionFixVersion() {
 
 export function useTestPlans(projectKey: string | null) {
   return useQuery<TestPlan[]>({
-    queryKey: queryKeys.testPlans(projectKey ?? ""),
+    queryKey: queryKeys.testPlans(projectKey!),
     queryFn: () => api.getTestPlans(projectKey!),
     enabled: !!projectKey,
     staleTime: 2 * 60 * 1000,
@@ -262,7 +262,7 @@ export function useTestPlans(projectKey: string | null) {
 
 export function useTestExecutions(projectKey: string | null) {
   return useQuery<TestExecution[]>({
-    queryKey: queryKeys.testExecutions(projectKey ?? ""),
+    queryKey: queryKeys.testExecutions(projectKey!),
     queryFn: () => api.getTestExecutions(projectKey!),
     enabled: !!projectKey,
     staleTime: 5 * 60 * 1_000, // 5 minutes
@@ -276,7 +276,7 @@ export function useTestExecutions(projectKey: string | null) {
 /** Fetch all versions for a Jira project. */
 export function useProjectVersions(projectKey: string | null) {
   return useQuery<JiraVersion[]>({
-    queryKey: queryKeys.projectVersions(projectKey ?? ""),
+    queryKey: queryKeys.projectVersions(projectKey!),
     queryFn: () => api.getProjectVersions(projectKey!),
     enabled: !!projectKey,
     staleTime: 5 * 60 * 1_000,
@@ -304,7 +304,7 @@ export function useIssueLinkTypes(enabled = true) {
 /** Fetch Bug issues with the given affectedVersion in a Jira project. */
 export function useBugsByVersion(projectKey: string | null, versionName: string | null) {
   return useQuery<JiraBug[]>({
-    queryKey: queryKeys.bugsByVersion(projectKey ?? "", versionName ?? ""),
+    queryKey: queryKeys.bugsByVersion(projectKey!, versionName!),
     queryFn: () => api.getBugsByVersion(projectKey!, versionName!),
     enabled: !!projectKey && !!versionName,
     staleTime: 2 * 60 * 1_000,
@@ -317,7 +317,7 @@ export function useBugsByVersion(projectKey: string | null, versionName: string 
 /** Fetch Story, Task, and Bug issues with the given fixVersion in a Jira project. */
 export function useVersionIssues(projectKey: string | null, versionName: string | null) {
   return useQuery<JiraBug[]>({
-    queryKey: queryKeys.versionIssues(projectKey ?? "", versionName ?? ""),
+    queryKey: queryKeys.versionIssues(projectKey!, versionName!),
     queryFn: () => api.getVersionIssues(projectKey!, versionName!),
     enabled: !!projectKey && !!versionName,
     staleTime: 2 * 60 * 1_000,
@@ -388,7 +388,7 @@ export function useLinkBugToTest() {
 /** Fetch test executions in a project filtered by a specific fix version. */
 export function useTestExecutionsByVersion(projectKey: string | null, versionName: string | null) {
   return useQuery<TestExecution[]>({
-    queryKey: queryKeys.testExecutionsByVersion(projectKey ?? "", versionName ?? ""),
+    queryKey: queryKeys.testExecutionsByVersion(projectKey!, versionName!),
     queryFn: () => api.getTestExecutionsByVersion(projectKey!, versionName!),
     enabled: !!projectKey && !!versionName,
     staleTime: 2 * 60 * 1_000,
@@ -826,7 +826,7 @@ export function useCreateTestExecution() {
  */
 export function useGetTests(projectKey: string | undefined, enabled = true) {
   return useQuery<XrayTest[]>({
-    queryKey: queryKeys.tests(projectKey ?? ""),
+    queryKey: queryKeys.tests(projectKey!),
     queryFn: () => api.getTests(projectKey!),
     enabled: !!projectKey && enabled,
     staleTime: Infinity,
@@ -843,7 +843,7 @@ export function useGetTests(projectKey: string | undefined, enabled = true) {
  */
 export function useGetTestSets(projectKey: string | undefined) {
   return useQuery<XrayTestSet[]>({
-    queryKey: queryKeys.testSets(projectKey ?? ""),
+    queryKey: queryKeys.testSets(projectKey!),
     queryFn: () => api.getTestSets(projectKey!),
     enabled: !!projectKey,
     staleTime: Infinity,
@@ -1191,7 +1191,7 @@ export function useVersionRunStats(executions: TestExecution[], bugs?: JiraBug[]
       }
     }
     return queries;
-  }, [allPhase1Done, executions, phase1, PAGE_SIZE]);
+  }, [allPhase1Done, executions, phase1]);
 
   // Track settled count in a ref to avoid dependency cycles while still
   // advancing the concurrency window on each render.
@@ -1349,7 +1349,7 @@ export function useVersionRunStats(executions: TestExecution[], bugs?: JiraBug[]
  */
 export function useTestSetMembership(projectKey: string | null) {
   const { data, isLoading } = useQuery({
-    queryKey: queryKeys.testSetMemberships(projectKey ?? ""),
+    queryKey: queryKeys.testSetMemberships(projectKey!),
     queryFn: () => api.getAllTestSetMemberships(projectKey!),
     enabled: !!projectKey,
     staleTime: 5 * 60 * 1_000,

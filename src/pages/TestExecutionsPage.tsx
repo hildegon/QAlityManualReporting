@@ -51,14 +51,16 @@ interface ExecRowProps {
   renameKey: string | null;
   renameDraft: string;
   renameIsPending: boolean;
-  onSelect: () => void;
-  onStartRename: () => void;
+  /** Called with the exec when the row is clicked. */
+  onSelect: (exec: TestExecution) => void;
+  /** Called with the exec to start an inline rename. */
+  onStartRename: (exec: TestExecution) => void;
   onCancelRename: () => void;
-  onSaveRename: (trimmed: string) => void;
+  onSaveRename: (exec: TestExecution, trimmed: string) => void;
   setRenameDraft: (v: string) => void;
-  onToggleFavourite: (e: React.MouseEvent) => void;
-  onEdit: (e: React.MouseEvent) => void;
-  onClone: (e: React.MouseEvent) => void;
+  onToggleFavourite: (e: React.MouseEvent, issueId: string) => void;
+  onEdit: (e: React.MouseEvent, exec: TestExecution) => void;
+  onClone: (e: React.MouseEvent, exec: TestExecution) => void;
 }
 
 const ExecRow = memo(function ExecRow({
@@ -88,13 +90,13 @@ const ExecRow = memo(function ExecRow({
         "group cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-700/50",
         isFavourite && "bg-amber-50/40 dark:bg-amber-900/20",
       )}
-      onClick={onSelect}
+      onClick={() => onSelect(exec)}
     >
       {/* Favourite star */}
       <td className="px-2 py-3" onClick={(e) => e.stopPropagation()}>
         <button
           aria-label={isFavourite ? "Remove from favourites" : "Add to favourites"}
-          onClick={onToggleFavourite}
+          onClick={(e) => onToggleFavourite(e, exec.issue_id)}
           className={cn(
             "rounded p-0.5 transition-colors",
             isFavourite
@@ -128,7 +130,7 @@ const ExecRow = memo(function ExecRow({
                 onCancelRename();
                 return;
               }
-              onSaveRename(trimmed);
+              onSaveRename(exec, trimmed);
             }}
           >
             <input
@@ -157,7 +159,7 @@ const ExecRow = memo(function ExecRow({
             </button>
           </form>
         ) : (
-          <div onClick={onStartRename} className="cursor-pointer">
+          <div onClick={() => onStartRename(exec)} className="cursor-pointer">
             <span className="group/rename flex items-center gap-1.5">
               {exec.jira.summary}
               <Pencil className="h-3.5 w-3.5 shrink-0 text-slate-300 opacity-0 group-hover/rename:opacity-100" />
@@ -192,14 +194,14 @@ const ExecRow = memo(function ExecRow({
           <button
             className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-700 dark:text-slate-400"
             title="Edit status / assignee"
-            onClick={onEdit}
+            onClick={(e) => onEdit(e, exec)}
           >
             <Pencil className="h-4 w-4" />
           </button>
           <button
             className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-700 dark:text-slate-400"
             title="Clone execution"
-            onClick={onClone}
+            onClick={(e) => onClone(e, exec)}
           >
             <Copy className="h-4 w-4" />
           </button>
@@ -284,6 +286,41 @@ export function TestExecutionsPage() {
   const visibleRegularExecs = regularExecs.slice(0, execPage * EXEC_PAGE_SIZE);
   const hasMoreRegularExecs = visibleRegularExecs.length < regularExecs.length;
 
+  function handleToggleExecFavourite(e: React.MouseEvent, issueId: string) {
+    e.stopPropagation();
+    if (!executionProjectKey) return;
+    toggleExecutionFavourite(executionProjectKey, issueId);
+  }
+
+  const handleSelect = useCallback((exec: TestExecution) => setSelected(exec), []);
+  const handleStartRename = useCallback((exec: TestExecution) => {
+    setRenameKey(exec.jira.key);
+    setRenameDraft(exec.jira.summary);
+  }, []);
+  const handleCancelRename = useCallback(() => setRenameKey(null), []);
+  const handleSaveRename = useCallback(
+    (exec: TestExecution, trimmed: string) => {
+      if (!executionProjectKey) return;
+      renameIssue.mutate(
+        {
+          issueKey: exec.jira.key,
+          summary: trimmed,
+          queryKey: queryKeys.testExecutions(executionProjectKey),
+        },
+        { onSettled: () => setRenameKey(null) },
+      );
+    },
+    [renameIssue, executionProjectKey],
+  );
+  const handleEdit = useCallback((e: React.MouseEvent, exec: TestExecution) => {
+    e.stopPropagation();
+    setEditTarget(exec);
+  }, []);
+  const handleClone = useCallback((e: React.MouseEvent, exec: TestExecution) => {
+    e.stopPropagation();
+    setCloneTarget(exec);
+  }, []);
+
   if (!executionProjectKey) {
     return (
       <EmptyState
@@ -356,12 +393,6 @@ export function TestExecutionsPage() {
         contentProjectKey={contentProjectKey}
       />
     );
-  }
-
-  function handleToggleExecFavourite(e: React.MouseEvent, issueId: string) {
-    e.stopPropagation();
-    if (!executionProjectKey) return;
-    toggleExecutionFavourite(executionProjectKey, issueId);
   }
 
   return (
@@ -446,32 +477,14 @@ export function TestExecutionsPage() {
                       renameKey={renameKey}
                       renameDraft={renameDraft}
                       renameIsPending={renameIssue.isPending}
-                      onSelect={() => setSelected(exec)}
-                      onStartRename={() => {
-                        setRenameKey(exec.jira.key);
-                        setRenameDraft(exec.jira.summary);
-                      }}
-                      onCancelRename={() => setRenameKey(null)}
-                      onSaveRename={(trimmed) => {
-                        renameIssue.mutate(
-                          {
-                            issueKey: exec.jira.key,
-                            summary: trimmed,
-                            queryKey: queryKeys.testExecutions(executionProjectKey),
-                          },
-                          { onSettled: () => setRenameKey(null) },
-                        );
-                      }}
+                      onSelect={handleSelect}
+                      onStartRename={handleStartRename}
+                      onCancelRename={handleCancelRename}
+                      onSaveRename={handleSaveRename}
                       setRenameDraft={setRenameDraft}
-                      onToggleFavourite={(e) => handleToggleExecFavourite(e, exec.issue_id)}
-                      onEdit={(e) => {
-                        e.stopPropagation();
-                        setEditTarget(exec);
-                      }}
-                      onClone={(e) => {
-                        e.stopPropagation();
-                        setCloneTarget(exec);
-                      }}
+                      onToggleFavourite={handleToggleExecFavourite}
+                      onEdit={handleEdit}
+                      onClone={handleClone}
                     />
                   ))}
                   {regularExecs.length > 0 && (
@@ -495,32 +508,14 @@ export function TestExecutionsPage() {
                   renameKey={renameKey}
                   renameDraft={renameDraft}
                   renameIsPending={renameIssue.isPending}
-                  onSelect={() => setSelected(exec)}
-                  onStartRename={() => {
-                    setRenameKey(exec.jira.key);
-                    setRenameDraft(exec.jira.summary);
-                  }}
-                  onCancelRename={() => setRenameKey(null)}
-                  onSaveRename={(trimmed) => {
-                    renameIssue.mutate(
-                      {
-                        issueKey: exec.jira.key,
-                        summary: trimmed,
-                        queryKey: queryKeys.testExecutions(executionProjectKey),
-                      },
-                      { onSettled: () => setRenameKey(null) },
-                    );
-                  }}
+                  onSelect={handleSelect}
+                  onStartRename={handleStartRename}
+                  onCancelRename={handleCancelRename}
+                  onSaveRename={handleSaveRename}
                   setRenameDraft={setRenameDraft}
-                  onToggleFavourite={(e) => handleToggleExecFavourite(e, exec.issue_id)}
-                  onEdit={(e) => {
-                    e.stopPropagation();
-                    setEditTarget(exec);
-                  }}
-                  onClone={(e) => {
-                    e.stopPropagation();
-                    setCloneTarget(exec);
-                  }}
+                  onToggleFavourite={handleToggleExecFavourite}
+                  onEdit={handleEdit}
+                  onClone={handleClone}
                 />
               ))}
             </tbody>
@@ -612,15 +607,20 @@ function CreateExecutionDialog({
     contentProjectKey ?? undefined,
   );
 
-  const filteredTests = (tests ?? []).filter((t) => {
+  const filteredTests = useMemo(() => {
     const q = testSearch.toLowerCase();
-    return !q || t.jira.key.toLowerCase().includes(q) || t.jira.summary.toLowerCase().includes(q);
-  });
+    return (tests ?? []).filter(
+      (t) => !q || t.jira.key.toLowerCase().includes(q) || t.jira.summary.toLowerCase().includes(q),
+    );
+  }, [tests, testSearch]);
 
-  const filteredTestSets = (testSets ?? []).filter((ts) => {
+  const filteredTestSets = useMemo(() => {
     const q = testSetSearch.toLowerCase();
-    return !q || ts.jira.key.toLowerCase().includes(q) || ts.jira.summary.toLowerCase().includes(q);
-  });
+    return (testSets ?? []).filter(
+      (ts) =>
+        !q || ts.jira.key.toLowerCase().includes(q) || ts.jira.summary.toLowerCase().includes(q),
+    );
+  }, [testSets, testSetSearch]);
 
   const toggleTest = (issueId: string) => {
     setSelectedTestIds((prev) => {

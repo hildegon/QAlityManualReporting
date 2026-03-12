@@ -23,6 +23,16 @@ const navItems = [
   { to: "/settings", label: "Settings", icon: Settings },
 ];
 
+/** Stable className resolver for NavLink — defined at module level so it is never recreated. */
+function navClassName({ isActive }: { isActive: boolean }) {
+  return cn(
+    "flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm transition-colors",
+    isActive
+      ? "bg-slate-100 font-medium text-slate-900 dark:bg-slate-700 dark:text-slate-100"
+      : "text-slate-500 hover:bg-slate-50 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-slate-700 dark:hover:text-slate-200",
+  );
+}
+
 export function AppShell() {
   return (
     <div className="flex h-screen flex-col bg-slate-50 text-slate-900 dark:bg-slate-900 dark:text-slate-100">
@@ -53,18 +63,7 @@ export function AppShell() {
 
         <nav className="flex items-center gap-1">
           {navItems.map(({ to, label, icon: Icon }) => (
-            <NavLink
-              key={to}
-              to={to}
-              className={({ isActive }) =>
-                cn(
-                  "flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm transition-colors",
-                  isActive
-                    ? "bg-slate-100 font-medium text-slate-900 dark:bg-slate-700 dark:text-slate-100"
-                    : "text-slate-500 hover:bg-slate-50 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-slate-700 dark:hover:text-slate-200",
-                )
-              }
-            >
+            <NavLink key={to} to={to} className={navClassName}>
               <Icon className="h-4 w-4" />
               {label}
             </NavLink>
