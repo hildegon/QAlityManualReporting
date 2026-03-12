@@ -85,9 +85,10 @@ interface KpiTileProps {
   subValue?: string;
   icon: React.ComponentType<{ className?: string }>;
   colorScheme: "emerald" | "red" | "amber" | "slate" | "blue";
+  onClick?: () => void;
 }
 
-function KpiTile({ label, value, subValue, icon: Icon, colorScheme }: KpiTileProps) {
+function KpiTile({ label, value, subValue, icon: Icon, colorScheme, onClick }: KpiTileProps) {
   const schemes = {
     emerald: {
       border: "border-emerald-200 dark:border-emerald-800",
@@ -134,11 +135,17 @@ function KpiTile({ label, value, subValue, icon: Icon, colorScheme }: KpiTilePro
   const s = schemes[colorScheme];
 
   return (
-    <div
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={!onClick}
       className={cn(
-        "flex flex-1 flex-col gap-1 rounded-xl border px-4 py-3 shadow-sm",
+        "flex flex-1 flex-col gap-1 rounded-xl border px-4 py-3 shadow-sm text-left",
         s.border,
         s.bg,
+        onClick &&
+          "cursor-pointer transition-shadow hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-current",
+        !onClick && "cursor-default",
       )}
     >
       <div className="flex items-center gap-1.5">
@@ -149,7 +156,7 @@ function KpiTile({ label, value, subValue, icon: Icon, colorScheme }: KpiTilePro
       </div>
       <p className={cn("text-2xl font-bold leading-none", s.value)}>{value}</p>
       {subValue && <p className={cn("text-xs", s.sub)}>{subValue}</p>}
-    </div>
+    </button>
   );
 }
 
@@ -198,6 +205,10 @@ function VersionKpiStrip({ stats, executions, bugs, versionIssues }: VersionKpiS
           ? "blue"
           : "amber";
 
+  function scrollToSection(id: string) {
+    document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
   return (
     <div className="flex flex-wrap gap-3">
       {/* Pass rate */}
@@ -207,6 +218,7 @@ function VersionKpiStrip({ stats, executions, bugs, versionIssues }: VersionKpiS
         subValue={isLoading ? "Loading…" : `${passCount} / ${stats.total} tests`}
         icon={Activity}
         colorScheme={isLoading ? "slate" : passScheme}
+        onClick={() => scrollToSection("version-section-results")}
       />
 
       {/* Failures */}
@@ -216,6 +228,7 @@ function VersionKpiStrip({ stats, executions, bugs, versionIssues }: VersionKpiS
         subValue={failCount === 0 ? "All clear" : `test runs failing`}
         icon={XCircle}
         colorScheme={isLoading ? "slate" : failScheme}
+        onClick={() => scrollToSection("version-section-failures")}
       />
 
       {/* Critical bugs */}
@@ -225,6 +238,7 @@ function VersionKpiStrip({ stats, executions, bugs, versionIssues }: VersionKpiS
         subValue={criticalBugCount === 0 ? "No open blockers" : "Unresolved critical/blocker"}
         icon={Bug}
         colorScheme={criticalScheme}
+        onClick={() => scrollToSection("version-section-bugs")}
       />
 
       {/* Stories progress */}
@@ -234,6 +248,7 @@ function VersionKpiStrip({ stats, executions, bugs, versionIssues }: VersionKpiS
         subValue={storiesTotal === 0 ? "No issues linked" : "Done or in acceptance"}
         icon={Layers}
         colorScheme={storiesScheme}
+        onClick={() => scrollToSection("version-section-issues")}
       />
 
       {/* Executions */}
@@ -243,6 +258,7 @@ function VersionKpiStrip({ stats, executions, bugs, versionIssues }: VersionKpiS
         subValue={executions.length === 0 ? "None linked to version" : "Linked to this version"}
         icon={BarChart3}
         colorScheme="slate"
+        onClick={() => scrollToSection("version-section-executions")}
       />
     </div>
   );
@@ -821,7 +837,7 @@ function VersionDashboard({ stats, executions, version, projectKey, bugs }: Vers
             : "text-slate-500 bg-slate-50 border-slate-200";
 
   return (
-    <div className="space-y-4">
+    <div id="version-section-results" className="space-y-4">
       {/* Results overview card */}
       <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-800">
         <div className="mb-4 flex items-start justify-between gap-4">
@@ -908,14 +924,16 @@ function VersionDashboard({ stats, executions, version, projectKey, bugs }: Vers
 
       {/* Failed tests analysis — only rendered once we have executions */}
       {executions.length > 0 && (
-        <FailedTestsAnalysis
-          failedTests={stats.failedTests}
-          isLoading={isLoading}
-          linkableBugs={bugs}
-          linkTypeName={linkTypeName}
-          projectKey={projectKey}
-          versionName={version.name}
-        />
+        <div id="version-section-failures">
+          <FailedTestsAnalysis
+            failedTests={stats.failedTests}
+            isLoading={isLoading}
+            linkableBugs={bugs}
+            linkTypeName={linkTypeName}
+            projectKey={projectKey}
+            versionName={version.name}
+          />
+        </div>
       )}
     </div>
   );
@@ -1349,7 +1367,10 @@ function BugsPanel({ bugs, isLoading, isError, error, failedTests }: BugsPanelPr
   const list = bugs ?? [];
 
   return (
-    <div className="mt-4 overflow-hidden rounded-2xl border border-red-200 bg-white shadow-sm dark:border-red-900/60 dark:bg-slate-800">
+    <div
+      id="version-section-bugs"
+      className="mt-4 overflow-hidden rounded-2xl border border-red-200 bg-white shadow-sm dark:border-red-900/60 dark:bg-slate-800"
+    >
       {/* Header strip */}
       <div className="flex flex-wrap items-center justify-between gap-3 bg-red-50 px-4 py-2.5 dark:bg-red-950/60">
         <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-red-500 dark:text-red-400">
@@ -1907,10 +1928,12 @@ function VersionContent({
         failedTests={stats.failedTests}
       />
 
-      <VersionIssuesPanel projectKey={projectKey} versionName={version.name} />
+      <div id="version-section-issues">
+        <VersionIssuesPanel projectKey={projectKey} versionName={version.name} />
+      </div>
 
       {executions.length > 0 && (
-        <div className="mt-4">
+        <div id="version-section-executions" className="mt-4">
           <div className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-slate-400">
             <FileText className="h-3.5 w-3.5" />
             Executions
@@ -1935,7 +1958,14 @@ function VersionContent({
 export function VersionsPage() {
   const executionProjectKey = useExecutionProjectKey();
   const queryClient = useQueryClient();
-  const { isFavourite, toggleFavourite } = useVersionsStore();
+  const {
+    isFavourite,
+    toggleFavourite,
+    selectedVersionId: selectedVersionIdMap,
+    setSelectedVersionId,
+    healthDots,
+    setHealthDot,
+  } = useVersionsStore();
 
   const {
     data: versions,
@@ -1944,17 +1974,24 @@ export function VersionsPage() {
     error: versionsErr,
   } = useProjectVersions(executionProjectKey);
 
-  const [selectedVersion, setSelectedVersion] = useState<JiraVersion | null>(null);
+  // Derive the selected JiraVersion object from the persisted ID once versions load.
+  const storedVersionId = executionProjectKey
+    ? (selectedVersionIdMap[executionProjectKey] ?? null)
+    : null;
+  const selectedVersion = (versions ?? []).find((v) => v.id === storedVersionId) ?? null;
+
+  // Health dot map for the current project (persisted across navigations / reloads).
+  const healthDotMap: Record<string, "green" | "amber" | "red"> =
+    (executionProjectKey && healthDots[executionProjectKey]) || {};
+
   const [selectedExecution, setSelectedExecution] = useState<TestExecution | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [versionFilter, setVersionFilter] = useState("");
-  // Persists health dot colours for visited versions within the session
-  const [healthDotMap, setHealthDotMap] = useState<Record<string, "green" | "amber" | "red">>({});
 
   const handleBack = () => setSelectedExecution(null);
 
   const handleSelectVersion = (v: JiraVersion) => {
-    setSelectedVersion(v);
+    if (executionProjectKey) setSelectedVersionId(executionProjectKey, v.id);
     setSelectedExecution(null);
   };
 
@@ -2189,9 +2226,9 @@ export function VersionsPage() {
             onSelectExecution={setSelectedExecution}
             onReload={handleReload}
             isRefreshing={isRefreshing}
-            onHealthUpdate={(id, dot) =>
-              setHealthDotMap((prev) => (prev[id] === dot ? prev : { ...prev, [id]: dot }))
-            }
+            onHealthUpdate={(id, dot) => {
+              if (executionProjectKey) setHealthDot(executionProjectKey, id, dot);
+            }}
           />
         )}
       </div>

@@ -11,8 +11,9 @@ const badgeVariants = cva(
         pass: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-300",
         fail: "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300",
         todo: "bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-400",
-        executing: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300",
-        blocked: "bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-300",
+        executing: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-300",
+        blocked: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300",
+        na: "bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-300",
         outline: "border border-slate-200 text-slate-700 dark:border-slate-600 dark:text-slate-300",
       },
     },
@@ -40,6 +41,9 @@ export function statusVariant(status: string): VariantProps<typeof badgeVariants
       return "executing";
     case "BLOCKED":
       return "blocked";
+    case "N/A":
+    case "NA":
+      return "na";
     case "TODO":
     default:
       return "todo";

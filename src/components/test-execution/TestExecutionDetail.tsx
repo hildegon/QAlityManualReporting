@@ -43,6 +43,8 @@ import {
   Search,
   X,
 } from "lucide-react";
+import { Toast, showToast } from "@/components/ui/toast";
+import type { ToastMessage } from "@/components/ui/toast";
 import type {
   CucumberResult,
   JiraVersion,
@@ -149,6 +151,14 @@ export function TestExecutionDetail({
   const [testSearch, setTestSearch] = useState("");
   const [sortByStatus, setSortByStatus] = useState(false);
   const [loadingAll, setLoadingAll] = useState(false);
+  /** Tracks whether the component is still mounted so the "Load all" pump can
+   *  bail out instead of scheduling more fetches after unmount. */
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
   /** Status name to filter by, or null to show all. */
   const [statusFilter, setStatusFilter] = useState<string | null>(null);
   /** Bulk selection mode state */
@@ -161,6 +171,23 @@ export function TestExecutionDetail({
   const defectPickerRef = useRef<HTMLDivElement>(null);
   const parentRef = useRef<HTMLDivElement>(null);
   const [listHeight, setListHeight] = useState(600);
+
+  // ── Mutation feedback ────────────────────────────────────────────────────────
+  /** Tracks in-flight mutation keys for per-button saving spinners. */
+  const [savingKeys, setSavingKeys] = useState<Set<string>>(new Set());
+  const [toast, setToast] = useState<ToastMessage | null>(null);
+
+  const addSavingKey = useCallback((key: string) => {
+    setSavingKeys((prev) => new Set(prev).add(key));
+  }, []);
+
+  const removeSavingKey = useCallback((key: string) => {
+    setSavingKeys((prev) => {
+      const next = new Set(prev);
+      next.delete(key);
+      return next;
+    });
+  }, []);
 
   // Resize the virtualised list to fill available space dynamically.
   useEffect(() => {
@@ -471,56 +498,104 @@ export function TestExecutionDetail({
   const virtualItems = virtualizer.getVirtualItems();
 
   const handleStatusChange = (run: TestRun, newStatus: string) => {
-    updateStatus.mutate({
-      testRunId: run.id,
-      status: newStatus,
-      executionIssueId: execution.issue_id,
-    });
+    const key = `run:${run.id}`;
+    addSavingKey(key);
+    updateStatus.mutate(
+      {
+        testRunId: run.id,
+        status: newStatus,
+        executionIssueId: execution.issue_id,
+      },
+      {
+        onSettled: () => removeSavingKey(key),
+        onError: (err) =>
+          showToast(
+            setToast,
+            `Failed to update status for ${run.test?.jira?.key ?? run.id}: ${String(err)}`,
+            "error",
+          ),
+      },
+    );
   };
 
   const handleStepStatusChange = (run: TestRun, step: TestRunStep, newStatus: string) => {
-    updateStepStatus.mutate({
-      testRunId: run.id,
-      stepId: step.id,
-      status: newStatus,
-      executionIssueId: execution.issue_id,
-    });
+    const key = `step:${run.id}:${step.id}`;
+    addSavingKey(key);
+    updateStepStatus.mutate(
+      {
+        testRunId: run.id,
+        stepId: step.id,
+        status: newStatus,
+        executionIssueId: execution.issue_id,
+      },
+      {
+        onSettled: () => removeSavingKey(key),
+        onError: (err) =>
+          showToast(setToast, `Failed to update step status: ${String(err)}`, "error"),
+      },
+    );
   };
 
   const handleSaveComment = (run: TestRun) => {
-    updateComment.mutate({
-      testRunId: run.id,
-      comment: commentValue,
-      executionIssueId: execution.issue_id,
-    });
+    const key = `comment:${run.id}`;
+    addSavingKey(key);
+    updateComment.mutate(
+      {
+        testRunId: run.id,
+        comment: commentValue,
+        executionIssueId: execution.issue_id,
+      },
+      {
+        onSettled: () => removeSavingKey(key),
+        onError: (err) => showToast(setToast, `Failed to save comment: ${String(err)}`, "error"),
+      },
+    );
     setActiveComment(null);
     setCommentValue("");
   };
 
   const handleSaveStepField = useCallback(
     (run: TestRun, step: TestRunStep, field: "comment" | "actualResult", value: string) => {
-      updateStep.mutate({
-        testRunId: run.id,
-        stepId: step.id,
-        [field]: value,
-        executionIssueId: execution.issue_id,
-      });
+      const key = `stepField:${run.id}:${step.id}:${field}`;
+      addSavingKey(key);
+      updateStep.mutate(
+        {
+          testRunId: run.id,
+          stepId: step.id,
+          [field]: value,
+          executionIssueId: execution.issue_id,
+        },
+        {
+          onSettled: () => removeSavingKey(key),
+          onError: (err) =>
+            showToast(setToast, `Failed to save step ${field}: ${String(err)}`, "error"),
+        },
+      );
     },
-    [updateStep, execution.issue_id],
+    [updateStep, execution.issue_id, addSavingKey, removeSavingKey],
   );
 
   // ── Bulk operations ─────────────────────────────────────────────────────────
 
-  const handleBulkStepStatus = (run: TestRun, newStatus: string) => {
+  const handleBulkStepStatus = async (run: TestRun, newStatus: string) => {
     if (!run.steps) return;
-    for (const step of run.steps) {
-      if (step.status?.name?.toUpperCase() !== newStatus.toUpperCase()) {
-        updateStepStatus.mutate({
+    const stepsToUpdate = run.steps.filter(
+      (step) => step.status?.name?.toUpperCase() !== newStatus.toUpperCase(),
+    );
+    for (const step of stepsToUpdate) {
+      const key = `step:${run.id}:${step.id}`;
+      addSavingKey(key);
+      try {
+        await updateStepStatus.mutateAsync({
           testRunId: run.id,
           stepId: step.id,
           status: newStatus,
           executionIssueId: execution.issue_id,
         });
+      } catch (err) {
+        showToast(setToast, `Failed to update step status: ${String(err)}`, "error");
+      } finally {
+        removeSavingKey(key);
       }
     }
   };
@@ -1263,7 +1338,12 @@ export function TestExecutionDetail({
                         </button>
 
                         {/* Current status */}
-                        <Badge variant={statusVariant(run.status.name)}>{run.status.name}</Badge>
+                        <Badge variant={statusVariant(run.status.name)}>
+                          {savingKeys.has(`run:${run.id}`) && (
+                            <Loader2 className="mr-1 inline h-3 w-3 animate-spin" />
+                          )}
+                          {run.status.name}
+                        </Badge>
 
                         {/* Status quick-actions (dynamic) */}
                         <div className="flex flex-wrap items-center gap-1">
@@ -1273,7 +1353,7 @@ export function TestExecutionDetail({
                               <button
                                 key={s.name}
                                 title={s.description ?? s.name}
-                                disabled={updateStatus.isPending}
+                                disabled={savingKeys.has(`run:${run.id}`)}
                                 onClick={() => handleStatusChange(run, s.name)}
                                 style={statusButtonStyle(s.color, isActive)}
                                 className={cn(
@@ -1458,6 +1538,7 @@ export function TestExecutionDetail({
                           onBulkStepStatus={(status) => handleBulkStepStatus(run, status)}
                           isPending={updateStepStatus.isPending}
                           isSaving={updateStep.isPending}
+                          savingKeys={savingKeys}
                         />
                       )}
                       {isExpanded &&
@@ -1469,6 +1550,10 @@ export function TestExecutionDetail({
                             steps={run.steps!}
                             stepStatuses={stepStatuses}
                             executionIssueId={execution.issue_id}
+                            savingKeys={savingKeys}
+                            addSavingKey={addSavingKey}
+                            removeSavingKey={removeSavingKey}
+                            setToast={setToast}
                           />
                         )}
                     </div>
@@ -1510,7 +1595,9 @@ export function TestExecutionDetail({
                     onClick={() => {
                       setLoadingAll(true);
                       const pump = () => {
+                        if (!mountedRef.current) return;
                         void fetchNextPage().then(({ hasNextPage: more }) => {
+                          if (!mountedRef.current) return;
                           if (more) {
                             setTimeout(pump, 400);
                           } else {
@@ -1562,15 +1649,27 @@ export function TestExecutionDetail({
                       "border-slate-200 bg-slate-100 text-slate-600 hover:bg-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600",
                   )}
                   onClick={() => {
-                    for (const id of selectedRunIds) {
-                      updateStatus.mutate({
-                        testRunId: id,
-                        status: s.name,
-                        executionIssueId: execution.issue_id,
-                      });
-                    }
+                    const ids = [...selectedRunIds];
                     setSelectedRunIds(new Set());
                     setIsSelectMode(false);
+                    // Update sequentially to avoid hammering the API.
+                    void (async () => {
+                      for (const id of ids) {
+                        const key = `run:${id}`;
+                        addSavingKey(key);
+                        try {
+                          await updateStatus.mutateAsync({
+                            testRunId: id,
+                            status: s.name,
+                            executionIssueId: execution.issue_id,
+                          });
+                        } catch (err) {
+                          showToast(setToast, `Failed to update status: ${String(err)}`, "error");
+                        } finally {
+                          removeSavingKey(key);
+                        }
+                      }
+                    })();
                   }}
                 >
                   {s.name}
@@ -1580,6 +1679,7 @@ export function TestExecutionDetail({
           )}
         </>
       )}
+      <Toast message={toast} />
     </div>
   );
 }
@@ -1718,6 +1818,8 @@ interface StepsPanelProps {
   onBulkStepStatus: (status: string) => void;
   isPending: boolean;
   isSaving: boolean;
+  /** In-flight mutation keys for per-button saving spinners. */
+  savingKeys: Set<string>;
 }
 
 interface IterationsPanelProps {
@@ -1726,16 +1828,23 @@ interface IterationsPanelProps {
   steps: TestRunStep[];
   stepStatuses: XrayTestRunStatus[];
   executionIssueId: string;
+  /** In-flight mutation keys for per-button saving spinners. */
+  savingKeys: Set<string>;
+  addSavingKey: (key: string) => void;
+  removeSavingKey: (key: string) => void;
+  setToast: React.Dispatch<React.SetStateAction<ToastMessage | null>>;
 }
 
 function StepsPanel({
   steps,
+  run,
   stepStatuses,
   onStepStatusChange,
   onSaveStepField,
   onBulkStepStatus,
   isPending,
   isSaving,
+  savingKeys,
 }: StepsPanelProps) {
   const [editingStep, setEditingStep] = useState<{
     stepId: string;
@@ -1982,6 +2091,9 @@ function StepsPanel({
                   <div className="flex flex-shrink-0 items-center gap-1.5">
                     {step.status && (
                       <Badge variant={statusVariant(step.status.name)} className="mr-1 text-[10px]">
+                        {savingKeys.has(`step:${run.id}:${step.id}`) ? (
+                          <Loader2 className="mr-1 inline h-3 w-3 animate-spin" />
+                        ) : null}
                         {step.status.name}
                       </Badge>
                     )}
@@ -1991,7 +2103,7 @@ function StepsPanel({
                         <button
                           key={s.name}
                           title={s.description ?? s.name}
-                          disabled={isPending}
+                          disabled={savingKeys.has(`step:${run.id}:${step.id}`)}
                           onClick={() => onStepStatusChange(step, s.name)}
                           style={statusButtonStyle(s.color, isActive)}
                           className={cn(
@@ -2023,6 +2135,10 @@ function IterationsPanel({
   steps,
   stepStatuses,
   executionIssueId,
+  savingKeys,
+  addSavingKey,
+  removeSavingKey,
+  setToast,
 }: IterationsPanelProps) {
   const [expandedIterations, setExpandedIterations] = useState<Set<string>>(new Set());
   // Fetch step results lazily — only fires once the panel mounts (i.e. user expanded a run).
@@ -2052,6 +2168,8 @@ function IterationsPanel({
 
   const saveIterStep = () => {
     if (!editingIterStep) return;
+    const stepKey = `iterStep:${testRunId}:${editingIterStep.stepId}:${editingIterStep.iterRank}`;
+    addSavingKey(stepKey);
     updateStep.mutate(
       {
         testRunId,
@@ -2066,6 +2184,8 @@ function IterationsPanel({
           void queryClient.invalidateQueries({
             queryKey: queryKeys.iterationStepResults(testRunId),
           }),
+        onError: (err) => showToast(setToast, `Failed to save step field: ${String(err)}`, "error"),
+        onSettled: () => removeSavingKey(stepKey),
       },
     );
     setEditingIterStep(null);
@@ -2135,22 +2255,38 @@ function IterationsPanel({
                   </button>
                   {/* Iteration status buttons */}
                   <div className="ml-auto flex flex-shrink-0 items-center gap-1">
+                    {savingKeys.has(`iter:${testRunId}:${rank}`) && (
+                      <Loader2 className="h-3 w-3 animate-spin text-teal-400" />
+                    )}
                     {stepStatuses.map((s) => {
                       const isActive =
                         iteration.status?.name?.toUpperCase() === s.name.toUpperCase();
+                      const iterKey = `iter:${testRunId}:${rank}`;
                       return (
                         <button
                           key={s.name}
                           title={`Set iteration ${rank} to ${s.name}`}
-                          disabled={updateIterationStatus.isPending}
-                          onClick={() =>
-                            updateIterationStatus.mutate({
-                              testRunId,
-                              iterationRank: rank,
-                              status: s.name,
-                              executionIssueId,
-                            })
-                          }
+                          disabled={savingKeys.has(iterKey)}
+                          onClick={() => {
+                            addSavingKey(iterKey);
+                            updateIterationStatus.mutate(
+                              {
+                                testRunId,
+                                iterationRank: rank,
+                                status: s.name,
+                                executionIssueId,
+                              },
+                              {
+                                onError: (err) =>
+                                  showToast(
+                                    setToast,
+                                    `Failed to update iteration ${rank}: ${String(err)}`,
+                                    "error",
+                                  ),
+                                onSettled: () => removeSavingKey(iterKey),
+                              },
+                            );
+                          }}
                           style={statusButtonStyle(s.color, isActive)}
                           className={cn(
                             "rounded border px-1.5 py-0.5 text-[10px] font-medium transition-colors",

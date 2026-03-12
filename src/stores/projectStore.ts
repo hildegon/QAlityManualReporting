@@ -9,14 +9,6 @@ interface ProjectState {
   activeExecutionProject: JiraProject | null;
   setActiveContentProject: (project: JiraProject | null) => void;
   setActiveExecutionProject: (project: JiraProject | null) => void;
-
-  /**
-   * @deprecated Use activeContentProject instead.
-   * Kept for backwards-compat with any code that still reads `activeProject`.
-   */
-  activeProject: JiraProject | null;
-  /** @deprecated Use setActiveContentProject or setActiveExecutionProject. */
-  setActiveProject: (project: JiraProject | null) => void;
 }
 
 export const useProjectStore = create<ProjectState>()(
@@ -24,24 +16,14 @@ export const useProjectStore = create<ProjectState>()(
     (set) => ({
       activeContentProject: null,
       activeExecutionProject: null,
-      setActiveContentProject: (project) =>
-        set({ activeContentProject: project, activeProject: project }),
+      setActiveContentProject: (project) => set({ activeContentProject: project }),
       setActiveExecutionProject: (project) => set({ activeExecutionProject: project }),
-
-      // Legacy shim — sets both to the same project so old code keeps working.
-      activeProject: null,
-      setActiveProject: (project) =>
-        set({
-          activeProject: project,
-          activeContentProject: project,
-          activeExecutionProject: project,
-        }),
     }),
     {
       name: "qality-active-project",
       // Migrate old persisted shape that only had `activeProject`.
       migrate: (persisted, version) => {
-        const state = persisted as Partial<ProjectState>;
+        const state = persisted as Partial<ProjectState & { activeProject?: JiraProject | null }>;
         if (version === 0 && state.activeProject && !state.activeContentProject) {
           return {
             ...state,

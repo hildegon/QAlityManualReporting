@@ -16,18 +16,6 @@ pub struct AppConfig {
     pub xray_client_id: String,
     /// Xray Cloud Client Secret
     pub xray_client_secret: String,
-    /// Jira/Xray project key used for Test Plans, Test Sets, and Tests (e.g. "PROJ")
-    #[serde(default)]
-    pub content_project_key: String,
-    /// Human-readable name for the content project (e.g. "My Project")
-    #[serde(default)]
-    pub content_project_name: String,
-    /// Jira/Xray project key used for Test Executions (may differ from content_project_key)
-    #[serde(default)]
-    pub execution_project_key: String,
-    /// Human-readable name for the execution project
-    #[serde(default)]
-    pub execution_project_name: String,
 }
 
 impl std::fmt::Debug for AppConfig {
@@ -38,10 +26,6 @@ impl std::fmt::Debug for AppConfig {
             .field("jira_api_token", &"[REDACTED]")
             .field("xray_client_id", &self.xray_client_id)
             .field("xray_client_secret", &"[REDACTED]")
-            .field("content_project_key", &self.content_project_key)
-            .field("content_project_name", &self.content_project_name)
-            .field("execution_project_key", &self.execution_project_key)
-            .field("execution_project_name", &self.execution_project_name)
             .finish()
     }
 }

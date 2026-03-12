@@ -297,6 +297,7 @@ const TestPlanDropTarget = memo(function TestPlanDropTarget({
   projectKey,
   onToast,
 }: TestPlanDropTargetProps) {
+  // Only fetch tests when the card is expanded.
   const { data: tests, isLoading: testsLoading } = useGetTestPlanTests(
     isExpanded ? testPlan.issue_id : null,
   );
@@ -540,17 +541,48 @@ function TestPlansDropPanel({
   }, [onRegisterReload, refetch]);
 
   const [search, setSearch] = useState("");
-  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+  const [statusFilter, setStatusFilter] = useState<string | null>(null);
 
   const q = search.trim().toLowerCase();
+
+  // Collect unique statuses from loaded plans for filter chips.
+  const availableStatuses = useMemo(() => {
+    const names = (plans ?? [])
+      .map((p) => p.jira.status?.name)
+      .filter((s): s is string => s !== undefined);
+    return [...new Set(names)].sort();
+  }, [plans]);
+
   const filtered = useMemo(
     () =>
-      (plans ?? []).filter(
-        (p) =>
-          !q || p.jira.key.toLowerCase().includes(q) || p.jira.summary.toLowerCase().includes(q),
-      ),
-    [plans, q],
+      (plans ?? []).filter((p) => {
+        const matchesSearch =
+          !q || p.jira.key.toLowerCase().includes(q) || p.jira.summary.toLowerCase().includes(q);
+        const matchesStatus = statusFilter === null || p.jira.status?.name === statusFilter;
+        return matchesSearch && matchesStatus;
+      }),
+    [plans, q, statusFilter],
   );
+
+  const filteredIds = useMemo(() => filtered.map((p) => p.issue_id), [filtered]);
+  const allExpanded = filteredIds.length > 0 && filteredIds.every((id) => expandedIds.has(id));
+
+  const handleExpandAll = useCallback(() => {
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      for (const id of filteredIds) next.add(id);
+      return next;
+    });
+  }, [filteredIds]);
+
+  const handleCollapseAll = useCallback(() => {
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      for (const id of filteredIds) next.delete(id);
+      return next;
+    });
+  }, [filteredIds]);
 
   if (isLoading) {
     return (
@@ -595,22 +627,54 @@ function TestPlansDropPanel({
         />
       </div>
 
-      <p className="text-xs text-slate-500">
-        {filtered.length} plan{filtered.length !== 1 ? "s" : ""}
-        {isDragging && <span className="ml-2 text-slate-400">— drop a set to add its tests</span>}
-      </p>
+      {/* Status filter chips */}
+      {availableStatuses.length > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          {availableStatuses.map((s) => (
+            <button
+              key={s}
+              onClick={() => setStatusFilter((prev) => (prev === s ? null : s))}
+              className={cn(
+                "rounded-full border px-2.5 py-0.5 text-xs font-medium transition-colors",
+                statusFilter === s
+                  ? "border-slate-700 bg-slate-700 text-white"
+                  : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:border-slate-500",
+              )}
+            >
+              {s}
+            </button>
+          ))}
+        </div>
+      )}
+
+      <div className="flex items-center justify-between text-xs text-slate-500">
+        <span>
+          {filtered.length} plan{filtered.length !== 1 ? "s" : ""}
+          {isDragging && <span className="ml-2 text-slate-400">— drop a set to add its tests</span>}
+        </span>
+        {filtered.length > 0 && (
+          <button
+            className="hover:text-slate-700 dark:hover:text-slate-200"
+            onClick={allExpanded ? handleCollapseAll : handleExpandAll}
+          >
+            {allExpanded ? "Collapse all" : "Expand all"}
+          </button>
+        )}
+      </div>
 
       <div className="flex-1 space-y-2 overflow-y-auto">
         {filtered.length === 0 ? (
           <p className="py-6 text-center text-sm italic text-slate-400">
-            {q ? "No test plans match the filter." : `No test plans found in ${projectKey}.`}
+            {q || statusFilter
+              ? "No test plans match the filter."
+              : `No test plans found in ${projectKey}.`}
           </p>
         ) : (
           filtered.map((plan) => (
             <TestPlanDropTarget
               key={plan.issue_id}
               testPlan={plan}
-              isExpanded={expandedId === plan.issue_id}
+              isExpanded={expandedIds.has(plan.issue_id)}
               isDragging={isDragging}
               isHoveredTarget={hoveredPlanId === plan.issue_id}
               dropRef={(el) => {
@@ -618,7 +682,12 @@ function TestPlansDropPanel({
                 else dropTargetRefs.current.delete(plan.issue_id);
               }}
               onToggleExpand={() =>
-                setExpandedId((prev) => (prev === plan.issue_id ? null : plan.issue_id))
+                setExpandedIds((prev) => {
+                  const next = new Set(prev);
+                  if (next.has(plan.issue_id)) next.delete(plan.issue_id);
+                  else next.add(plan.issue_id);
+                  return next;
+                })
               }
               pendingPlanId={pendingPlanId}
               projectKey={projectKey}
@@ -705,7 +774,9 @@ function CreatePlanDialog({ open, onOpenChange, projectKey }: CreatePlanDialogPr
         <Dialog.Content className="fixed left-1/2 top-1/2 flex max-h-[90vh] w-full max-w-lg -translate-x-1/2 -translate-y-1/2 flex-col rounded-xl bg-white shadow-xl dark:bg-slate-800">
           {/* Header */}
           <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4 dark:border-slate-700">
-            <Dialog.Title className="text-lg font-semibold dark:text-slate-100">New Test Plan</Dialog.Title>
+            <Dialog.Title className="text-lg font-semibold dark:text-slate-100">
+              New Test Plan
+            </Dialog.Title>
             <Dialog.Close asChild>
               <button
                 className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-700 dark:text-slate-400"

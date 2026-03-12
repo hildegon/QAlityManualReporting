@@ -36,8 +36,6 @@ export const getConfig = (): Promise<AppConfig> => invoke("get_config");
 export const saveConfig = (config: AppConfig): Promise<void> =>
   invoke("save_config_cmd", { config });
 
-export const clearConfig = (): Promise<void> => invoke("clear_config");
-
 // ── Jira ──────────────────────────────────────────────────────────────────────
 
 export const getJiraProjects = (): Promise<JiraProject[]> => invoke("get_jira_projects");

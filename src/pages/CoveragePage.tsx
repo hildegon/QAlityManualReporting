@@ -113,28 +113,25 @@ function CoverageHistoryPanel({ history, onClear }: CoverageHistoryPanelProps) {
 
   if (history.length === 0) return null;
 
+  // ── Chart dimensions ────────────────────────────────────────────────────────
   const W = 560;
-  const H = 80;
-  const PAD_L = 4;
-  const PAD_R = 4;
-  const PAD_T = 6;
-  const PAD_B = 18; // room for x-axis labels
+  const H = 140;
+  const PAD_L = 32; // room for Y-axis labels
+  const PAD_R = 8;
+  const PAD_T = 12;
+  const PAD_B = 24; // room for X-axis labels
 
   const innerW = W - PAD_L - PAD_R;
   const innerH = H - PAD_T - PAD_B;
 
-  // Map a snapshot index → x pixel
   const xOf = (i: number) =>
     history.length === 1 ? PAD_L + innerW / 2 : PAD_L + (i / (history.length - 1)) * innerW;
 
-  // Map a 0-100 value → y pixel (0% at bottom, 100% at top)
   const yOf = (pct: number) => PAD_T + innerH - (pct / 100) * innerH;
 
-  // Build an SVG polyline points string for a metric
   const polylinePoints = (values: number[]) =>
     values.map((v, i) => `${xOf(i)},${yOf(v)}`).join(" ");
 
-  // Build a closed area polygon (polyline + baseline)
   const areaPoints = (values: number[]) => {
     const line = values.map((v, i) => `${xOf(i)},${yOf(v)}`).join(" ");
     const baseline = `${xOf(values.length - 1)},${yOf(0)} ${xOf(0)},${yOf(0)}`;
@@ -177,22 +174,45 @@ function CoverageHistoryPanel({ history, onClear }: CoverageHistoryPanelProps) {
     return [...indices].sort((a, b) => a - b);
   })();
 
+  // Y-axis tick values
+  const yTicks = [0, 25, 50, 75, 100];
+
+  // Latest snapshot change indicators
+  const latest = history[history.length - 1]!;
+  const prev = history.length >= 2 ? history[history.length - 2]! : null;
+  const covDelta = prev ? latest.coveragePct - prev.coveragePct : 0;
+  const passDelta =
+    prev && prev.total > 0 && latest.total > 0
+      ? Math.round((latest.passCount / latest.total) * 100) -
+        Math.round((prev.passCount / prev.total) * 100)
+      : 0;
+
+  const series = [
+    { label: "Coverage", color: "#3b82f6", vals: coverageVals, delta: covDelta },
+    { label: "Passed", color: "#10b981", vals: passVals, delta: passDelta },
+    { label: "Failed", color: "#ef4444", vals: failVals, delta: 0 },
+  ];
+
   return (
-    <div className="rounded-xl border border-slate-100 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800/60">
+    <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800">
       {/* Header */}
       <div className="mb-3 flex items-center justify-between">
-        <div className="flex items-center gap-1.5">
-          <TrendingUp className="h-3.5 w-3.5 text-slate-400" />
-          <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">
-            Coverage history
-          </p>
-          <span className="rounded-full bg-slate-200 px-1.5 py-0.5 text-[10px] font-medium text-slate-500 dark:bg-slate-700 dark:text-slate-400">
-            {history.length} snapshot{history.length !== 1 ? "s" : ""}
-          </span>
+        <div className="flex items-center gap-2">
+          <div className="flex h-6 w-6 items-center justify-center rounded-md bg-blue-50 dark:bg-blue-900/30">
+            <Activity className="h-3.5 w-3.5 text-blue-500 dark:text-blue-400" />
+          </div>
+          <div className="flex items-center gap-2">
+            <p className="text-xs font-semibold text-slate-700 dark:text-slate-200">
+              Coverage trend
+            </p>
+            <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-slate-500 dark:bg-slate-700 dark:text-slate-400">
+              {history.length} snapshot{history.length !== 1 ? "s" : ""}
+            </span>
+          </div>
         </div>
         <button
           onClick={onClear}
-          className="rounded p-1 text-slate-300 hover:bg-slate-200 hover:text-slate-500 dark:hover:bg-slate-700 dark:text-slate-600 dark:hover:text-slate-400"
+          className="rounded-md p-1 text-slate-400 transition-colors hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-900/30 dark:hover:text-red-400"
           title="Clear history for this selection"
         >
           <Trash2 className="h-3.5 w-3.5" />
@@ -200,24 +220,41 @@ function CoverageHistoryPanel({ history, onClear }: CoverageHistoryPanelProps) {
       </div>
 
       {history.length < 2 ? (
-        <p className="py-2 text-center text-xs italic text-slate-400">
-          Keep this selection open — more snapshots will be recorded over time.
-        </p>
+        <div className="flex flex-col items-center gap-1.5 rounded-lg border border-dashed border-slate-200 py-5 dark:border-slate-700">
+          <Clock className="h-4 w-4 text-slate-300 dark:text-slate-600" />
+          <p className="text-xs text-slate-400">
+            More snapshots will be recorded as you revisit this selection.
+          </p>
+        </div>
       ) : (
         <>
-          {/* Legend */}
-          <div className="mb-2 flex items-center gap-4">
-            {[
-              { label: "Coverage", color: "#3b82f6" },
-              { label: "Passed", color: "#10b981" },
-              { label: "Failed", color: "#ef4444" },
-            ].map(({ label, color }) => (
-              <div key={label} className="flex items-center gap-1">
+          {/* Legend + delta badges */}
+          <div className="mb-3 flex items-center gap-4">
+            {series.map(({ label, color, vals, delta }) => (
+              <div key={label} className="flex items-center gap-1.5">
                 <span
-                  className="inline-block h-0.5 w-4 rounded-full"
+                  className="inline-block h-2 w-2 rounded-full"
                   style={{ backgroundColor: color }}
                 />
-                <span className="text-[10px] text-slate-500">{label}</span>
+                <span className="text-[10px] font-medium text-slate-500 dark:text-slate-400">
+                  {label}
+                </span>
+                <span className="tabular-nums text-[10px] font-semibold" style={{ color }}>
+                  {vals[vals.length - 1]}%
+                </span>
+                {delta !== 0 && (
+                  <span
+                    className={cn(
+                      "inline-flex items-center rounded px-1 py-0.5 text-[9px] font-semibold tabular-nums",
+                      delta > 0
+                        ? "bg-emerald-50 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400"
+                        : "bg-red-50 text-red-600 dark:bg-red-900/30 dark:text-red-400",
+                    )}
+                  >
+                    {delta > 0 ? "+" : ""}
+                    {delta}
+                  </span>
+                )}
               </div>
             ))}
           </div>
@@ -231,7 +268,6 @@ function CoverageHistoryPanel({ history, onClear }: CoverageHistoryPanelProps) {
               onMouseMove={(e) => {
                 const rect = e.currentTarget.getBoundingClientRect();
                 const mx = ((e.clientX - rect.left) / rect.width) * W;
-                // Find closest snapshot
                 let best = 0;
                 let bestDist = Infinity;
                 history.forEach((_, i) => {
@@ -244,53 +280,63 @@ function CoverageHistoryPanel({ history, onClear }: CoverageHistoryPanelProps) {
                 setHoveredIdx(best);
               }}
             >
-              {/* Y-axis gridlines at 0%, 50%, 100% */}
-              {[0, 50, 100].map((pct) => (
-                <line
-                  key={pct}
-                  x1={PAD_L}
-                  y1={yOf(pct)}
-                  x2={W - PAD_R}
-                  y2={yOf(pct)}
-                  stroke="currentColor"
-                  strokeWidth="0.5"
-                  className="text-slate-200 dark:text-slate-700"
-                  strokeDasharray={pct === 0 || pct === 100 ? "none" : "3,3"}
+              {/* Y-axis gridlines and labels */}
+              {yTicks.map((pct) => (
+                <g key={pct}>
+                  <line
+                    x1={PAD_L}
+                    y1={yOf(pct)}
+                    x2={W - PAD_R}
+                    y2={yOf(pct)}
+                    stroke="currentColor"
+                    strokeWidth="0.5"
+                    className="text-slate-200 dark:text-slate-700"
+                    strokeDasharray={pct === 0 ? "none" : "3,3"}
+                  />
+                  <text
+                    x={PAD_L - 6}
+                    y={yOf(pct) + 3}
+                    textAnchor="end"
+                    fontSize="8"
+                    className="fill-slate-400 dark:fill-slate-500"
+                  >
+                    {pct}%
+                  </text>
+                </g>
+              ))}
+
+              {/* Area fills */}
+              <polygon points={areaPoints(coverageVals)} fill="#3b82f6" fillOpacity={0.06} />
+              <polygon points={areaPoints(passVals)} fill="#10b981" fillOpacity={0.06} />
+
+              {/* Lines */}
+              {series.map(({ color, vals }) => (
+                <polyline
+                  key={color}
+                  points={polylinePoints(vals)}
+                  fill="none"
+                  stroke={color}
+                  strokeWidth="2"
+                  strokeLinejoin="round"
+                  strokeLinecap="round"
                 />
               ))}
 
-              {/* Coverage area (filled) */}
-              <polygon points={areaPoints(coverageVals)} fill="#3b82f6" fillOpacity={0.08} />
-              {/* Pass area */}
-              <polygon points={areaPoints(passVals)} fill="#10b981" fillOpacity={0.08} />
-
-              {/* Coverage line */}
-              <polyline
-                points={polylinePoints(coverageVals)}
-                fill="none"
-                stroke="#3b82f6"
-                strokeWidth="1.5"
-                strokeLinejoin="round"
-                strokeLinecap="round"
-              />
-              {/* Pass line */}
-              <polyline
-                points={polylinePoints(passVals)}
-                fill="none"
-                stroke="#10b981"
-                strokeWidth="1.5"
-                strokeLinejoin="round"
-                strokeLinecap="round"
-              />
-              {/* Fail line */}
-              <polyline
-                points={polylinePoints(failVals)}
-                fill="none"
-                stroke="#ef4444"
-                strokeWidth="1.5"
-                strokeLinejoin="round"
-                strokeLinecap="round"
-              />
+              {/* Data point markers (small circles on each data point) */}
+              {history.length <= 20 &&
+                series.map(({ color, vals }) =>
+                  vals.map((v, i) => (
+                    <circle
+                      key={`${color}-${i}`}
+                      cx={xOf(i)}
+                      cy={yOf(v)}
+                      r={history.length <= 8 ? 2.5 : 1.5}
+                      fill={hoveredIdx === i ? color : "white"}
+                      stroke={color}
+                      strokeWidth={hoveredIdx === i ? 2 : 1}
+                    />
+                  )),
+                )}
 
               {/* Hovered vertical line */}
               {hoveredIdx !== null && (
@@ -301,26 +347,22 @@ function CoverageHistoryPanel({ history, onClear }: CoverageHistoryPanelProps) {
                   y2={PAD_T + innerH}
                   stroke="currentColor"
                   strokeWidth="1"
-                  className="text-slate-400"
+                  className="text-slate-300 dark:text-slate-500"
                   strokeDasharray="3,2"
                 />
               )}
 
-              {/* Dots at hovered index */}
+              {/* Hovered dots (larger) */}
               {hoveredIdx !== null &&
-                [
-                  { vals: coverageVals, color: "#3b82f6" },
-                  { vals: passVals, color: "#10b981" },
-                  { vals: failVals, color: "#ef4444" },
-                ].map(({ vals, color }) => (
+                series.map(({ vals, color }) => (
                   <circle
                     key={color}
                     cx={xOf(hoveredIdx)}
                     cy={yOf(vals[hoveredIdx]!)}
-                    r={3}
+                    r={4}
                     fill={color}
                     stroke="white"
-                    strokeWidth="1.5"
+                    strokeWidth="2"
                   />
                 ))}
 
@@ -329,10 +371,10 @@ function CoverageHistoryPanel({ history, onClear }: CoverageHistoryPanelProps) {
                 <text
                   key={i}
                   x={xOf(i)}
-                  y={H - 3}
+                  y={H - 4}
                   textAnchor={i === 0 ? "start" : i === history.length - 1 ? "end" : "middle"}
-                  fontSize="7"
-                  className="fill-slate-400"
+                  fontSize="8"
+                  className="fill-slate-400 dark:fill-slate-500"
                 >
                   {formatDate(history[i]!.timestamp)}
                 </text>
@@ -342,23 +384,23 @@ function CoverageHistoryPanel({ history, onClear }: CoverageHistoryPanelProps) {
             {/* Tooltip */}
             {hovered && hoveredIdx !== null && (
               <div
-                className="pointer-events-none absolute z-10 rounded-lg border border-slate-200 bg-white px-3 py-2 shadow-md dark:border-slate-600 dark:bg-slate-800"
+                className="pointer-events-none absolute z-10 min-w-[140px] rounded-lg border border-slate-200 bg-white/95 px-3 py-2.5 shadow-lg backdrop-blur-sm dark:border-slate-600 dark:bg-slate-800/95"
                 style={{
-                  top: 0,
+                  top: 4,
                   left:
                     hoveredIdx < history.length / 2
-                      ? `calc(${(xOf(hoveredIdx) / W) * 100}% + 10px)`
+                      ? `calc(${(xOf(hoveredIdx) / W) * 100}% + 12px)`
                       : undefined,
                   right:
                     hoveredIdx >= history.length / 2
-                      ? `calc(${((W - xOf(hoveredIdx)) / W) * 100}% + 10px)`
+                      ? `calc(${((W - xOf(hoveredIdx)) / W) * 100}% + 12px)`
                       : undefined,
                 }}
               >
-                <p className="mb-1.5 text-[10px] font-semibold text-slate-500">
+                <p className="mb-2 border-b border-slate-100 pb-1.5 text-[10px] font-semibold text-slate-500 dark:border-slate-700">
                   {formatDateTime(hovered.timestamp)}
                 </p>
-                <div className="space-y-0.5">
+                <div className="space-y-1">
                   {[
                     {
                       label: "Coverage",
@@ -381,13 +423,13 @@ function CoverageHistoryPanel({ history, onClear }: CoverageHistoryPanelProps) {
                       color: "#94a3b8",
                     },
                   ].map(({ label, value, color }) => (
-                    <div key={label} className="flex items-center gap-2 text-[10px]">
+                    <div key={label} className="flex items-center gap-2 text-[11px]">
                       <span
-                        className="inline-block h-2 w-2 rounded-full"
+                        className="inline-block h-2 w-2 shrink-0 rounded-full"
                         style={{ backgroundColor: color }}
                       />
-                      <span className="text-slate-500">{label}</span>
-                      <span className="ml-auto font-semibold text-slate-700 dark:text-slate-200">
+                      <span className="text-slate-500 dark:text-slate-400">{label}</span>
+                      <span className="ml-auto tabular-nums font-semibold text-slate-700 dark:text-slate-200">
                         {value}
                       </span>
                     </div>
@@ -1397,15 +1439,22 @@ export function CoveragePage() {
     [testSets, selectedSetIds],
   );
 
-  // Fetch tests-with-status for every selected set in parallel.
+  // Fetch tests-with-status for every selected set, windowed to avoid 429s.
+  const MAX_CONCURRENT_COVERAGE = 4;
+  const coverageSettledRef = useRef(0);
+
   const testQueries = useQueries({
-    queries: selectedSets.map((ts) => ({
+    queries: selectedSets.map((ts, i) => ({
       queryKey: queryKeys.testSetTestsWithStatus(ts.issue_id),
       queryFn: () => api.getTestSetTestsWithStatus(ts.issue_id),
-      enabled: true,
+      enabled: i < coverageSettledRef.current + MAX_CONCURRENT_COVERAGE,
       staleTime: 2 * 60 * 1_000,
+      gcTime: Infinity,
     })),
   });
+
+  // Advance the concurrency window as queries settle.
+  coverageSettledRef.current = testQueries.filter((q) => q.isSuccess || q.isError).length;
 
   const queryBySetId = useMemo(() => {
     const map = new Map<
