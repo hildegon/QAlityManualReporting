@@ -15,7 +15,7 @@ import { cn } from "@/components/ui/utils";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-export interface StatusSlice {
+interface StatusSlice {
   key: string;
   label: string;
   color: string;
@@ -33,7 +33,7 @@ export interface Slice extends StatusSlice {
 
 // ── Palette ───────────────────────────────────────────────────────────────────
 
-export const STATUS_PALETTE: StatusSlice[] = [
+const STATUS_PALETTE: StatusSlice[] = [
   {
     key: "PASS",
     label: "Passed",

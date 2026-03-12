@@ -11,7 +11,6 @@ import {
 import { ProjectSelector } from "./ProjectSelector";
 import { RateLimitBanner } from "./RateLimitBanner";
 import { ThemeToggle } from "./ThemeToggle";
-import { useConfig } from "@/services/queries";
 import { cn } from "@/components/ui/utils";
 
 const navItems = [
@@ -25,14 +24,6 @@ const navItems = [
 ];
 
 export function AppShell() {
-  const { data: config } = useConfig();
-  const isJiraConfigured = !!config?.jira_url && !!config.jira_email && !!config.jira_api_token;
-
-  const contentKey = config?.content_project_key || null;
-  const contentName = config?.content_project_name || contentKey;
-  const executionKey = config?.execution_project_key || null;
-  const executionName = config?.execution_project_name || executionKey;
-
   return (
     <div className="flex h-screen flex-col bg-slate-50 text-slate-900 dark:bg-slate-900 dark:text-slate-100">
       {/* Top navigation bar */}
@@ -42,51 +33,22 @@ export function AppShell() {
             QAlity
           </span>
 
-          {isJiraConfigured ? (
-            /* Two independent project selectors, each with a scope label */
-            <div className="flex items-center gap-2">
-              <div className="flex items-center gap-1.5">
-                <span className="text-xs font-medium text-slate-400 dark:text-slate-500">
-                  Content
-                </span>
-                <ProjectSelector scope="content" />
-              </div>
-              <span className="text-slate-300 dark:text-slate-600">/</span>
-              <div className="flex items-center gap-1.5">
-                <span className="text-xs font-medium text-slate-400 dark:text-slate-500">
-                  Executions
-                </span>
-                <ProjectSelector scope="execution" />
-              </div>
+          {/* Two independent project selectors, each with a scope label */}
+          <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs font-medium text-slate-400 dark:text-slate-500">
+                Content
+              </span>
+              <ProjectSelector scope="content" />
             </div>
-          ) : (
-            /* Jira not configured yet — show static labels from saved config */
-            <div className="flex items-center gap-2">
-              {contentName && (
-                <div className="flex items-center gap-1.5">
-                  <span className="text-xs font-medium text-slate-400 dark:text-slate-500">
-                    Content
-                  </span>
-                  <span className="rounded-md border border-slate-200 px-3 py-1.5 text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300">
-                    {contentName}
-                  </span>
-                </div>
-              )}
-              {executionName && executionKey !== contentKey && (
-                <>
-                  <span className="text-slate-300 dark:text-slate-600">/</span>
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-xs font-medium text-slate-400 dark:text-slate-500">
-                      Executions
-                    </span>
-                    <span className="rounded-md border border-slate-200 px-3 py-1.5 text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300">
-                      {executionName}
-                    </span>
-                  </div>
-                </>
-              )}
+            <span className="text-slate-300 dark:text-slate-600">/</span>
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs font-medium text-slate-400 dark:text-slate-500">
+                Executions
+              </span>
+              <ProjectSelector scope="execution" />
             </div>
-          )}
+          </div>
         </div>
 
         <nav className="flex items-center gap-1">

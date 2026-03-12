@@ -13,6 +13,7 @@ import {
   useRenameIssue,
   queryKeys,
 } from "@/services/queries";
+
 import type { TestSetInfo } from "@/services/queries";
 import { useContentProjectKey } from "@/hooks/useProjectKey";
 import { useDragAndDrop } from "@/hooks/useDragAndDrop";
@@ -399,6 +400,7 @@ const TestSetDropTarget = memo(function TestSetDropTarget({
   projectKey,
   onToast,
 }: TestSetDropTargetProps) {
+  // Only fetch tests when the card is expanded.
   const { data: members, isLoading: membersLoading } = useGetTestSetTests(
     isExpanded ? testSet.issue_id : null,
   );
@@ -638,7 +640,7 @@ function TestSetsPanel({
   }, [onRegisterReload, refetch]);
 
   const [search, setSearch] = useState("");
-  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
 
   const q = search.trim().toLowerCase();
   const filtered = useMemo(
@@ -649,6 +651,25 @@ function TestSetsPanel({
       ),
     [testSets, q],
   );
+
+  const filteredIds = useMemo(() => filtered.map((ts) => ts.issue_id), [filtered]);
+  const allExpanded = filteredIds.length > 0 && filteredIds.every((id) => expandedIds.has(id));
+
+  const handleExpandAll = useCallback(() => {
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      for (const id of filteredIds) next.add(id);
+      return next;
+    });
+  }, [filteredIds]);
+
+  const handleCollapseAll = useCallback(() => {
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      for (const id of filteredIds) next.delete(id);
+      return next;
+    });
+  }, [filteredIds]);
 
   if (isLoading) {
     return (
@@ -694,10 +715,20 @@ function TestSetsPanel({
         />
       </div>
 
-      <p className="text-xs text-slate-500">
-        {filtered.length} set{filtered.length !== 1 ? "s" : ""}
-        {isDragging && <span className="ml-2 text-slate-400">— drop onto a set to add</span>}
-      </p>
+      <div className="flex items-center justify-between text-xs text-slate-500">
+        <span>
+          {filtered.length} set{filtered.length !== 1 ? "s" : ""}
+          {isDragging && <span className="ml-2 text-slate-400">— drop onto a set to add</span>}
+        </span>
+        {filtered.length > 0 && (
+          <button
+            className="hover:text-slate-700 dark:hover:text-slate-200"
+            onClick={allExpanded ? handleCollapseAll : handleExpandAll}
+          >
+            {allExpanded ? "Collapse all" : "Expand all"}
+          </button>
+        )}
+      </div>
 
       {/* Drop target list */}
       <div className="flex-1 space-y-2 overflow-y-auto">
@@ -710,7 +741,7 @@ function TestSetsPanel({
             <TestSetDropTarget
               key={ts.issue_id}
               testSet={ts}
-              isExpanded={expandedId === ts.issue_id}
+              isExpanded={expandedIds.has(ts.issue_id)}
               isDragging={isDragging}
               isHoveredTarget={hoveredSetId === ts.issue_id}
               dropRef={(el) => {
@@ -718,7 +749,12 @@ function TestSetsPanel({
                 else dropTargetRefs.current.delete(ts.issue_id);
               }}
               onToggleExpand={() =>
-                setExpandedId((prev) => (prev === ts.issue_id ? null : ts.issue_id))
+                setExpandedIds((prev) => {
+                  const next = new Set(prev);
+                  if (next.has(ts.issue_id)) next.delete(ts.issue_id);
+                  else next.add(ts.issue_id);
+                  return next;
+                })
               }
               pendingSetId={pendingSetId}
               projectKey={projectKey}
@@ -788,7 +824,9 @@ function CreateTestSetDialog({ open, onOpenChange, projectKey }: CreateTestSetDi
         <Dialog.Content className="fixed left-1/2 top-1/2 w-full max-w-md -translate-x-1/2 -translate-y-1/2 rounded-xl bg-white shadow-xl dark:bg-slate-800">
           {/* Header */}
           <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4 dark:border-slate-700">
-            <Dialog.Title className="text-lg font-semibold dark:text-slate-100">New Test Set</Dialog.Title>
+            <Dialog.Title className="text-lg font-semibold dark:text-slate-100">
+              New Test Set
+            </Dialog.Title>
             <Dialog.Close asChild>
               <button
                 className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-700 dark:text-slate-400"

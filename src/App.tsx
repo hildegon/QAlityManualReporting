@@ -93,9 +93,25 @@ export default function App() {
       setRateLimit(until);
       const delay = Math.max(0, until - Date.now()) + 500;
       setTimeout(() => {
-        void queryClient.invalidateQueries({
-          predicate: (query) => query.state.status === "error",
-        });
+        // Stagger recovery: invalidate errored queries in small batches so we
+        // don't hammer the API with a thundering herd the moment the rate limit
+        // window expires.
+        const errored = queryClient
+          .getQueryCache()
+          .findAll({ predicate: (q) => q.state.status === "error" });
+        const BATCH = 4;
+        const INTERVAL = 600; // ms between batches
+        for (let i = 0; i < errored.length; i += BATCH) {
+          const batch = errored.slice(i, i + BATCH);
+          setTimeout(
+            () => {
+              batch.forEach((q) => {
+                void queryClient.invalidateQueries({ queryKey: q.queryKey });
+              });
+            },
+            (i / BATCH) * INTERVAL,
+          );
+        }
       }, delay);
     }
   };

@@ -2,7 +2,7 @@
  * TanStack Query hooks for all data-fetching operations.
  * Mutations use optimistic updates for instant UI feedback.
  */
-import { useMemo } from "react";
+import { useMemo, useRef } from "react";
 import {
   useInfiniteQuery,
   useMutation,
@@ -37,7 +37,6 @@ import type {
   XrayTest,
   XrayTestRunStatus,
   XrayTestSet,
-  XrayTestWithStatus,
 } from "@/types";
 import * as api from "./tauri";
 
@@ -117,6 +116,8 @@ export function useJiraProjects() {
     queryKey: queryKeys.jiraProjects,
     queryFn: api.getJiraProjects,
     staleTime: 5 * 60 * 1000, // 5 minutes
+    gcTime: Infinity,
+    meta: { persist: true },
   });
 }
 
@@ -131,6 +132,8 @@ export function useProjectComponents(projectKey: string | null | undefined) {
     queryFn: () => api.getProjectComponents(projectKey!),
     enabled: !!projectKey,
     staleTime: 10 * 60 * 1000, // components rarely change
+    gcTime: Infinity,
+    meta: { persist: true },
     retry: false, // don't retry on auth errors (Jira may not be configured)
   });
 }
@@ -250,6 +253,8 @@ export function useTestPlans(projectKey: string | null) {
     queryFn: () => api.getTestPlans(projectKey!),
     enabled: !!projectKey,
     staleTime: 2 * 60 * 1000,
+    gcTime: Infinity,
+    meta: { persist: true },
   });
 }
 
@@ -261,6 +266,8 @@ export function useTestExecutions(projectKey: string | null) {
     queryFn: () => api.getTestExecutions(projectKey!),
     enabled: !!projectKey,
     staleTime: 5 * 60 * 1_000, // 5 minutes
+    gcTime: Infinity,
+    meta: { persist: true },
   });
 }
 
@@ -273,6 +280,8 @@ export function useProjectVersions(projectKey: string | null) {
     queryFn: () => api.getProjectVersions(projectKey!),
     enabled: !!projectKey,
     staleTime: 5 * 60 * 1_000,
+    gcTime: Infinity,
+    meta: { persist: true },
   });
 }
 
@@ -285,6 +294,8 @@ export function useIssueLinkTypes(enabled = true) {
     queryFn: api.getIssueLinkTypes,
     enabled,
     staleTime: 10 * 60 * 1_000,
+    gcTime: Infinity,
+    meta: { persist: true },
   });
 }
 
@@ -297,6 +308,7 @@ export function useBugsByVersion(projectKey: string | null, versionName: string 
     queryFn: () => api.getBugsByVersion(projectKey!, versionName!),
     enabled: !!projectKey && !!versionName,
     staleTime: 2 * 60 * 1_000,
+    gcTime: Infinity,
   });
 }
 
@@ -309,6 +321,7 @@ export function useVersionIssues(projectKey: string | null, versionName: string 
     queryFn: () => api.getVersionIssues(projectKey!, versionName!),
     enabled: !!projectKey && !!versionName,
     staleTime: 2 * 60 * 1_000,
+    gcTime: Infinity,
   });
 }
 
@@ -379,6 +392,7 @@ export function useTestExecutionsByVersion(projectKey: string | null, versionNam
     queryFn: () => api.getTestExecutionsByVersion(projectKey!, versionName!),
     enabled: !!projectKey && !!versionName,
     staleTime: 2 * 60 * 1_000,
+    gcTime: Infinity,
   });
 }
 
@@ -405,6 +419,7 @@ export function useTestRuns(executionIssueId: string | null) {
     },
     enabled: !!executionIssueId,
     staleTime: 2 * 60 * 1_000, // 2 minutes — mutations handle optimistic updates
+    gcTime: Infinity,
   });
 }
 
@@ -422,6 +437,7 @@ export function useIterationStepResults(testRunId: string | null) {
     queryFn: () => api.getIterationStepResults(testRunId!),
     enabled: !!testRunId,
     staleTime: 5 * 60 * 1_000,
+    gcTime: Infinity,
   });
 }
 
@@ -433,6 +449,8 @@ export function useXrayStatuses(projectId: string | null) {
     queryFn: () => api.getXrayStatuses(projectId!),
     enabled: !!projectId,
     staleTime: 10 * 60 * 1000, // statuses rarely change
+    gcTime: Infinity,
+    meta: { persist: true },
   });
 }
 
@@ -444,6 +462,8 @@ export function useStepStatuses(projectId: string | null) {
     queryFn: () => api.getStepStatuses(projectId!),
     enabled: !!projectId,
     staleTime: 10 * 60 * 1000,
+    gcTime: Infinity,
+    meta: { persist: true },
   });
 }
 
@@ -488,6 +508,27 @@ function debouncedInvalidateTestRuns(
       pendingInvalidations.delete(executionIssueId);
       void queryClient.invalidateQueries({
         queryKey: queryKeys.testRuns(executionIssueId),
+      });
+    }, DEBOUNCE_MS),
+  );
+}
+
+/** Same debounce pattern for iteration step results (keyed by testRunId). */
+const pendingStepInvalidations = new Map<string, ReturnType<typeof setTimeout>>();
+
+function debouncedInvalidateStepResults(
+  queryClient: ReturnType<typeof useQueryClient>,
+  testRunId: string,
+) {
+  const existing = pendingStepInvalidations.get(testRunId);
+  if (existing) clearTimeout(existing);
+
+  pendingStepInvalidations.set(
+    testRunId,
+    setTimeout(() => {
+      pendingStepInvalidations.delete(testRunId);
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.iterationStepResults(testRunId),
       });
     }, DEBOUNCE_MS),
   );
@@ -682,9 +723,7 @@ export function useUpdateIterationStatus() {
       debouncedInvalidateTestRuns(queryClient, executionIssueId);
       // Also invalidate the lazy step-results cache for this run so the
       // expanded iteration view reflects any server-side side-effects.
-      void queryClient.invalidateQueries({
-        queryKey: queryKeys.iterationStepResults(testRunId),
-      });
+      debouncedInvalidateStepResults(queryClient, testRunId);
     },
   });
 }
@@ -821,23 +860,11 @@ export function useGetTestSetTests(issueId: string | null) {
     queryFn: () => api.getTestSetTests(issueId!),
     enabled: !!issueId,
     staleTime: 5 * 60 * 1_000,
+    gcTime: Infinity,
   });
 }
 
 // ── Get Test Set Tests with latest status (Coverage page) ────────────────────
-
-/**
- * Fetch tests in a test set with each test's latest execution status.
- * Used by the Coverage page. Returns `null` when `issueId` is null (not selected).
- */
-export function useGetTestSetTestsWithStatus(issueId: string | null) {
-  return useQuery<XrayTestWithStatus[]>({
-    queryKey: queryKeys.testSetTestsWithStatus(issueId ?? ""),
-    queryFn: () => api.getTestSetTestsWithStatus(issueId!),
-    enabled: !!issueId,
-    staleTime: 2 * 60 * 1_000, // shorter stale time — coverage data changes often
-  });
-}
 
 // ── Get Test Plan Tests ───────────────────────────────────────────────────────
 
@@ -847,6 +874,7 @@ export function useGetTestPlanTests(issueId: string | null) {
     queryFn: () => api.getTestPlanTests(issueId!),
     enabled: !!issueId,
     staleTime: 5 * 60 * 1_000,
+    gcTime: Infinity,
   });
 }
 
@@ -1127,21 +1155,32 @@ function classifyHistory(history: TestRunHistory["history"]): TestRunHistory["cl
  */
 export function useVersionRunStats(executions: TestExecution[], bugs?: JiraBug[]): RunStats {
   const PAGE_SIZE = STATS_PAGE_SIZE;
+  /** Max parallel API calls per phase to avoid 429 rate-limit errors. */
+  const MAX_CONCURRENT = 4;
 
-  // ── Phase 1: page 0 per execution ────────────────────────────────────────────
+  // ── Phase 1: page 0 per execution (windowed) ────────────────────────────────
   // NOTE: key prefix "version-run-stats" avoids colliding with the InfiniteQuery
   // cache entries that useTestRuns writes under ["xray", "test-runs", issueId].
+  //
+  // Windowing: only the first (settled + MAX_CONCURRENT) queries are enabled.
+  // As queries settle, the component re-renders and the window advances.
   const phase1 = useQueries({
     queries: executions.map((ex) => ({
       queryKey: ["version-run-stats", ex.issue_id, 0] as const,
       queryFn: () => api.getTestRuns(ex.issue_id, PAGE_SIZE, 0),
       staleTime: 5 * 60 * 1_000,
+      gcTime: Infinity,
       enabled: executions.length > 0,
     })),
   });
 
-  // ── Phase 2: extra pages derived from phase 1 totals ─────────────────────────
+  // Count settled (success | error) phase-1 queries to gate phase 2.
+  const phase1Settled = phase1.filter((q) => q.isSuccess || q.isError).length;
+  const allPhase1Done = phase1Settled === executions.length && executions.length > 0;
+
+  // ── Phase 2: extra pages derived from phase 1 totals (windowed) ──────────────
   const extraPageQueries = useMemo(() => {
+    if (!allPhase1Done) return [];
     const queries: { issueId: string; start: number }[] = [];
     for (let i = 0; i < executions.length; i++) {
       const ex = executions[i];
@@ -1152,16 +1191,24 @@ export function useVersionRunStats(executions: TestExecution[], bugs?: JiraBug[]
       }
     }
     return queries;
-  }, [executions, phase1, PAGE_SIZE]);
+  }, [allPhase1Done, executions, phase1, PAGE_SIZE]);
+
+  // Track settled count in a ref to avoid dependency cycles while still
+  // advancing the concurrency window on each render.
+  const phase2SettledRef = useRef(0);
 
   const phase2 = useQueries({
-    queries: extraPageQueries.map(({ issueId, start }) => ({
+    queries: extraPageQueries.map(({ issueId, start }, i) => ({
       queryKey: ["version-run-stats", issueId, start] as const,
       queryFn: () => api.getTestRuns(issueId, PAGE_SIZE, start),
       staleTime: 5 * 60 * 1_000,
-      enabled: extraPageQueries.length > 0,
+      gcTime: Infinity,
+      enabled: extraPageQueries.length > 0 && i < phase2SettledRef.current + MAX_CONCURRENT,
     })),
   });
+
+  // Update settled count for the next render cycle.
+  phase2SettledRef.current = phase2.filter((q) => q.isSuccess || q.isError).length;
 
   // ── Aggregate ────────────────────────────────────────────────────────────────
   return useMemo(() => {
@@ -1306,6 +1353,8 @@ export function useTestSetMembership(projectKey: string | null) {
     queryFn: () => api.getAllTestSetMemberships(projectKey!),
     enabled: !!projectKey,
     staleTime: 5 * 60 * 1_000,
+    gcTime: Infinity,
+    meta: { persist: true },
   });
 
   // Convert the plain Record from the backend into a Map for the consumers.
@@ -1413,6 +1462,7 @@ export function useExecutionRunSummary(executionIssueId: string | null): ExecSum
     queryFn: () => api.getTestRuns(executionIssueId!, STATS_PAGE_SIZE, 0),
     enabled: !!executionIssueId,
     staleTime: 5 * 60 * 1_000,
+    gcTime: Infinity,
   });
 
   return useMemo(() => {

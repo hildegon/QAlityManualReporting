@@ -41,13 +41,7 @@ and writing results back to Xray — without a web server.
 │   ├── stores/                     # Zustand stores
 │   ├── services/
 │   │   ├── tauri.ts                # ALL typed wrappers around Tauri invoke()
-│   │   ├── queries.ts              # ALL TanStack Query hooks + mutations (canonical)
-│   │   └── queries/                # Modular split (kept in sync with queries.ts)
-│   │       ├── index.ts            # Re-exports everything from sub-files
-│   │       ├── keys.ts             # queryKeys object (single source of truth)
-│   │       ├── config.ts           # useConfig, useSaveConfig
-│   │       ├── jira.ts             # Jira-domain hooks
-│   │       └── xray.ts             # Xray-domain hooks
+│   │   └── queries.ts              # ALL TanStack Query hooks + mutations (canonical)
 │   ├── types/
 │   │   └── index.ts                # ALL shared TypeScript interfaces
 │   └── test/
@@ -271,13 +265,9 @@ Each export is a `const` arrow function that maps 1:1 to a Rust Tauri command.
 | `removeTestsFromTestPlan` | `remove_tests_from_test_plan` | Remove tests from test plan |
 
 ### `src/services/queries.ts` _(canonical — always edit this file)_
-All TanStack Query hooks and mutations. Also re-exports from `src/services/queries/`.
+All TanStack Query hooks and mutations.
 
-> **Important:** `queries.ts` (flat file) takes precedence over `queries/index.ts` in TS module
-> resolution. New hooks MUST be added to `queries.ts` AND also mirrored to the appropriate
-> `queries/*.ts` sub-file with a re-export from `queries/index.ts`.
-
-**Query hooks** (all use `queryKeys` from `queries/keys.ts`):
+**Query hooks** (all use `queryKeys` defined within `queries.ts`):
 
 | Hook | Key | Description |
 |---|---|---|
@@ -313,8 +303,7 @@ All TanStack Query hooks and mutations. Also re-exports from `src/services/queri
 `useRenameIssue`, `useTransitionIssue`, `useUpdateAssignee`,
 `useUpdateExecutionFixVersion`, `useLinkBugToTest`, `useIssueLinkTypes`
 
-### `src/services/queries/keys.ts`
-Single `queryKeys` object. All query hooks must use these keys — never hardcode arrays.
+Single `queryKeys` object defined within `queries.ts`. All query hooks must use these keys — never hardcode arrays.
 
 ### `src/stores/`
 
@@ -406,8 +395,7 @@ the shared `XrayClient` (stored in `XrayClientState`). Commands: `get_test_plans
 `authenticate_xray`, `get_tests`, `get_test_sets`, `get_test_set_tests`,
 `get_test_set_tests_with_status`, `get_all_test_set_memberships`, `get_test_plan_tests`,
 `create_test_plan`, `add_tests_to_test_plan`, `remove_tests_from_test_plan`,
-`get_test_executions_by_version`, `update_iteration_status`, `add_defects_to_test_run`,
-`download_xray_evidence`.
+`get_test_executions_by_version`, `update_iteration_status`, `add_defects_to_test_run`.
 
 ### `src-tauri/src/api/jira_client.rs`
 `JiraClient` struct — raw HTTP calls to Jira REST API v3 using Basic auth (email + API token).
@@ -463,9 +451,8 @@ coalescing window (`pendingInvalidations` in `queries.ts`, `DEBOUNCE_MS = 500`).
 
 ## Known Gotchas (read before editing)
 
-1. **`queries.ts` vs `queries/index.ts`** — TypeScript resolves `@/services/queries` to the flat
-   file `queries.ts`, NOT the directory barrel. New hooks must go into `queries.ts` directly; the
-   `queries/*.ts` sub-files are a mirror kept for organisation. Both must stay in sync.
+1. **`queries.ts` is the single source of truth** for all TanStack Query hooks. New hooks must go
+   into `src/services/queries.ts` directly.
 
 2. **Xray GraphQL query names** use a `get` prefix and do NOT accept `projectKey` — use `jql` filter
    e.g. `jql: "project = 'KEY'"`.
@@ -483,7 +470,7 @@ coalescing window (`pendingInvalidations` in `queries.ts`, `DEBOUNCE_MS = 500`).
    - Rust handler function in the appropriate `commands/*.rs` file
    - `invoke_handler!` macro in `src-tauri/src/lib.rs`
    - Typed wrapper in `src/services/tauri.ts`
-   - TanStack Query hook in `src/services/queries.ts` (and mirror in `queries/*.ts`)
+   - TanStack Query hook in `src/services/queries.ts`
 
 7. **Rust error formatting** — use `format!("{e:#}")` (not `.to_string()`) in command handlers to
    get the full anyhow error chain in the frontend error message.
@@ -494,9 +481,6 @@ coalescing window (`pendingInvalidations` in `queries.ts`, `DEBOUNCE_MS = 500`).
    `contentProjectKey` (where tests/test-sets/test-plans live). Both are set independently in the
    header via `ProjectSelector`. Hooks in pages use `useExecutionProjectKey()` or
    `useContentProjectKey()` from `src/hooks/useProjectKey.ts`.
-
-10. **`queries/index.ts` barrel re-exports** — when adding to a `queries/*.ts` sub-file, also
-    add a named re-export in `queries/index.ts`.
 
 ---
 

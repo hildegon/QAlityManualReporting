@@ -2,8 +2,9 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
 /**
- * Persists per-project favourite IDs for both versions and test executions.
- * Keys are project keys (e.g. "MYPROJ"); values are arrays of IDs.
+ * Persists per-project favourite IDs for both versions and test executions,
+ * the last-selected version ID per project, and health dot colours per version.
+ * Keys are project keys (e.g. "MYPROJ"); values are arrays of IDs or nested maps.
  * Stored as plain objects in localStorage.
  */
 interface VersionsState {
@@ -16,6 +17,14 @@ interface VersionsState {
   executionFavourites: Record<string, string[]>;
   isExecutionFavourite: (projectKey: string, issueId: string) => boolean;
   toggleExecutionFavourite: (projectKey: string, issueId: string) => void;
+
+  /** projectKey → last-selected version id (null = nothing selected) */
+  selectedVersionId: Record<string, string | null>;
+  setSelectedVersionId: (projectKey: string, versionId: string | null) => void;
+
+  /** projectKey → versionId → health dot colour */
+  healthDots: Record<string, Record<string, "green" | "amber" | "red">>;
+  setHealthDot: (projectKey: string, versionId: string, dot: "green" | "amber" | "red") => void;
 }
 
 export const useVersionsStore = create<VersionsState>()(
@@ -58,6 +67,35 @@ export const useVersionsStore = create<VersionsState>()(
             executionFavourites: {
               ...state.executionFavourites,
               [projectKey]: next,
+            },
+          };
+        });
+      },
+
+      selectedVersionId: {},
+
+      setSelectedVersionId: (projectKey, versionId) => {
+        set((state) => ({
+          selectedVersionId: {
+            ...state.selectedVersionId,
+            [projectKey]: versionId,
+          },
+        }));
+      },
+
+      healthDots: {},
+
+      setHealthDot: (projectKey, versionId, dot) => {
+        set((state) => {
+          const existing = state.healthDots[projectKey]?.[versionId];
+          if (existing === dot) return state; // avoid unnecessary re-renders
+          return {
+            healthDots: {
+              ...state.healthDots,
+              [projectKey]: {
+                ...(state.healthDots[projectKey] ?? {}),
+                [versionId]: dot,
+              },
             },
           };
         });

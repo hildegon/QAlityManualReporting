@@ -20,7 +20,7 @@ export interface CoverageSnapshot {
 }
 
 /** Stable string key that identifies a unique project + set selection. */
-export type ViewKey = string;
+type ViewKey = string;
 
 /** Builds the canonical view key for a project + set combination. */
 export function buildViewKey(projectKey: string, setIds: string[]): ViewKey {

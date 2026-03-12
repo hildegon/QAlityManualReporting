@@ -6,14 +6,6 @@ export interface AppConfig {
   jira_api_token: string;
   xray_client_id: string;
   xray_client_secret: string;
-  /** Project key for Test Plans, Test Sets, and Tests */
-  content_project_key: string;
-  /** Human-readable name for the content project */
-  content_project_name: string;
-  /** Project key for Test Executions (may differ from content_project_key) */
-  execution_project_key: string;
-  /** Human-readable name for the execution project */
-  execution_project_name: string;
 }
 
 /** A Jira issue link type as returned by GET /rest/api/3/issueLinkType. */
@@ -375,15 +367,6 @@ export interface CreatedTestPlan {
 export interface CreateTestPlanResult {
   test_plan?: CreatedTestPlan;
   warnings?: string[];
-}
-
-// ── UI helpers ────────────────────────────────────────────────────────────────
-
-export type TestStatusName = "PASS" | "FAIL" | "TODO" | "EXECUTING" | "BLOCKED" | string;
-
-export interface SelectOption {
-  value: string;
-  label: string;
 }
 
 /**
