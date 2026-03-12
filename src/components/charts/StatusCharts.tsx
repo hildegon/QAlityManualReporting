@@ -23,6 +23,8 @@ interface StatusSlice {
   textClass: string;
   borderClass: string;
   lightBg: string;
+  /** Dark-mode equivalent of lightBg (Tailwind dark: class). */
+  darkLightBg: string;
   icon: React.ComponentType<{ className?: string }>;
 }
 
@@ -42,6 +44,7 @@ const STATUS_PALETTE: StatusSlice[] = [
     textClass: "text-emerald-600",
     borderClass: "border-emerald-200",
     lightBg: "bg-emerald-50",
+    darkLightBg: "dark:bg-emerald-900/20",
     icon: CheckCircle2,
   },
   {
@@ -52,6 +55,7 @@ const STATUS_PALETTE: StatusSlice[] = [
     textClass: "text-red-600",
     borderClass: "border-red-200",
     lightBg: "bg-red-50",
+    darkLightBg: "dark:bg-red-900/20",
     icon: XCircle,
   },
   {
@@ -62,6 +66,7 @@ const STATUS_PALETTE: StatusSlice[] = [
     textClass: "text-blue-600",
     borderClass: "border-blue-200",
     lightBg: "bg-blue-50",
+    darkLightBg: "dark:bg-blue-900/20",
     icon: MinusCircle,
   },
   {
@@ -72,6 +77,7 @@ const STATUS_PALETTE: StatusSlice[] = [
     textClass: "text-yellow-600",
     borderClass: "border-yellow-200",
     lightBg: "bg-yellow-50",
+    darkLightBg: "dark:bg-yellow-900/20",
     icon: Clock,
   },
   {
@@ -82,6 +88,7 @@ const STATUS_PALETTE: StatusSlice[] = [
     textClass: "text-slate-500",
     borderClass: "border-slate-200",
     lightBg: "bg-slate-50",
+    darkLightBg: "dark:bg-slate-800",
     icon: Circle,
   },
   {
@@ -92,6 +99,7 @@ const STATUS_PALETTE: StatusSlice[] = [
     textClass: "text-orange-600",
     borderClass: "border-orange-200",
     lightBg: "bg-orange-50",
+    darkLightBg: "dark:bg-orange-900/20",
     icon: Circle,
   },
 ];
@@ -115,6 +123,7 @@ export function findSlice(rawName: string): StatusSlice {
     textClass: "text-slate-600",
     borderClass: "border-slate-200",
     lightBg: "bg-slate-50",
+    darkLightBg: "dark:bg-slate-800",
     icon: Circle,
   };
 }
@@ -245,10 +254,8 @@ export function DonutChart({
             stroke="#cbd5e1"
             strokeWidth={2}
             strokeDasharray="32 10"
-            style={{
-              transformOrigin: `${CX}px ${CY - 2}px`,
-              animation: "spin 1s linear infinite",
-            }}
+            className="animate-spin"
+            style={{ transformOrigin: `${CX}px ${CY - 2}px` }}
           />
         ) : (
           <>
@@ -281,7 +288,7 @@ export function DonutChart({
 export function StatCard({ sl }: { sl: Slice }) {
   const Icon = sl.icon;
   return (
-    <div className={cn("rounded-xl border p-3", sl.lightBg, sl.borderClass)}>
+    <div className={cn("rounded-xl border p-3", sl.lightBg, sl.darkLightBg, sl.borderClass)}>
       <div className="mb-1.5 flex items-center justify-between">
         <span className="text-xs font-medium text-slate-500 dark:text-slate-400">{sl.label}</span>
         <Icon className={cn("h-3.5 w-3.5", sl.textClass)} />

@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { HashRouter, Routes, Route, Navigate } from "react-router-dom";
 import { QueryClient } from "@tanstack/react-query";
 import { PersistQueryClientProvider } from "@tanstack/react-query-persist-client";
@@ -79,46 +80,48 @@ const queryClient = makeQueryClient();
 export default function App() {
   const setRateLimit = useUiStore((s) => s.setRateLimit);
 
-  // Register a global error observer so any query or mutation that fails with a
-  // rate-limit error immediately shows the banner — even for errors that TanStack
-  // Query silently swallows (e.g. background refetches).
+  // Register global error observers once on mount so they are never re-assigned
+  // on re-renders. Assigning directly in the render body would replace the
+  // handler reference on every render cycle.
   // The query/mutation will automatically retry once after the window expires
   // (configured in retryDelay above); we also schedule an invalidation so that
   // any queries that already exhausted their retry budget get a second chance.
   // Only queries in an error state are invalidated — successful cached queries
   // are left alone to avoid a thundering herd when the rate limit lifts.
-  queryClient.getQueryCache().config.onError = (error) => {
-    const until = parseRateLimitError(error);
-    if (until !== null) {
-      setRateLimit(until);
-      const delay = Math.max(0, until - Date.now()) + 500;
-      setTimeout(() => {
-        // Stagger recovery: invalidate errored queries in small batches so we
-        // don't hammer the API with a thundering herd the moment the rate limit
-        // window expires.
-        const errored = queryClient
-          .getQueryCache()
-          .findAll({ predicate: (q) => q.state.status === "error" });
-        const BATCH = 4;
-        const INTERVAL = 600; // ms between batches
-        for (let i = 0; i < errored.length; i += BATCH) {
-          const batch = errored.slice(i, i + BATCH);
-          setTimeout(
-            () => {
-              batch.forEach((q) => {
-                void queryClient.invalidateQueries({ queryKey: q.queryKey });
-              });
-            },
-            (i / BATCH) * INTERVAL,
-          );
-        }
-      }, delay);
-    }
-  };
-  queryClient.getMutationCache().config.onError = (error) => {
-    const until = parseRateLimitError(error);
-    if (until !== null) setRateLimit(until);
-  };
+  useEffect(() => {
+    queryClient.getQueryCache().config.onError = (error) => {
+      const until = parseRateLimitError(error);
+      if (until !== null) {
+        setRateLimit(until);
+        const delay = Math.max(0, until - Date.now()) + 500;
+        setTimeout(() => {
+          // Stagger recovery: invalidate errored queries in small batches so we
+          // don't hammer the API with a thundering herd the moment the rate limit
+          // window expires.
+          const errored = queryClient
+            .getQueryCache()
+            .findAll({ predicate: (q) => q.state.status === "error" });
+          const BATCH = 4;
+          const INTERVAL = 600; // ms between batches
+          for (let i = 0; i < errored.length; i += BATCH) {
+            const batch = errored.slice(i, i + BATCH);
+            setTimeout(
+              () => {
+                batch.forEach((q) => {
+                  void queryClient.invalidateQueries({ queryKey: q.queryKey });
+                });
+              },
+              (i / BATCH) * INTERVAL,
+            );
+          }
+        }, delay);
+      }
+    };
+    queryClient.getMutationCache().config.onError = (error) => {
+      const until = parseRateLimitError(error);
+      if (until !== null) setRateLimit(until);
+    };
+  }, [setRateLimit]);
 
   return (
     <PersistQueryClientProvider

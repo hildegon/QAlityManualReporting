@@ -380,10 +380,11 @@ interface TestSetDropTargetProps {
   testSet: XrayTestSet;
   isExpanded: boolean;
   isDragging: boolean;
-  /** Ref for detecting mouseup-on-target. Set by parent via callback ref. */
-  dropRef: (el: HTMLElement | null) => void;
+  /** Stable callback — called with (setId, el) to register/unregister the drop target DOM node. */
+  onRegisterDrop: (setId: string, el: HTMLElement | null) => void;
   isHoveredTarget: boolean;
-  onToggleExpand: () => void;
+  /** Stable callback — called with setId to toggle the expanded state. */
+  onToggleExpand: (setId: string) => void;
   pendingSetId: string | null;
   projectKey: string;
   onToast: (msg: string, variant: "success" | "error") => void;
@@ -393,13 +394,19 @@ const TestSetDropTarget = memo(function TestSetDropTarget({
   testSet,
   isExpanded,
   isDragging,
-  dropRef,
+  onRegisterDrop,
   isHoveredTarget,
   onToggleExpand,
   pendingSetId,
   projectKey,
   onToast,
 }: TestSetDropTargetProps) {
+  const setId = testSet.issue_id;
+  const dropRef = useCallback(
+    (el: HTMLElement | null) => onRegisterDrop(setId, el),
+    [onRegisterDrop, setId],
+  );
+  const handleToggleExpand = useCallback(() => onToggleExpand(setId), [onToggleExpand, setId]);
   // Only fetch tests when the card is expanded.
   const { data: members, isLoading: membersLoading } = useGetTestSetTests(
     isExpanded ? testSet.issue_id : null,
@@ -433,7 +440,7 @@ const TestSetDropTarget = memo(function TestSetDropTarget({
     >
       {/* Header */}
       <div className="flex w-full items-center gap-3 px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-700">
-        <button className="flex items-center gap-3 text-left" onClick={onToggleExpand}>
+        <button className="flex items-center gap-3 text-left" onClick={handleToggleExpand}>
           {isExpanded ? (
             <ChevronDown className="h-4 w-4 shrink-0 text-slate-400" />
           ) : (
@@ -671,6 +678,23 @@ function TestSetsPanel({
     });
   }, [filteredIds]);
 
+  const handleRegisterDrop = useCallback(
+    (setId: string, el: HTMLElement | null) => {
+      if (el) dropTargetRefs.current.set(setId, el);
+      else dropTargetRefs.current.delete(setId);
+    },
+    [dropTargetRefs],
+  );
+
+  const handleToggleExpand = useCallback((setId: string) => {
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(setId)) next.delete(setId);
+      else next.add(setId);
+      return next;
+    });
+  }, []);
+
   if (isLoading) {
     return (
       <div className="flex h-full flex-col gap-3">
@@ -744,18 +768,8 @@ function TestSetsPanel({
               isExpanded={expandedIds.has(ts.issue_id)}
               isDragging={isDragging}
               isHoveredTarget={hoveredSetId === ts.issue_id}
-              dropRef={(el) => {
-                if (el) dropTargetRefs.current.set(ts.issue_id, el);
-                else dropTargetRefs.current.delete(ts.issue_id);
-              }}
-              onToggleExpand={() =>
-                setExpandedIds((prev) => {
-                  const next = new Set(prev);
-                  if (next.has(ts.issue_id)) next.delete(ts.issue_id);
-                  else next.add(ts.issue_id);
-                  return next;
-                })
-              }
+              onRegisterDrop={handleRegisterDrop}
+              onToggleExpand={handleToggleExpand}
               pendingSetId={pendingSetId}
               projectKey={projectKey}
               onToast={onToast}
@@ -784,10 +798,10 @@ function CreateTestSetDialog({ open, onOpenChange, projectKey }: CreateTestSetDi
   const [component, setComponent] = useState("");
   const [componentSearch, setComponentSearch] = useState("");
 
-  const filteredComponents = (components ?? []).filter((c) => {
+  const filteredComponents = useMemo(() => {
     const q = componentSearch.trim().toLowerCase();
-    return !q || c.name.toLowerCase().includes(q);
-  });
+    return (components ?? []).filter((c) => !q || c.name.toLowerCase().includes(q));
+  }, [components, componentSearch]);
 
   const reset = () => {
     setSummary("");
@@ -1019,6 +1033,17 @@ export function TestsPage() {
   const testsRefetchRef = useRef<(() => Promise<unknown>) | null>(null);
   const testSetsRefetchRef = useRef<(() => Promise<unknown>) | null>(null);
 
+  const handleRegisterTestsReload = useCallback((fn: () => Promise<unknown>) => {
+    testsRefetchRef.current = fn;
+  }, []);
+  const handleRegisterTestSetsReload = useCallback((fn: () => Promise<unknown>) => {
+    testSetsRefetchRef.current = fn;
+  }, []);
+  const handleToast = useCallback(
+    (msg: string, variant: "success" | "error") => showToast(setToast, msg, variant),
+    [],
+  );
+
   /** Map from test-set issueId → its DOM element for hit-testing. */
   const dropTargetRefs = useRef<Map<string, HTMLElement>>(new Map());
 
@@ -1196,9 +1221,7 @@ export function TestsPage() {
               onSelectAll={handleSelectAll}
               onClearAll={handleClearAll}
               onBeginDrag={startDrag}
-              onRegisterReload={(fn) => {
-                testsRefetchRef.current = fn;
-              }}
+              onRegisterReload={handleRegisterTestsReload}
             />
           </div>
         </div>
@@ -1228,10 +1251,8 @@ export function TestsPage() {
               hoveredSetId={hoveredSetId}
               dropTargetRefs={dropTargetRefs}
               pendingSetId={pendingSetId}
-              onRegisterReload={(fn) => {
-                testSetsRefetchRef.current = fn;
-              }}
-              onToast={(msg, variant) => showToast(setToast, msg, variant)}
+              onRegisterReload={handleRegisterTestSetsReload}
+              onToast={handleToast}
             />
           </div>
         </div>

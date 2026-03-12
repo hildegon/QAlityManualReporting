@@ -279,9 +279,11 @@ interface TestPlanDropTargetProps {
   isExpanded: boolean;
   isDragging: boolean;
   isHoveredTarget: boolean;
-  dropRef: (el: HTMLElement | null) => void;
+  /** Stable callback — called with (planId, el) to register/unregister the drop target DOM node. */
+  onRegisterDrop: (planId: string, el: HTMLElement | null) => void;
   pendingPlanId: string | null;
-  onToggleExpand: () => void;
+  /** Stable callback — called with planId to toggle the expanded state. */
+  onToggleExpand: (planId: string) => void;
   projectKey: string;
   onToast: (msg: string, variant: "success" | "error") => void;
 }
@@ -291,12 +293,18 @@ const TestPlanDropTarget = memo(function TestPlanDropTarget({
   isExpanded,
   isDragging,
   isHoveredTarget,
-  dropRef,
+  onRegisterDrop,
   pendingPlanId,
   onToggleExpand,
   projectKey,
   onToast,
 }: TestPlanDropTargetProps) {
+  const planId = testPlan.issue_id;
+  const dropRef = useCallback(
+    (el: HTMLElement | null) => onRegisterDrop(planId, el),
+    [onRegisterDrop, planId],
+  );
+  const handleToggleExpand = useCallback(() => onToggleExpand(planId), [onToggleExpand, planId]);
   // Only fetch tests when the card is expanded.
   const { data: tests, isLoading: testsLoading } = useGetTestPlanTests(
     isExpanded ? testPlan.issue_id : null,
@@ -329,7 +337,7 @@ const TestPlanDropTarget = memo(function TestPlanDropTarget({
     >
       {/* Header */}
       <div className="flex w-full items-center gap-3 px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-700">
-        <button className="flex flex-1 items-center gap-3 text-left" onClick={onToggleExpand}>
+        <button className="flex flex-1 items-center gap-3 text-left" onClick={handleToggleExpand}>
           {isExpanded ? (
             <ChevronDown className="h-4 w-4 shrink-0 text-slate-400" />
           ) : (
@@ -584,6 +592,23 @@ function TestPlansDropPanel({
     });
   }, [filteredIds]);
 
+  const handleRegisterDrop = useCallback(
+    (planId: string, el: HTMLElement | null) => {
+      if (el) dropTargetRefs.current.set(planId, el);
+      else dropTargetRefs.current.delete(planId);
+    },
+    [dropTargetRefs],
+  );
+
+  const handleToggleExpand = useCallback((planId: string) => {
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(planId)) next.delete(planId);
+      else next.add(planId);
+      return next;
+    });
+  }, []);
+
   if (isLoading) {
     return (
       <div className="flex h-full flex-col gap-3">
@@ -677,18 +702,8 @@ function TestPlansDropPanel({
               isExpanded={expandedIds.has(plan.issue_id)}
               isDragging={isDragging}
               isHoveredTarget={hoveredPlanId === plan.issue_id}
-              dropRef={(el) => {
-                if (el) dropTargetRefs.current.set(plan.issue_id, el);
-                else dropTargetRefs.current.delete(plan.issue_id);
-              }}
-              onToggleExpand={() =>
-                setExpandedIds((prev) => {
-                  const next = new Set(prev);
-                  if (next.has(plan.issue_id)) next.delete(plan.issue_id);
-                  else next.add(plan.issue_id);
-                  return next;
-                })
-              }
+              onRegisterDrop={handleRegisterDrop}
+              onToggleExpand={handleToggleExpand}
               pendingPlanId={pendingPlanId}
               projectKey={projectKey}
               onToast={onToast}
@@ -1069,6 +1084,17 @@ export function TestPlansPage() {
   const testSetsRefetchRef = useRef<(() => Promise<unknown>) | null>(null);
   const plansRefetchRef = useRef<(() => Promise<unknown>) | null>(null);
 
+  const handleRegisterTestSetsReload = useCallback((fn: () => Promise<unknown>) => {
+    testSetsRefetchRef.current = fn;
+  }, []);
+  const handleRegisterPlansReload = useCallback((fn: () => Promise<unknown>) => {
+    plansRefetchRef.current = fn;
+  }, []);
+  const handleToast = useCallback(
+    (msg: string, variant: "success" | "error") => showToast(setToast, msg, variant),
+    [],
+  );
+
   /** Map from plan issueId → its DOM element for drop hit-testing. */
   const dropTargetRefs = useRef<Map<string, HTMLElement>>(new Map());
 
@@ -1216,9 +1242,7 @@ export function TestPlansPage() {
               onSelectAll={handleSelectAll}
               onClearAll={handleClearAll}
               onBeginDrag={startDrag}
-              onRegisterReload={(fn) => {
-                testSetsRefetchRef.current = fn;
-              }}
+              onRegisterReload={handleRegisterTestSetsReload}
             />
           </div>
         </div>
@@ -1238,10 +1262,8 @@ export function TestPlansPage() {
               hoveredPlanId={hoveredPlanId}
               dropTargetRefs={dropTargetRefs}
               pendingPlanId={pendingPlanId}
-              onRegisterReload={(fn) => {
-                plansRefetchRef.current = fn;
-              }}
-              onToast={(msg, variant) => showToast(setToast, msg, variant)}
+              onRegisterReload={handleRegisterPlansReload}
+              onToast={handleToast}
             />
           </div>
         </div>

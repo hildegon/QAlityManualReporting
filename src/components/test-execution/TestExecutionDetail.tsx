@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { StepMarkdown } from "./StepMarkdown";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useQueryClient } from "@tanstack/react-query";
@@ -143,6 +143,11 @@ export function TestExecutionDetail({
   const updateFixVersion = useUpdateExecutionFixVersion();
   const [versionPickerOpen, setVersionPickerOpen] = useState(false);
   const [versionSearch, setVersionSearch] = useState("");
+
+  const filteredVersions = useMemo(() => {
+    const q = versionSearch.toLowerCase();
+    return (projectVersions ?? []).filter((v) => !q || v.name.toLowerCase().includes(q));
+  }, [projectVersions, versionSearch]);
 
   const [activeComment, setActiveComment] = useState<string | null>(null);
   const [commentValue, setCommentValue] = useState("");
@@ -497,62 +502,71 @@ export function TestExecutionDetail({
   // especially when a status filter is active and each new page triggers an extra call.
   const virtualItems = virtualizer.getVirtualItems();
 
-  const handleStatusChange = (run: TestRun, newStatus: string) => {
-    const key = `run:${run.id}`;
-    addSavingKey(key);
-    updateStatus.mutate(
-      {
-        testRunId: run.id,
-        status: newStatus,
-        executionIssueId: execution.issue_id,
-      },
-      {
-        onSettled: () => removeSavingKey(key),
-        onError: (err) =>
-          showToast(
-            setToast,
-            `Failed to update status for ${run.test?.jira?.key ?? run.id}: ${String(err)}`,
-            "error",
-          ),
-      },
-    );
-  };
+  const handleStatusChange = useCallback(
+    (run: TestRun, newStatus: string) => {
+      const key = `run:${run.id}`;
+      addSavingKey(key);
+      updateStatus.mutate(
+        {
+          testRunId: run.id,
+          status: newStatus,
+          executionIssueId: execution.issue_id,
+        },
+        {
+          onSettled: () => removeSavingKey(key),
+          onError: (err) =>
+            showToast(
+              setToast,
+              `Failed to update status for ${run.test?.jira?.key ?? run.id}: ${String(err)}`,
+              "error",
+            ),
+        },
+      );
+    },
+    [updateStatus, execution.issue_id, addSavingKey, removeSavingKey],
+  );
 
-  const handleStepStatusChange = (run: TestRun, step: TestRunStep, newStatus: string) => {
-    const key = `step:${run.id}:${step.id}`;
-    addSavingKey(key);
-    updateStepStatus.mutate(
-      {
-        testRunId: run.id,
-        stepId: step.id,
-        status: newStatus,
-        executionIssueId: execution.issue_id,
-      },
-      {
-        onSettled: () => removeSavingKey(key),
-        onError: (err) =>
-          showToast(setToast, `Failed to update step status: ${String(err)}`, "error"),
-      },
-    );
-  };
+  const handleStepStatusChange = useCallback(
+    (run: TestRun, step: TestRunStep, newStatus: string) => {
+      const key = `step:${run.id}:${step.id}`;
+      addSavingKey(key);
+      updateStepStatus.mutate(
+        {
+          testRunId: run.id,
+          stepId: step.id,
+          status: newStatus,
+          executionIssueId: execution.issue_id,
+        },
+        {
+          onSettled: () => removeSavingKey(key),
+          onError: (err) =>
+            showToast(setToast, `Failed to update step status: ${String(err)}`, "error"),
+        },
+      );
+    },
+    [updateStepStatus, execution.issue_id, addSavingKey, removeSavingKey],
+  );
 
-  const handleSaveComment = (run: TestRun) => {
-    const key = `comment:${run.id}`;
-    addSavingKey(key);
-    updateComment.mutate(
-      {
-        testRunId: run.id,
-        comment: commentValue,
-        executionIssueId: execution.issue_id,
-      },
-      {
-        onSettled: () => removeSavingKey(key),
-        onError: (err) => showToast(setToast, `Failed to save comment: ${String(err)}`, "error"),
-      },
-    );
-    setActiveComment(null);
-    setCommentValue("");
-  };
+  const handleSaveComment = useCallback(
+    (run: TestRun) => {
+      const key = `comment:${run.id}`;
+      addSavingKey(key);
+      updateComment.mutate(
+        {
+          testRunId: run.id,
+          comment: commentValue,
+          executionIssueId: execution.issue_id,
+        },
+        {
+          onSettled: () => removeSavingKey(key),
+          onError: (err) => showToast(setToast, `Failed to save comment: ${String(err)}`, "error"),
+        },
+      );
+      setActiveComment(null);
+      setCommentValue("");
+    },
+    [updateComment, commentValue, execution.issue_id, addSavingKey, removeSavingKey],
+  );
 
   const handleSaveStepField = useCallback(
     (run: TestRun, step: TestRunStep, field: "comment" | "actualResult", value: string) => {
@@ -577,28 +591,31 @@ export function TestExecutionDetail({
 
   // ── Bulk operations ─────────────────────────────────────────────────────────
 
-  const handleBulkStepStatus = async (run: TestRun, newStatus: string) => {
-    if (!run.steps) return;
-    const stepsToUpdate = run.steps.filter(
-      (step) => step.status?.name?.toUpperCase() !== newStatus.toUpperCase(),
-    );
-    for (const step of stepsToUpdate) {
-      const key = `step:${run.id}:${step.id}`;
-      addSavingKey(key);
-      try {
-        await updateStepStatus.mutateAsync({
-          testRunId: run.id,
-          stepId: step.id,
-          status: newStatus,
-          executionIssueId: execution.issue_id,
-        });
-      } catch (err) {
-        showToast(setToast, `Failed to update step status: ${String(err)}`, "error");
-      } finally {
-        removeSavingKey(key);
+  const handleBulkStepStatus = useCallback(
+    async (run: TestRun, newStatus: string) => {
+      if (!run.steps) return;
+      const stepsToUpdate = run.steps.filter(
+        (step) => step.status?.name?.toUpperCase() !== newStatus.toUpperCase(),
+      );
+      for (const step of stepsToUpdate) {
+        const key = `step:${run.id}:${step.id}`;
+        addSavingKey(key);
+        try {
+          await updateStepStatus.mutateAsync({
+            testRunId: run.id,
+            stepId: step.id,
+            status: newStatus,
+            executionIssueId: execution.issue_id,
+          });
+        } catch (err) {
+          showToast(setToast, `Failed to update step status: ${String(err)}`, "error");
+        } finally {
+          removeSavingKey(key);
+        }
       }
-    }
-  };
+    },
+    [updateStepStatus, execution.issue_id, addSavingKey, removeSavingKey],
+  );
 
   // ── Add-tests panel JSX (reused in both empty state and toolbar) ─────────────
   const addTestsPanel = addPanelOpen ? (
@@ -844,7 +861,8 @@ export function TestExecutionDetail({
     // buildSlicesFromCounts merges aliases (PASSED→PASS, NOT RUN→TODO, etc.) and
     // keeps N/A and any other custom status as its own distinct slice.
     return buildSlicesFromCounts(rawCounts, total);
-  }, [filteredRuns, total]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filteredRuns]); // `total` is derived from filteredRuns.length — redundant dep
 
   return (
     <div className="flex h-full flex-col">
@@ -903,28 +921,22 @@ export function TestExecutionDetail({
                     >
                       — clear —
                     </button>
-                    {(projectVersions ?? [])
-                      .filter(
-                        (v: JiraVersion) =>
-                          !versionSearch ||
-                          v.name.toLowerCase().includes(versionSearch.toLowerCase()),
-                      )
-                      .map((v: JiraVersion) => (
-                        <button
-                          key={v.id}
-                          className="flex w-full items-center px-3 py-1.5 text-left text-xs hover:bg-slate-50 dark:hover:bg-slate-700"
-                          onClick={() => {
-                            setVersionPickerOpen(false);
-                            updateFixVersion.mutate({
-                              issueKey: execution.jira.key,
-                              versionId: v.id,
-                              executionProjectKey: execProjectKey ?? "",
-                            });
-                          }}
-                        >
-                          {v.name}
-                        </button>
-                      ))}
+                    {filteredVersions.map((v: JiraVersion) => (
+                      <button
+                        key={v.id}
+                        className="flex w-full items-center px-3 py-1.5 text-left text-xs hover:bg-slate-50 dark:hover:bg-slate-700"
+                        onClick={() => {
+                          setVersionPickerOpen(false);
+                          updateFixVersion.mutate({
+                            issueKey: execution.jira.key,
+                            versionId: v.id,
+                            executionProjectKey: execProjectKey ?? "",
+                          });
+                        }}
+                      >
+                        {v.name}
+                      </button>
+                    ))}
                     {projectVersions?.length === 0 && (
                       <p className="px-3 py-2 text-xs text-slate-400">No versions found</p>
                     )}
@@ -1521,41 +1533,22 @@ export function TestExecutionDetail({
                       )}
 
                       {/* Expanded steps panel — manual or Cucumber */}
-                      {isExpanded && isCucumber && (
-                        <GherkinPanel gherkin={run.gherkin} results={run.results} />
-                      )}
-                      {isExpanded && hasManualSteps && (
-                        <StepsPanel
+                      {isExpanded && (
+                        <RunExpandedPanel
                           run={run}
-                          steps={run.steps!}
                           stepStatuses={stepStatuses}
-                          onStepStatusChange={(step, status) =>
-                            handleStepStatusChange(run, step, status)
-                          }
-                          onSaveStepField={(step, field, value) =>
-                            handleSaveStepField(run, step, field, value)
-                          }
-                          onBulkStepStatus={(status) => handleBulkStepStatus(run, status)}
+                          onStepStatusChange={handleStepStatusChange}
+                          onSaveStepField={handleSaveStepField}
+                          onBulkStepStatus={handleBulkStepStatus}
                           isPending={updateStepStatus.isPending}
                           isSaving={updateStep.isPending}
                           savingKeys={savingKeys}
+                          executionIssueId={execution.issue_id}
+                          addSavingKey={addSavingKey}
+                          removeSavingKey={removeSavingKey}
+                          setToast={setToast}
                         />
                       )}
-                      {isExpanded &&
-                        hasManualSteps &&
-                        (run.iterations?.results.length ?? 0) > 0 && (
-                          <IterationsPanel
-                            testRunId={run.id}
-                            iterations={run.iterations!.results}
-                            steps={run.steps!}
-                            stepStatuses={stepStatuses}
-                            executionIssueId={execution.issue_id}
-                            savingKeys={savingKeys}
-                            addSavingKey={addSavingKey}
-                            removeSavingKey={removeSavingKey}
-                            setToast={setToast}
-                          />
-                        )}
                     </div>
                   );
                 })}
@@ -1684,6 +1677,94 @@ export function TestExecutionDetail({
   );
 }
 
+// ── RunExpandedPanel ──────────────────────────────────────────────────────────
+// Memoized wrapper that owns stable per-run callbacks for the steps/iterations
+// panels so they aren't recreated on every virtualizer scroll tick (#36).
+
+interface RunExpandedPanelProps {
+  run: TestRun;
+  stepStatuses: XrayStepStatus[];
+  onStepStatusChange: (run: TestRun, step: TestRunStep, status: string) => void;
+  onSaveStepField: (
+    run: TestRun,
+    step: TestRunStep,
+    field: "comment" | "actualResult",
+    value: string,
+  ) => void;
+  onBulkStepStatus: (run: TestRun, status: string) => void;
+  isPending: boolean;
+  isSaving: boolean;
+  savingKeys: Set<string>;
+  executionIssueId: string;
+  addSavingKey: (key: string) => void;
+  removeSavingKey: (key: string) => void;
+  setToast: React.Dispatch<React.SetStateAction<ToastMessage | null>>;
+}
+
+const RunExpandedPanel = memo(function RunExpandedPanel({
+  run,
+  stepStatuses,
+  onStepStatusChange,
+  onSaveStepField,
+  onBulkStepStatus,
+  isPending,
+  isSaving,
+  savingKeys,
+  executionIssueId,
+  addSavingKey,
+  removeSavingKey,
+  setToast,
+}: RunExpandedPanelProps) {
+  const isCucumber = run.test_type?.name?.toLowerCase() === "cucumber" || !!run.gherkin;
+  const hasManualSteps = (run.steps?.length ?? 0) > 0;
+
+  const handleStepStatusChange = useCallback(
+    (step: TestRunStep, status: string) => onStepStatusChange(run, step, status),
+    [run, onStepStatusChange],
+  );
+  const handleSaveStepField = useCallback(
+    (step: TestRunStep, field: "comment" | "actualResult", value: string) =>
+      onSaveStepField(run, step, field, value),
+    [run, onSaveStepField],
+  );
+  const handleBulkStepStatus = useCallback(
+    (status: string) => onBulkStepStatus(run, status),
+    [run, onBulkStepStatus],
+  );
+
+  return (
+    <>
+      {isCucumber && <GherkinPanel gherkin={run.gherkin} results={run.results} />}
+      {hasManualSteps && (
+        <StepsPanel
+          run={run}
+          steps={run.steps!}
+          stepStatuses={stepStatuses}
+          onStepStatusChange={handleStepStatusChange}
+          onSaveStepField={handleSaveStepField}
+          onBulkStepStatus={handleBulkStepStatus}
+          isPending={isPending}
+          isSaving={isSaving}
+          savingKeys={savingKeys}
+        />
+      )}
+      {hasManualSteps && (run.iterations?.results.length ?? 0) > 0 && (
+        <IterationsPanel
+          testRunId={run.id}
+          iterations={run.iterations!.results}
+          steps={run.steps!}
+          stepStatuses={stepStatuses}
+          executionIssueId={executionIssueId}
+          savingKeys={savingKeys}
+          addSavingKey={addSavingKey}
+          removeSavingKey={removeSavingKey}
+          setToast={setToast}
+        />
+      )}
+    </>
+  );
+});
+
 // ── Gherkin Panel ─────────────────────────────────────────────────────────────
 
 /** Keyword → Tailwind colour classes for the keyword chip. */
@@ -1764,7 +1845,7 @@ function GherkinPanel({ gherkin, results }: GherkinPanelProps) {
         <div className="space-y-1">
           {rows.map((step, index) => (
             <div
-              key={index}
+              key={`${index}:${step.keyword}:${step.sentence.slice(0, 40)}`}
               className="rounded-md border border-slate-200 bg-white px-3 py-2 dark:border-slate-600 dark:bg-slate-800"
             >
               <div className="flex items-start gap-3">
@@ -1853,6 +1934,14 @@ function StepsPanel({
   const [editValue, setEditValue] = useState("");
   const stepRefs = useRef<Map<string, HTMLDivElement>>(new Map());
 
+  const setStepRef = useCallback((el: HTMLDivElement | null, stepId: string) => {
+    if (el) {
+      stepRefs.current.set(stepId, el);
+    } else {
+      stepRefs.current.delete(stepId);
+    }
+  }, []);
+
   const startEditing = (step: TestRunStep, field: "comment" | "actualResult") => {
     setEditingStep({ stepId: step.id, field });
     setEditValue(field === "comment" ? (step.comment ?? "") : (step.actual_result ?? ""));
@@ -1872,22 +1961,25 @@ function StepsPanel({
   };
 
   // Keyboard navigation between steps
-  const handleStepKeyDown = (e: React.KeyboardEvent, index: number) => {
-    let targetIndex: number | null = null;
-    if (e.key === "ArrowDown" || e.key === "j") {
-      targetIndex = Math.min(index + 1, steps.length - 1);
-    } else if (e.key === "ArrowUp" || e.key === "k") {
-      targetIndex = Math.max(index - 1, 0);
-    }
-    if (targetIndex !== null && targetIndex !== index) {
-      e.preventDefault();
-      const targetStep = steps[targetIndex];
-      if (targetStep) {
-        const el = stepRefs.current.get(targetStep.id);
-        el?.focus();
+  const handleStepKeyDown = useCallback(
+    (e: React.KeyboardEvent, index: number) => {
+      let targetIndex: number | null = null;
+      if (e.key === "ArrowDown" || e.key === "j") {
+        targetIndex = Math.min(index + 1, steps.length - 1);
+      } else if (e.key === "ArrowUp" || e.key === "k") {
+        targetIndex = Math.max(index - 1, 0);
       }
-    }
-  };
+      if (targetIndex !== null && targetIndex !== index) {
+        e.preventDefault();
+        const targetStep = steps[targetIndex];
+        if (targetStep) {
+          const el = stepRefs.current.get(targetStep.id);
+          el?.focus();
+        }
+      }
+    },
+    [steps],
+  );
 
   return (
     <div className="border-b border-slate-100 bg-slate-50/60 dark:border-slate-700 dark:bg-slate-700/40">
@@ -1928,13 +2020,7 @@ function StepsPanel({
             return (
               <div
                 key={step.id}
-                ref={(el) => {
-                  if (el) {
-                    stepRefs.current.set(step.id, el);
-                  } else {
-                    stepRefs.current.delete(step.id);
-                  }
-                }}
+                ref={(el) => setStepRef(el, step.id)}
                 tabIndex={0}
                 role="row"
                 aria-label={`Step ${index + 1}: ${step.action ?? "No action"}`}
@@ -2245,7 +2331,7 @@ function IterationsPanel({
                     <div className="flex flex-1 flex-wrap gap-1">
                       {iteration.parameters.map((p, i) => (
                         <span
-                          key={i}
+                          key={`${p.name ?? ""}:${p.value ?? ""}:${i}`}
                           className="rounded border border-teal-200 bg-teal-50 px-1.5 py-0.5 text-[10px] text-teal-700 dark:border-teal-700 dark:bg-teal-900/30 dark:text-teal-300"
                         >
                           {p.name && p.value ? `${p.name}=${p.value}` : (p.value ?? p.name ?? "")}

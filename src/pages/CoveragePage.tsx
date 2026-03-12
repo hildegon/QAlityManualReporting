@@ -734,10 +734,27 @@ function CoverageTile({
   );
 }
 
-// ── Single test set section ───────────────────────────────────────────────────
+// ── Sort icon helper ──────────────────────────────────────────────────────────
 
 type SortBy = "key" | "name" | "status";
 type SortDir = "asc" | "desc";
+
+interface SortIconProps {
+  col: SortBy;
+  sortBy: SortBy;
+  sortDir: SortDir;
+}
+
+function SortIcon({ col, sortBy, sortDir }: SortIconProps) {
+  if (sortBy !== col) return <ArrowUpDown className="h-3 w-3 text-slate-300" />;
+  return sortDir === "asc" ? (
+    <ArrowUp className="h-3 w-3 text-slate-500" />
+  ) : (
+    <ArrowDown className="h-3 w-3 text-slate-500" />
+  );
+}
+
+// ── Single test set section ───────────────────────────────────────────────────
 
 interface TestSetSectionProps {
   testSet: XrayTestSet;
@@ -849,15 +866,6 @@ const TestSetSection = memo(function TestSetSection({
 
     return result;
   }, [tests, testSearch, statusFilter, sortBy, sortDir]);
-
-  const SortIcon = ({ col }: { col: SortBy }) => {
-    if (sortBy !== col) return <ArrowUpDown className="h-3 w-3 text-slate-300" />;
-    return sortDir === "asc" ? (
-      <ArrowUp className="h-3 w-3 text-slate-500" />
-    ) : (
-      <ArrowDown className="h-3 w-3 text-slate-500" />
-    );
-  };
 
   return (
     <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
@@ -999,7 +1007,7 @@ const TestSetSection = memo(function TestSetSection({
                   )}
                 >
                   {col.charAt(0).toUpperCase() + col.slice(1)}
-                  <SortIcon col={col} />
+                  <SortIcon col={col} sortBy={sortBy} sortDir={sortDir} />
                 </button>
               ))}
               {statusFilter && (
@@ -1756,12 +1764,7 @@ export function CoveragePage() {
                       <p className="truncate text-xs font-medium leading-tight">
                         {ts.jira.summary}
                       </p>
-                      <p
-                        className={cn(
-                          "mt-0.5 font-mono text-[10px] leading-tight",
-                          selected ? "text-slate-400" : "text-slate-400",
-                        )}
-                      >
+                      <p className="mt-0.5 font-mono text-[10px] leading-tight text-slate-400">
                         {ts.jira.key}
                       </p>
                     </div>
