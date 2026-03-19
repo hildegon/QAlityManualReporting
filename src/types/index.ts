@@ -103,6 +103,12 @@ export interface JiraBug {
   };
 }
 
+/** Result returned by `create_bug`. */
+export interface CreateBugResult {
+  id: string;
+  key: string;
+}
+
 // ── Xray ──────────────────────────────────────────────────────────────────────
 
 export interface TestPlan {
@@ -262,7 +268,16 @@ export interface XrayTest {
   jira: {
     key: string;
     summary: string;
+    status?: { name: string };
   };
+}
+
+/** The most recent test run for a single test, returned by `get_tests_health_data`. */
+export interface TestLastRunEntry {
+  test_issue_id: string;
+  finished_on?: string;
+  started_on?: string;
+  status?: LatestTestStatus;
 }
 
 /** The latest execution status of a test, as returned by Xray's latestStatus field. */

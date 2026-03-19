@@ -4,8 +4,8 @@ use crate::{
     api::jira_client::JiraClient,
     commands::config::load_config,
     models::jira::{
-        IssueLinkType, JiraBug, JiraComponent, JiraProject, JiraTransition, JiraUserSearchResult,
-        JiraVersion,
+        IssueLinkType, JiraBug, JiraComponent, JiraCreatedIssue, JiraProject, JiraTransition,
+        JiraUserSearchResult, JiraVersion,
     },
 };
 
@@ -181,6 +181,46 @@ pub async fn get_bugs_by_version(
     let client = make_jira_client(&app)?;
     client
         .get_bugs_by_version(&project_key, &version_name)
+        .await
+        .map_err(format_err)
+}
+
+/// Create a new Bug issue in the given Jira project.
+/// `affected_version_id` becomes the `versions` (affectedVersions) field.
+#[tauri::command]
+pub async fn create_bug(
+    app: AppHandle,
+    project_key: String,
+    summary: String,
+    description: Option<String>,
+    affected_version_id: String,
+    component_id: Option<String>,
+    assignee_account_id: Option<String>,
+) -> Result<JiraCreatedIssue, String> {
+    let client = make_jira_client(&app)?;
+    client
+        .create_bug(
+            &project_key,
+            &summary,
+            description.as_deref(),
+            &affected_version_id,
+            component_id.as_deref(),
+            assignee_account_id.as_deref(),
+        )
+        .await
+        .map_err(format_err)
+}
+
+/// Attach a local file to an existing Jira issue.
+#[tauri::command]
+pub async fn add_attachment(
+    app: AppHandle,
+    issue_key: String,
+    file_path: String,
+) -> Result<(), String> {
+    let client = make_jira_client(&app)?;
+    client
+        .add_attachment(&issue_key, &file_path)
         .await
         .map_err(format_err)
 }

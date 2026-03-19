@@ -1,4 +1,5 @@
 import { memo, useState, useMemo, useRef, useCallback, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
@@ -11,6 +12,10 @@ import {
   useCreateTestSet,
   useProjectComponents,
   useRenameIssue,
+  useIssueTransitions,
+  useApplyTransition,
+  useReloadTests,
+  useIsTestsStreaming,
   queryKeys,
 } from "@/services/queries";
 
@@ -42,10 +47,195 @@ import {
   Tag,
   Trash2,
   X,
+  MoreHorizontal,
+  Activity,
 } from "lucide-react";
 import * as Dialog from "@radix-ui/react-dialog";
+import { listen } from "@tauri-apps/api/event";
+import { invoke } from "@tauri-apps/api/core";
+
 import { cn } from "@/components/ui/utils";
-import type { XrayTest, XrayTestSet } from "@/types";
+import type { JiraTransition, TestLastRunEntry, XrayTest, XrayTestSet } from "@/types";
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+type ToastFn = (msg: string, variant: "success" | "error") => void;
+
+const DEPRECATING_KEYWORDS = [
+  "deprecated",
+  "won't do",
+  "wont do",
+  "obsolete",
+  "cancelled",
+  "canceled",
+  "rejected",
+  "inactive",
+  "withdrawn",
+  "closed",
+];
+
+function isDeprecatingStatus(statusName: string): boolean {
+  const lower = statusName.toLowerCase();
+  return DEPRECATING_KEYWORDS.some((kw) => lower.includes(kw));
+}
+
+function loadHiddenKeys(storageKey: string): Set<string> {
+  try {
+    const raw = localStorage.getItem(storageKey);
+    return raw ? new Set(JSON.parse(raw) as string[]) : new Set();
+  } catch {
+    return new Set();
+  }
+}
+
+function saveHiddenKeys(storageKey: string, keys: Set<string>) {
+  try {
+    localStorage.setItem(storageKey, JSON.stringify([...keys]));
+  } catch { /* ignore */ }
+}
+
+function categoryColor(key?: string): string {
+  if (key === "done")
+    return "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/60 dark:text-emerald-300";
+  if (key === "indeterminate")
+    return "bg-amber-100 text-amber-700 dark:bg-amber-900/60 dark:text-amber-300";
+  return "bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300";
+}
+
+// ── Transition menu ───────────────────────────────────────────────────────────
+
+interface TransitionMenuProps {
+  issueKey: string;
+  onToast: ToastFn;
+  /** Called after a transition is applied successfully, with the target status name. */
+  onTransitioned?: (toStatusName: string) => void;
+  /** Which side the dropdown opens toward. Default: right. */
+  align?: "left" | "right";
+  /** Extra class on the trigger button. */
+  triggerClassName?: string | undefined;
+}
+
+function TransitionMenu({
+  issueKey,
+  onToast,
+  onTransitioned,
+  align = "right",
+  triggerClassName,
+}: TransitionMenuProps) {
+  const [open, setOpen] = useState(false);
+  const [dropPos, setDropPos] = useState({ top: 0, left: 0, right: 0 });
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+  const { data: transitions, isLoading } = useIssueTransitions(open ? issueKey : null);
+  const apply = useApplyTransition();
+
+  const calcPos = useCallback(() => {
+    if (!triggerRef.current) return;
+    const r = triggerRef.current.getBoundingClientRect();
+    setDropPos({ top: r.bottom + 4, left: r.left, right: window.innerWidth - r.right });
+  }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      const target = e.target as Node;
+      if (triggerRef.current?.contains(target) || dropdownRef.current?.contains(target)) return;
+      setOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
+
+  const dropdown = open
+    ? createPortal(
+        <div
+          ref={dropdownRef}
+          style={{
+            position: "fixed",
+            top: dropPos.top,
+            ...(align === "right" ? { right: dropPos.right } : { left: dropPos.left }),
+            zIndex: 9999,
+          }}
+          className="min-w-52 rounded-lg border border-slate-200 bg-white shadow-xl dark:border-slate-700 dark:bg-slate-800"
+        >
+          <p className="border-b border-slate-100 px-3 py-2 text-xs font-medium text-slate-400 dark:border-slate-700 dark:text-slate-500">
+            Transition
+          </p>
+          {isLoading ? (
+            <div className="flex items-center justify-center py-4">
+              <Spinner size="sm" />
+            </div>
+          ) : !transitions?.length ? (
+            <p className="px-3 py-3 text-xs italic text-slate-400">No transitions available.</p>
+          ) : (
+            <div className="py-1">
+              {transitions.map((t) => (
+                <button
+                  key={t.id}
+                  type="button"
+                  disabled={apply.isPending}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    apply.mutate(
+                      { issueKey, transitionId: t.id },
+                      {
+                        onSuccess: () => {
+                          onToast(`${issueKey} → "${t.to.name}"`, "success");
+                          onTransitioned?.(t.to.name);
+                          setOpen(false);
+                        },
+                        onError: (err) => {
+                          onToast(`Transition failed: ${String(err)}`, "error");
+                        },
+                      },
+                    );
+                  }}
+                  className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-50 dark:text-slate-200 dark:hover:bg-slate-700"
+                >
+                  <span>{t.name}</span>
+                  <span
+                    className={cn(
+                      "shrink-0 rounded-full px-2 py-0.5 text-xs font-medium",
+                      categoryColor(t.to.category?.key),
+                    )}
+                  >
+                    {t.to.name}
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>,
+        document.body,
+      )
+    : null;
+
+  return (
+    <div className="shrink-0">
+      <button
+        ref={triggerRef}
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          calcPos();
+          setOpen((p) => !p);
+        }}
+        aria-label="Actions"
+        className={cn(
+          "flex h-6 w-6 items-center justify-center rounded transition-colors",
+          open
+            ? "bg-slate-200 text-slate-700 dark:bg-slate-600 dark:text-slate-200"
+            : "text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-600 dark:hover:text-slate-300",
+          triggerClassName,
+        )}
+      >
+        <MoreHorizontal className="h-3.5 w-3.5" />
+      </button>
+      {dropdown}
+    </div>
+  );
+}
 
 // ── Drag ghost ────────────────────────────────────────────────────────────────
 
@@ -76,6 +266,8 @@ interface TestRowProps {
   memberOf: TestSetInfo[];
   onToggle: () => void;
   onMouseDown: (e: React.MouseEvent) => void;
+  onToast: ToastFn;
+  onHide: (issueKey: string) => void;
 }
 
 const TestRow = memo(function TestRow({
@@ -84,13 +276,15 @@ const TestRow = memo(function TestRow({
   memberOf,
   onToggle,
   onMouseDown,
+  onToast,
+  onHide,
 }: TestRowProps) {
   return (
     <div
       onMouseDown={onMouseDown}
       onClick={onToggle}
       className={cn(
-        "flex cursor-pointer select-none items-start gap-2.5 rounded-lg border px-3 py-2.5 transition-colors",
+        "group flex cursor-pointer select-none items-start gap-2.5 rounded-lg border px-3 py-2.5 transition-colors",
         selected
           ? "border-slate-700 bg-slate-700 text-white"
           : "border-slate-200 bg-white text-slate-800 hover:border-slate-300 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200 dark:hover:border-slate-500 dark:hover:bg-slate-700",
@@ -136,10 +330,25 @@ const TestRow = memo(function TestRow({
         )}
       </div>
 
-      {/* Drag handle hint */}
-      <GripVertical
-        className={cn("mt-0.5 h-4 w-4 shrink-0", selected ? "text-white/40" : "text-slate-300")}
-      />
+      {/* Right side: actions menu + drag handle */}
+      <div className="mt-0.5 flex shrink-0 items-center gap-1">
+        <div className="opacity-0 transition-opacity group-hover:opacity-100">
+          <TransitionMenu
+            issueKey={test.jira.key}
+            onToast={onToast}
+            onTransitioned={(name) => { if (isDeprecatingStatus(name)) onHide(test.jira.key); }}
+            align="right"
+            triggerClassName={
+              selected
+                ? "text-white/60 hover:bg-white/10 dark:hover:bg-white/10"
+                : undefined
+            }
+          />
+        </div>
+        <GripVertical
+          className={cn("h-4 w-4", selected ? "text-white/40" : "text-slate-300")}
+        />
+      </div>
     </div>
   );
 });
@@ -155,7 +364,11 @@ interface TestsPanelProps {
   onSelectAll: (ids: string[]) => void;
   onClearAll: () => void;
   onBeginDrag: (ids: string[], e: React.MouseEvent) => void;
-  onRegisterReload: (fn: () => Promise<unknown>) => void;
+  onToast: ToastFn;
+  hiddenKeys: Set<string>;
+  showHidden: boolean;
+  onToggleShowHidden: () => void;
+  onHide: (issueKey: string) => void;
 }
 
 function TestsPanel({
@@ -167,13 +380,13 @@ function TestsPanel({
   onSelectAll,
   onClearAll,
   onBeginDrag,
-  onRegisterReload,
+  onToast,
+  hiddenKeys,
+  showHidden,
+  onToggleShowHidden,
+  onHide,
 }: TestsPanelProps) {
-  const { data: tests, isLoading, isError, error, refetch } = useGetTests(projectKey, enabled);
-
-  useEffect(() => {
-    onRegisterReload(refetch);
-  }, [onRegisterReload, refetch]);
+  const { data: tests, isLoading, isError, error } = useGetTests(projectKey, enabled);
 
   const [search, setSearch] = useState("");
 
@@ -182,9 +395,14 @@ function TestsPanel({
     () =>
       (tests ?? []).filter(
         (t) =>
-          !q || t.jira.key.toLowerCase().includes(q) || t.jira.summary.toLowerCase().includes(q),
+          (showHidden || !hiddenKeys.has(t.jira.key)) &&
+          (!q || t.jira.key.toLowerCase().includes(q) || t.jira.summary.toLowerCase().includes(q)),
       ),
-    [tests, q],
+    [tests, q, hiddenKeys, showHidden],
+  );
+  const hiddenCount = useMemo(
+    () => (tests ?? []).filter((t) => hiddenKeys.has(t.jira.key)).length,
+    [tests, hiddenKeys],
   );
 
   const filteredIds = useMemo(() => filtered.map((t) => t.issue_id), [filtered]);
@@ -300,12 +518,20 @@ function TestsPanel({
 
       {/* Select-all / clear */}
       <div className="flex items-center justify-between text-xs text-slate-500">
-        <span className="flex items-center gap-1.5">
+        <span className="flex items-center gap-1.5 flex-wrap">
           {filtered.length} test{filtered.length !== 1 ? "s" : ""}
           {selectedIds.size > 0 && (
-            <span className="ml-1.5 rounded-full bg-slate-700 px-1.5 py-0.5 text-white">
+            <span className="rounded-full bg-slate-700 px-1.5 py-0.5 text-white">
               {selectedIds.size} selected
             </span>
+          )}
+          {hiddenCount > 0 && (
+            <button
+              onClick={onToggleShowHidden}
+              className="rounded-full border border-dashed border-slate-300 px-1.5 py-0.5 text-slate-400 hover:border-slate-400 hover:text-slate-600 dark:border-slate-600 dark:text-slate-500 dark:hover:text-slate-300"
+            >
+              {showHidden ? "hide" : `${hiddenCount} deprecated`}
+            </button>
           )}
         </span>
         {allFilteredSelected ? (
@@ -356,6 +582,8 @@ function TestsPanel({
                       memberOf={membership.get(test.issue_id) ?? []}
                       onToggle={() => onToggle(test.issue_id)}
                       onMouseDown={(e) => handleMouseDown(e, test)}
+                      onToast={onToast}
+                      onHide={onHide}
                     />
                   </div>
                 </div>
@@ -388,6 +616,7 @@ interface TestSetDropTargetProps {
   pendingSetId: string | null;
   projectKey: string;
   onToast: (msg: string, variant: "success" | "error") => void;
+  onHide: (issueKey: string) => void;
 }
 
 const TestSetDropTarget = memo(function TestSetDropTarget({
@@ -397,6 +626,7 @@ const TestSetDropTarget = memo(function TestSetDropTarget({
   onRegisterDrop,
   isHoveredTarget,
   onToggleExpand,
+  onHide,
   pendingSetId,
   projectKey,
   onToast,
@@ -522,6 +752,15 @@ const TestSetDropTarget = memo(function TestSetDropTarget({
             Drop here
           </span>
         )}
+
+        {!isRenaming && (
+          <TransitionMenu
+            issueKey={testSet.jira.key}
+            onToast={onToast}
+            onTransitioned={(name) => { if (isDeprecatingStatus(name)) onHide(testSet.jira.key); }}
+            align="right"
+          />
+        )}
       </div>
 
       {/* Expanded member list */}
@@ -629,6 +868,10 @@ interface TestSetsPanelProps {
   pendingSetId: string | null;
   onRegisterReload: (fn: () => Promise<unknown>) => void;
   onToast: (msg: string, variant: "success" | "error") => void;
+  hiddenKeys: Set<string>;
+  showHidden: boolean;
+  onToggleShowHidden: () => void;
+  onHide: (issueKey: string) => void;
 }
 
 function TestSetsPanel({
@@ -639,6 +882,10 @@ function TestSetsPanel({
   pendingSetId,
   onRegisterReload,
   onToast,
+  hiddenKeys,
+  showHidden,
+  onToggleShowHidden,
+  onHide,
 }: TestSetsPanelProps) {
   const { data: testSets, isLoading, isError, error, refetch } = useGetTestSets(projectKey);
 
@@ -654,9 +901,14 @@ function TestSetsPanel({
     () =>
       (testSets ?? []).filter(
         (ts) =>
-          !q || ts.jira.key.toLowerCase().includes(q) || ts.jira.summary.toLowerCase().includes(q),
+          (showHidden || !hiddenKeys.has(ts.jira.key)) &&
+          (!q || ts.jira.key.toLowerCase().includes(q) || ts.jira.summary.toLowerCase().includes(q)),
       ),
-    [testSets, q],
+    [testSets, q, hiddenKeys, showHidden],
+  );
+  const hiddenCount = useMemo(
+    () => (testSets ?? []).filter((ts) => hiddenKeys.has(ts.jira.key)).length,
+    [testSets, hiddenKeys],
   );
 
   const filteredIds = useMemo(() => filtered.map((ts) => ts.issue_id), [filtered]);
@@ -740,9 +992,17 @@ function TestSetsPanel({
       </div>
 
       <div className="flex items-center justify-between text-xs text-slate-500">
-        <span>
+        <span className="flex items-center gap-1.5 flex-wrap">
           {filtered.length} set{filtered.length !== 1 ? "s" : ""}
-          {isDragging && <span className="ml-2 text-slate-400">— drop onto a set to add</span>}
+          {isDragging && <span className="text-slate-400">— drop onto a set to add</span>}
+          {hiddenCount > 0 && (
+            <button
+              onClick={onToggleShowHidden}
+              className="rounded-full border border-dashed border-slate-300 px-1.5 py-0.5 text-slate-400 hover:border-slate-400 hover:text-slate-600 dark:border-slate-600 dark:text-slate-500 dark:hover:text-slate-300"
+            >
+              {showHidden ? "hide" : `${hiddenCount} deprecated`}
+            </button>
+          )}
         </span>
         {filtered.length > 0 && (
           <button
@@ -773,6 +1033,7 @@ function TestSetsPanel({
               pendingSetId={pendingSetId}
               projectKey={projectKey}
               onToast={onToast}
+              onHide={onHide}
             />
           ))
         )}
@@ -1009,6 +1270,496 @@ function CreateTestSetDialog({ open, onOpenChange, projectKey }: CreateTestSetDi
   );
 }
 
+// ── Test Health Panel ─────────────────────────────────────────────────────────
+
+/** Format an ISO-8601 date string to a short human-readable form. */
+function formatDate(iso: string): string {
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+}
+
+/** How long ago a date was, as a short string. */
+function timeAgo(iso: string): string {
+  const ms = Date.now() - new Date(iso).getTime();
+  const days = Math.floor(ms / 86_400_000);
+  if (days === 0) return "today";
+  if (days === 1) return "yesterday";
+  if (days < 30) return `${days}d ago`;
+  const months = Math.floor(days / 30);
+  if (months < 12) return `${months}mo ago`;
+  return `${Math.floor(months / 12)}y ago`;
+}
+
+interface TestHealthPanelProps {
+  projectKey: string;
+  enabled: boolean;
+  onRequestLoad: () => void;
+  loadConfirmed: boolean | null;
+  onToast: ToastFn;
+  onReload: () => Promise<void>;
+  isReloading: boolean;
+  /** Increment this to force health data to re-fetch after a tests reload. */
+  resetKey: number;
+}
+
+function TestHealthPanel({
+  projectKey,
+  enabled,
+  onRequestLoad,
+  loadConfirmed,
+  onToast,
+  onReload,
+  isReloading,
+  resetKey,
+}: TestHealthPanelProps) {
+  const { data: tests, isLoading: testsLoading } = useGetTests(projectKey, enabled);
+  const isStreaming = useIsTestsStreaming(projectKey);
+
+  // ── Health data (last run per test, streamed from Rust) ──────────────────────
+  const [healthMap, setHealthMap] = useState<Map<string, TestLastRunEntry>>(new Map());
+  const [healthLoading, setHealthLoading] = useState(false);
+  const [healthProgress, setHealthProgress] = useState({ processed: 0, total: 0 });
+  const healthListenerRef = useRef<(() => void) | null>(null);
+  const healthStartedRef = useRef<string | null>(null);
+  /** Accumulates fresh entries during a fetch so we can persist them when done. */
+  const healthAccRef = useRef<Map<string, TestLastRunEntry>>(new Map());
+
+  // ── Bulk selection ────────────────────────────────────────────────────────────
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkApplying, setBulkApplying] = useState(false);
+  const headerCheckRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!enabled || !tests?.length || isStreaming) return;
+    const stateKey = `${projectKey}:${resetKey}`;
+    if (healthStartedRef.current === stateKey) return;
+
+    healthStartedRef.current = stateKey;
+    healthAccRef.current = new Map();
+    setHealthLoading(true);
+    setHealthProgress({ processed: 0, total: 0 });
+
+    const start = async () => {
+      // Load persisted cache so user sees stale data immediately while fresh fetch runs.
+      try {
+        const cached = await invoke<TestLastRunEntry[]>("load_health_cache", { projectKey });
+        if (cached.length > 0) {
+          setHealthMap(new Map(cached.map((e) => [e.test_issue_id, e])));
+        } else {
+          setHealthMap(new Map());
+        }
+      } catch {
+        setHealthMap(new Map());
+      }
+
+      console.log("[health] starting listener, tests count:", tests.length);
+
+      const unlistenError = await listen<string>("tests:health:error", (event) => {
+        console.error("[health] error from backend:", event.payload);
+        onToast(`Health check failed: ${event.payload}`, "error");
+        setHealthLoading(false);
+        unlistenError();
+      });
+
+      const unlisten = await listen<{ entries: TestLastRunEntry[]; done: boolean; total: number; processed: number }>(
+        "tests:health:batch",
+        (event) => {
+          const { entries, done, total, processed } = event.payload;
+          console.log(`[health] batch received: ${entries.length} entries, ${processed}/${total}, done=${done}`);
+          if (entries.length > 0) {
+            for (const e of entries) healthAccRef.current.set(e.test_issue_id, e);
+            setHealthMap(new Map(healthAccRef.current));
+          }
+          setHealthProgress({ processed, total });
+          if (done) {
+            console.log("[health] all batches received");
+            setHealthLoading(false);
+            healthListenerRef.current?.();
+            healthListenerRef.current = null;
+            unlistenError();
+            // Persist fresh data so next session loads immediately.
+            void invoke("save_health_cache", {
+              projectKey,
+              entries: [...healthAccRef.current.values()],
+            });
+          }
+        },
+      );
+      healthListenerRef.current = unlisten;
+
+      try {
+        console.log("[health] invoking get_tests_health_data");
+        await invoke<void>("get_tests_health_data", {
+          testIssueIds: tests.map((t) => t.issue_id),
+        });
+        console.log("[health] invoke returned ok");
+      } catch (e) {
+        console.error("[health] invoke error:", e);
+        setHealthLoading(false);
+        unlistenError();
+      }
+    };
+
+    void start();
+    // No cleanup — listener persists across re-renders so in-flight data still arrives.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [enabled, projectKey, resetKey, !!tests?.length, isStreaming]);
+
+  const [search, setSearch] = useState("");
+  const parentRef = useRef<HTMLDivElement>(null);
+
+  const sorted = useMemo<XrayTest[]>(() => {
+    if (!tests) return [];
+    const lower = search.toLowerCase();
+    const active = tests.filter(
+      (t) => !t.jira.status?.name || !isDeprecatingStatus(t.jira.status.name),
+    );
+    const filtered = lower
+      ? active.filter(
+          (t) =>
+            t.jira.key.toLowerCase().includes(lower) ||
+            t.jira.summary.toLowerCase().includes(lower),
+        )
+      : active;
+    return [...filtered].sort((a, b) => {
+      const aDate = healthMap.get(a.issue_id)?.finished_on ?? null;
+      const bDate = healthMap.get(b.issue_id)?.finished_on ?? null;
+      // Never-executed tests first
+      if (!aDate && bDate) return -1;
+      if (aDate && !bDate) return 1;
+      if (!aDate && !bDate) return a.jira.key.localeCompare(b.jira.key);
+      // Both have dates — oldest first (stalest at top)
+      if (aDate! < bDate!) return -1;
+      if (aDate! > bDate!) return 1;
+      return a.jira.key.localeCompare(b.jira.key);
+    });
+  }, [tests, healthMap, search]);
+
+  const neverExecuted = useMemo(
+    () =>
+      healthLoading || testsLoading
+        ? null
+        : (tests ?? [])
+            .filter((t) => !t.jira.status?.name || !isDeprecatingStatus(t.jira.status.name))
+            .filter((t) => !healthMap.get(t.issue_id)?.finished_on).length,
+    [tests, healthMap, healthLoading, testsLoading],
+  );
+
+  // ── Bulk selection helpers ────────────────────────────────────────────────────
+  const firstSelectedKey = useMemo<string | null>(() => {
+    if (selectedIds.size === 0) return null;
+    const firstId = selectedIds.values().next().value as string;
+    return sorted.find((t) => t.issue_id === firstId)?.jira.key ?? null;
+  }, [selectedIds, sorted]);
+
+  const { data: bulkTransitions, isLoading: bulkTransitionsLoading } =
+    useIssueTransitions(firstSelectedKey);
+
+  const applyBulkTransition = useCallback(
+    async (transition: JiraTransition) => {
+      setBulkApplying(true);
+      const targets = sorted.filter((t) => selectedIds.has(t.issue_id));
+      let success = 0;
+      let failed = 0;
+      for (const test of targets) {
+        try {
+          await invoke("transition_issue", { issueKey: test.jira.key, transitionId: transition.id });
+          success++;
+        } catch {
+          failed++;
+        }
+      }
+      setBulkApplying(false);
+      setSelectedIds(new Set());
+      onToast(
+        failed > 0
+          ? `"${transition.to.name}" applied to ${success}/${targets.length} tests (${failed} failed)`
+          : `"${transition.to.name}" applied to ${success} tests`,
+        failed > 0 ? "error" : "success",
+      );
+    },
+    [selectedIds, sorted, onToast],
+  );
+
+  // Keep header checkbox indeterminate state in sync (React can't set this as a prop).
+  useEffect(() => {
+    if (headerCheckRef.current) {
+      headerCheckRef.current.indeterminate =
+        selectedIds.size > 0 && selectedIds.size < sorted.length;
+    }
+  }, [selectedIds.size, sorted.length]);
+
+  const ROW_HEIGHT = 41;
+  const virtualizer = useVirtualizer({
+    count: sorted.length,
+    getScrollElement: () => parentRef.current,
+    estimateSize: () => ROW_HEIGHT,
+    overscan: 10,
+    getItemKey: (index) => sorted[index]?.issue_id ?? index,
+  });
+
+  // Not yet consented — show prompt
+  if (loadConfirmed === null) {
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-4 text-center">
+        <Activity className="h-10 w-10 text-slate-300" />
+        <div className="space-y-1">
+          <p className="font-medium text-slate-700 dark:text-slate-300">No test data loaded</p>
+          <p className="text-sm text-slate-500">
+            Load all tests to see their execution history and health.
+          </p>
+        </div>
+        <Button size="sm" onClick={onRequestLoad}>
+          Load Tests
+        </Button>
+      </div>
+    );
+  }
+
+  if (testsLoading || loadConfirmed !== true) {
+    return (
+      <div className="space-y-2">
+        {Array.from({ length: 8 }).map((_, i) => (
+          <Skeleton key={i} className="h-9 w-full" />
+        ))}
+      </div>
+    );
+  }
+
+  if (!tests || tests.length === 0) {
+    return <EmptyState icon={Activity} message="No tests found for this project." />;
+  }
+
+  return (
+    <div className="flex h-full flex-col">
+      {/* Search + stats */}
+      <div className="mb-3 flex items-center gap-3">
+        <div className="relative flex-1">
+          <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+          <Input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Filter by key or name…"
+            className="h-8 pl-8 text-sm"
+          />
+        </div>
+        <div className="flex shrink-0 items-center gap-3 text-xs text-slate-500">
+          <span>
+            {sorted.length}
+            {isStreaming || isReloading ? ` / ${tests.length}…` : " tests"}
+          </span>
+          {(isStreaming || isReloading || testsLoading) ? (
+            <span className="flex items-center gap-1 text-slate-400">
+              <RefreshCw className="h-3 w-3 animate-spin" />
+              {isReloading ? "Reloading…" : "Fetching tests…"}
+            </span>
+          ) : healthLoading ? (
+            <span className="flex items-center gap-1 text-slate-400">
+              <RefreshCw className="h-3 w-3 animate-spin" />
+              {healthProgress.total > 0
+                ? `${healthProgress.processed} / ${healthProgress.total} checked…`
+                : "Checking runs…"}
+            </span>
+          ) : neverExecuted !== null && neverExecuted > 0 ? (
+            <span className="font-medium text-amber-600 dark:text-amber-400">
+              {neverExecuted} never executed
+            </span>
+          ) : null}
+          <button
+            onClick={() => void onReload()}
+            disabled={isReloading || testsLoading || isStreaming}
+            title="Reload tests"
+            className="rounded p-1 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 disabled:opacity-40 dark:hover:bg-slate-700"
+          >
+            <RefreshCw className={cn("h-3.5 w-3.5", isReloading && "animate-spin")} />
+          </button>
+        </div>
+      </div>
+
+      {/* Bulk action bar — visible when tests are selected */}
+      {selectedIds.size > 0 && (
+        <div className="mb-2 flex items-center gap-2 rounded-md border border-slate-700 bg-slate-800 px-3 py-2 dark:border-slate-600">
+          <span className="shrink-0 text-sm font-medium text-slate-200">
+            {selectedIds.size} selected
+          </span>
+          <div className="mx-1 h-4 w-px bg-slate-600" />
+          {bulkTransitionsLoading || bulkApplying ? (
+            <Spinner size="sm" />
+          ) : (
+            bulkTransitions?.map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                disabled={bulkApplying}
+                onClick={() => void applyBulkTransition(t)}
+                className={cn(
+                  "shrink-0 rounded-full px-2 py-0.5 text-xs font-medium transition-opacity hover:opacity-80 disabled:opacity-40",
+                  categoryColor(t.to.category?.key),
+                )}
+              >
+                {t.to.name}
+              </button>
+            ))
+          )}
+          <div className="flex-1" />
+          <button
+            type="button"
+            onClick={() => setSelectedIds(new Set())}
+            className="text-slate-400 hover:text-slate-200"
+            title="Clear selection"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      )}
+
+      {/* Virtualized list */}
+      <div className="flex-1 overflow-hidden rounded-md border border-slate-200 dark:border-slate-700">
+        {/* Sticky header */}
+        <div className="grid grid-cols-[2.5rem_2rem_7rem_1fr_9rem_7rem_2.5rem] border-b border-slate-200 bg-slate-50 text-xs font-semibold uppercase tracking-wider text-slate-400 dark:border-slate-700 dark:bg-slate-800">
+          <div className="flex items-center py-2 pl-3">
+            <input
+              ref={headerCheckRef}
+              type="checkbox"
+              checked={selectedIds.size === sorted.length && sorted.length > 0}
+              onChange={(e) =>
+                setSelectedIds(e.target.checked ? new Set(sorted.map((t) => t.issue_id)) : new Set())
+              }
+              className="h-3.5 w-3.5 cursor-pointer accent-teal-500"
+            />
+          </div>
+          <div className="py-2 pl-1" />
+          <div className="py-2 pl-2 pr-3">Key</div>
+          <div className="py-2 pr-3">Summary</div>
+          <div className="py-2 pr-3">Last Execution</div>
+          <div className="py-2 pr-3">Result</div>
+          <div className="py-2 pr-2" />
+        </div>
+
+        {sorted.length === 0 ? (
+          <div className="flex items-center justify-center p-6 text-sm text-slate-400">
+            No tests match your filter.
+          </div>
+        ) : (
+          <div ref={parentRef} className="overflow-y-auto" style={{ height: "calc(100% - 33px)" }}>
+            <div style={{ height: virtualizer.getTotalSize(), width: "100%", position: "relative" }}>
+              {virtualizer.getVirtualItems().map((vRow) => {
+                const test = sorted[vRow.index];
+                if (!test) return null;
+                const lastRun = healthMap.get(test.issue_id);
+                const isSelected = selectedIds.has(test.issue_id);
+                return (
+                  <div
+                    key={vRow.key}
+                    style={{
+                      position: "absolute",
+                      top: 0,
+                      left: 0,
+                      width: "100%",
+                      height: `${ROW_HEIGHT}px`,
+                      transform: `translateY(${vRow.start}px)`,
+                    }}
+                    className={cn(
+                      "group grid grid-cols-[2.5rem_2rem_7rem_1fr_9rem_7rem_2.5rem] items-center border-b border-slate-100 dark:border-slate-800",
+                      isSelected
+                        ? "bg-teal-50 dark:bg-teal-900/20"
+                        : "hover:bg-slate-50 dark:hover:bg-slate-800/50",
+                    )}
+                  >
+                    {/* Checkbox */}
+                    <div className="flex items-center py-2 pl-3">
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={(e) => {
+                          setSelectedIds((prev) => {
+                            const next = new Set(prev);
+                            if (e.target.checked) next.add(test.issue_id);
+                            else next.delete(test.issue_id);
+                            return next;
+                          });
+                        }}
+                        className="h-3.5 w-3.5 cursor-pointer accent-teal-500 opacity-0 transition-opacity group-hover:opacity-100"
+                        style={isSelected ? { opacity: 1 } : undefined}
+                      />
+                    </div>
+                    {/* Status dot */}
+                    <div className="py-2 pl-1">
+                      <span
+                        className="block h-2.5 w-2.5 rounded-full"
+                        style={{ backgroundColor: lastRun?.status?.color ?? "#94a3b8" }}
+                      />
+                    </div>
+                    {/* Key */}
+                    <div className="py-2 pl-2 pr-3">
+                      <span className="font-mono text-xs text-slate-500 dark:text-slate-400">
+                        {test.jira.key}
+                      </span>
+                    </div>
+                    {/* Summary */}
+                    <div className="min-w-0 py-2 pr-3">
+                      <span
+                        className="block truncate text-sm text-slate-800 dark:text-slate-200"
+                        title={test.jira.summary}
+                      >
+                        {test.jira.summary}
+                      </span>
+                    </div>
+                    {/* Last execution date */}
+                    <div className="py-2 pr-3">
+                      {lastRun?.finished_on ? (
+                        <span
+                          className="text-xs text-slate-600 dark:text-slate-400"
+                          title={formatDate(lastRun.finished_on)}
+                        >
+                          {timeAgo(lastRun.finished_on)}
+                        </span>
+                      ) : (
+                        <span className="text-xs italic text-amber-600 dark:text-amber-400">
+                          Never executed
+                        </span>
+                      )}
+                    </div>
+                    {/* Last result status badge */}
+                    <div className="py-2 pr-3">
+                      {lastRun?.status ? (
+                        <span
+                          className="inline-flex items-center rounded px-2 py-0.5 text-xs font-medium"
+                          style={{
+                            color: lastRun.status.color ?? "#64748b",
+                            backgroundColor: `${lastRun.status.color ?? "#94a3b8"}20`,
+                          }}
+                        >
+                          {lastRun.status.name}
+                        </span>
+                      ) : (
+                        <span className="text-xs text-slate-400">—</span>
+                      )}
+                    </div>
+                    {/* Transition menu */}
+                    <div className="py-2 pr-2">
+                      <TransitionMenu
+                        issueKey={test.jira.key}
+                        onToast={onToast}
+                        align="right"
+                        triggerClassName="opacity-0 group-hover:opacity-100"
+                        onTransitioned={(statusName) => {
+                          onToast(`${test.jira.key} moved to "${statusName}"`, "success");
+                        }}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export function TestsPage() {
@@ -1023,6 +1774,8 @@ export function TestsPage() {
 
   // true = user confirmed loading | null = user dismissed/cancelled (page shown, tests not loaded) | false = dialog not yet answered
   const [loadConfirmed, setLoadConfirmed] = useState<boolean | null>(hasCachedTests ? true : false);
+  const [activeTab, setActiveTab] = useState<"tests" | "health">("tests");
+
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [pendingSetId, setPendingSetId] = useState<string | null>(null);
   const [toast, setToast] = useState<ToastMessage | null>(null);
@@ -1030,12 +1783,21 @@ export function TestsPage() {
   const [isRefreshingTestSets, setIsRefreshingTestSets] = useState(false);
   const [createSetOpen, setCreateSetOpen] = useState(false);
 
-  const testsRefetchRef = useRef<(() => Promise<unknown>) | null>(null);
+  // Hidden (deprecated) issue keys — persisted to localStorage per project
+  const storageKeyTests = `qality_hidden_tests_${projectKey ?? ""}`;
+  const storageKeySets = `qality_hidden_sets_${projectKey ?? ""}`;
+  const [hiddenTestKeys, setHiddenTestKeys] = useState<Set<string>>(() =>
+    loadHiddenKeys(storageKeyTests),
+  );
+  const [hiddenSetKeys, setHiddenSetKeys] = useState<Set<string>>(() =>
+    loadHiddenKeys(storageKeySets),
+  );
+  const [showHiddenTests, setShowHiddenTests] = useState(false);
+  const [showHiddenSets, setShowHiddenSets] = useState(false);
+
+  const reloadTests = useReloadTests(projectKey ?? undefined);
   const testSetsRefetchRef = useRef<(() => Promise<unknown>) | null>(null);
 
-  const handleRegisterTestsReload = useCallback((fn: () => Promise<unknown>) => {
-    testsRefetchRef.current = fn;
-  }, []);
   const handleRegisterTestSetsReload = useCallback((fn: () => Promise<unknown>) => {
     testSetsRefetchRef.current = fn;
   }, []);
@@ -1043,6 +1805,33 @@ export function TestsPage() {
     (msg: string, variant: "success" | "error") => showToast(setToast, msg, variant),
     [],
   );
+
+  const handleHideTest = useCallback(
+    (issueKey: string) => {
+      setHiddenTestKeys((prev) => {
+        const next = new Set(prev);
+        next.add(issueKey);
+        saveHiddenKeys(storageKeyTests, next);
+        return next;
+      });
+    },
+    [storageKeyTests],
+  );
+
+  const handleHideSet = useCallback(
+    (issueKey: string) => {
+      setHiddenSetKeys((prev) => {
+        const next = new Set(prev);
+        next.add(issueKey);
+        saveHiddenKeys(storageKeySets, next);
+        return next;
+      });
+    },
+    [storageKeySets],
+  );
+
+  const handleToggleShowHiddenTests = useCallback(() => setShowHiddenTests((p) => !p), []);
+  const handleToggleShowHiddenSets = useCallback(() => setShowHiddenSets((p) => !p), []);
 
   /** Map from test-set issueId → its DOM element for hit-testing. */
   const dropTargetRefs = useRef<Map<string, HTMLElement>>(new Map());
@@ -1084,11 +1873,14 @@ export function TestsPage() {
     startDrag,
   } = useDragAndDrop(dropTargetRefs, handleDropTests);
 
+  const [healthResetKey, setHealthResetKey] = useState(0);
+
   const handleReloadTests = useCallback(async () => {
     setIsRefreshingTests(true);
-    await testsRefetchRef.current?.();
+    await reloadTests();
+    setHealthResetKey((k) => k + 1);
     setIsRefreshingTests(false);
-  }, []);
+  }, [reloadTests]);
 
   const handleReloadTestSets = useCallback(async () => {
     setIsRefreshingTestSets(true);
@@ -1187,76 +1979,134 @@ export function TestsPage() {
           </h1>
         </div>
         <div className="flex items-center gap-2">
-          <Button size="sm" onClick={() => setCreateSetOpen(true)}>
-            <Plus className="h-4 w-4" />
-            New Test Set
-          </Button>
+          {activeTab === "tests" && (
+            <Button size="sm" onClick={() => setCreateSetOpen(true)}>
+              <Plus className="h-4 w-4" />
+              New Test Set
+            </Button>
+          )}
         </div>
       </div>
 
-      {/* Two-panel layout */}
-      <div className="flex h-[calc(100vh-10rem)] gap-6">
-        {/* Left: all tests */}
-        <div className="flex min-w-0 flex-1 flex-col">
-          <div className="mb-3 flex items-center justify-between">
-            <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">
-              All Tests
-            </p>
-            <button
-              onClick={() => void handleReloadTests()}
-              disabled={isRefreshingTests || !loadConfirmed}
-              title="Reload tests"
-              className="rounded p-1 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 disabled:opacity-40 dark:hover:bg-slate-700 dark:text-slate-400"
-            >
-              <RefreshCw className={cn("h-3.5 w-3.5", isRefreshingTests && "animate-spin")} />
-            </button>
-          </div>
-          <div className="flex-1 overflow-hidden">
-            <TestsPanel
-              projectKey={projectKey}
-              selectedIds={selectedIds}
-              membership={membership}
-              enabled={loadConfirmed === true}
-              onToggle={handleToggle}
-              onSelectAll={handleSelectAll}
-              onClearAll={handleClearAll}
-              onBeginDrag={startDrag}
-              onRegisterReload={handleRegisterTestsReload}
-            />
-          </div>
-        </div>
-
-        {/* Divider */}
-        <div className="w-px shrink-0 bg-slate-200 dark:bg-slate-700" />
-
-        {/* Right: test sets */}
-        <div className="flex min-w-0 flex-1 flex-col">
-          <div className="mb-3 flex items-center justify-between">
-            <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">
-              Test Sets
-            </p>
-            <button
-              onClick={() => void handleReloadTestSets()}
-              disabled={isRefreshingTestSets}
-              title="Reload test sets"
-              className="rounded p-1 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 disabled:opacity-40 dark:hover:bg-slate-700 dark:text-slate-400"
-            >
-              <RefreshCw className={cn("h-3.5 w-3.5", isRefreshingTestSets && "animate-spin")} />
-            </button>
-          </div>
-          <div className="flex-1 overflow-hidden">
-            <TestSetsPanel
-              projectKey={projectKey}
-              isDragging={drag !== null}
-              hoveredSetId={hoveredSetId}
-              dropTargetRefs={dropTargetRefs}
-              pendingSetId={pendingSetId}
-              onRegisterReload={handleRegisterTestSetsReload}
-              onToast={handleToast}
-            />
-          </div>
-        </div>
+      {/* Tabs */}
+      <div className="mb-4 flex items-center gap-1 border-b border-slate-200 dark:border-slate-700">
+        <button
+          onClick={() => setActiveTab("tests")}
+          className={cn(
+            "flex items-center gap-1.5 border-b-2 px-3 pb-2 text-sm font-medium transition-colors",
+            activeTab === "tests"
+              ? "border-blue-500 text-blue-600 dark:border-blue-400 dark:text-blue-400"
+              : "border-transparent text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-300",
+          )}
+        >
+          <Layers className="h-4 w-4" />
+          Tests &amp; Sets
+        </button>
+        <button
+          onClick={() => {
+            setActiveTab("health");
+            if (loadConfirmed === null) setLoadConfirmed(false);
+          }}
+          className={cn(
+            "flex items-center gap-1.5 border-b-2 px-3 pb-2 text-sm font-medium transition-colors",
+            activeTab === "health"
+              ? "border-blue-500 text-blue-600 dark:border-blue-400 dark:text-blue-400"
+              : "border-transparent text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-300",
+          )}
+        >
+          <Activity className="h-4 w-4" />
+          Health
+        </button>
       </div>
+
+      {/* Tab content */}
+      {activeTab === "tests" ? (
+        <div className="flex h-[calc(100vh-13rem)] gap-6">
+          {/* Left: all tests */}
+          <div className="flex min-w-0 flex-1 flex-col">
+            <div className="mb-3 flex items-center justify-between">
+              <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+                All Tests
+              </p>
+              <button
+                onClick={() => void handleReloadTests()}
+                disabled={isRefreshingTests || !loadConfirmed}
+                title="Reload tests"
+                className="rounded p-1 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 disabled:opacity-40 dark:hover:bg-slate-700 dark:text-slate-400"
+              >
+                <RefreshCw className={cn("h-3.5 w-3.5", isRefreshingTests && "animate-spin")} />
+              </button>
+            </div>
+            <div className="flex-1 overflow-hidden">
+              <TestsPanel
+                projectKey={projectKey}
+                selectedIds={selectedIds}
+                membership={membership}
+                enabled={loadConfirmed === true}
+                onToggle={handleToggle}
+                onSelectAll={handleSelectAll}
+                onClearAll={handleClearAll}
+                onBeginDrag={startDrag}
+                onToast={handleToast}
+                hiddenKeys={hiddenTestKeys}
+                showHidden={showHiddenTests}
+                onToggleShowHidden={handleToggleShowHiddenTests}
+                onHide={handleHideTest}
+              />
+            </div>
+          </div>
+
+          {/* Divider */}
+          <div className="w-px shrink-0 bg-slate-200 dark:bg-slate-700" />
+
+          {/* Right: test sets */}
+          <div className="flex min-w-0 flex-1 flex-col">
+            <div className="mb-3 flex items-center justify-between">
+              <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+                Test Sets
+              </p>
+              <button
+                onClick={() => void handleReloadTestSets()}
+                disabled={isRefreshingTestSets}
+                title="Reload test sets"
+                className="rounded p-1 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 disabled:opacity-40 dark:hover:bg-slate-700 dark:text-slate-400"
+              >
+                <RefreshCw
+                  className={cn("h-3.5 w-3.5", isRefreshingTestSets && "animate-spin")}
+                />
+              </button>
+            </div>
+            <div className="flex-1 overflow-hidden">
+              <TestSetsPanel
+                projectKey={projectKey}
+                isDragging={drag !== null}
+                hoveredSetId={hoveredSetId}
+                dropTargetRefs={dropTargetRefs}
+                pendingSetId={pendingSetId}
+                onRegisterReload={handleRegisterTestSetsReload}
+                onToast={handleToast}
+                hiddenKeys={hiddenSetKeys}
+                showHidden={showHiddenSets}
+                onToggleShowHidden={handleToggleShowHiddenSets}
+                onHide={handleHideSet}
+              />
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="h-[calc(100vh-13rem)]">
+          <TestHealthPanel
+            projectKey={projectKey}
+            enabled={loadConfirmed === true}
+            loadConfirmed={loadConfirmed}
+            onRequestLoad={() => setLoadConfirmed(false)}
+            onToast={handleToast}
+            onReload={handleReloadTests}
+            isReloading={isRefreshingTests}
+            resetKey={healthResetKey}
+          />
+        </div>
+      )}
 
       {/* Floating drag ghost */}
       {drag && <DragGhost drag={drag} ghostRef={ghostRef} />}

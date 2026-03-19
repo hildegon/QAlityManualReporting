@@ -5,6 +5,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
   AppConfig,
+  CreateBugResult,
   CreateTestExecutionResult,
   CreateTestPlanResult,
   CreateTestResult,
@@ -168,6 +169,14 @@ export const createTestExecution = (
 export const getTests = (projectKey: string): Promise<XrayTest[]> =>
   invoke("get_tests", { projectKey });
 
+/**
+ * Kick off background fetching of the most-recent test run per test.
+ * Results stream in via `tests:health:batch` Tauri events.
+ * Call `listen("tests:health:batch", ...)` before invoking this.
+ */
+export const getTestsHealthData = (testIssueIds: string[]): Promise<void> =>
+  invoke("get_tests_health_data", { testIssueIds });
+
 export const getTestSets = (projectKey: string): Promise<XrayTestSet[]> =>
   invoke("get_test_sets", { projectKey });
 
@@ -242,6 +251,28 @@ export const getTestSetTestsWithStatus = (issueId: string): Promise<XrayTestWith
  */
 export const addDefectsToTestRun = (runId: string, issueKeys: string[]): Promise<string[]> =>
   invoke("add_defects_to_test_run", { runId, issueKeys });
+
+/** Create a new Bug issue in a Jira project with an affected version pre-set. */
+export const createBug = (
+  projectKey: string,
+  summary: string,
+  affectedVersionId: string,
+  description?: string,
+  componentId?: string,
+  assigneeAccountId?: string,
+): Promise<CreateBugResult> =>
+  invoke("create_bug", {
+    projectKey,
+    summary,
+    affectedVersionId,
+    description,
+    componentId,
+    assigneeAccountId,
+  });
+
+/** Attach a local file to an existing Jira issue. */
+export const addAttachment = (issueKey: string, filePath: string): Promise<void> =>
+  invoke("add_attachment", { issueKey, filePath });
 
 /**
  * Write a UTF-8 text file to an absolute path chosen by the user via the

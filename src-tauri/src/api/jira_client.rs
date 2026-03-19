@@ -4,8 +4,8 @@ use reqwest::Client;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::models::jira::{
-    IssueLinkType, IssueLinkTypesResponse, JiraBug, JiraComponent, JiraIssue, JiraProject,
-    JiraProjectsResponse, JiraSearchResponse, JiraTransition, JiraTransitionsResponse,
+    IssueLinkType, IssueLinkTypesResponse, JiraBug, JiraComponent, JiraCreatedIssue, JiraIssue,
+    JiraProject, JiraProjectsResponse, JiraSearchResponse, JiraTransition, JiraTransitionsResponse,
     JiraUserSearchResult, JiraVersion,
 };
 
@@ -587,6 +587,153 @@ impl JiraClient {
         .await
         .context("Failed to parse Jira get-issue-link-types response")?;
         Ok(resp.issue_link_types)
+    }
+
+    /// Create a new Bug issue in a Jira project.
+    ///
+    /// Uses `POST /rest/api/3/issue`.
+    /// `affected_version_id` is set as `versions` (affectedVersions) on the bug.
+    /// `component_id` and `assignee_account_id` are optional.
+    pub async fn create_bug(
+        &self,
+        project_key: &str,
+        summary: &str,
+        description: Option<&str>,
+        affected_version_id: &str,
+        component_id: Option<&str>,
+        assignee_account_id: Option<&str>,
+    ) -> Result<JiraCreatedIssue> {
+        let url = format!("{}/rest/api/3/issue", self.base_url);
+
+        let mut fields = serde_json::json!({
+            "project": { "key": project_key },
+            "summary": summary,
+            "issuetype": { "name": "Bug" },
+            "versions": [{ "id": affected_version_id }],
+        });
+
+        if let Some(desc) = description {
+            if !desc.trim().is_empty() {
+                fields["description"] = serde_json::json!({
+                    "version": 1,
+                    "type": "doc",
+                    "content": [{
+                        "type": "paragraph",
+                        "content": [{ "type": "text", "text": desc }]
+                    }]
+                });
+            }
+        }
+
+        if let Some(comp_id) = component_id {
+            if !comp_id.trim().is_empty() {
+                fields["components"] = serde_json::json!([{ "id": comp_id }]);
+            }
+        }
+
+        if let Some(account_id) = assignee_account_id {
+            if !account_id.trim().is_empty() {
+                fields["assignee"] = serde_json::json!({ "accountId": account_id });
+            }
+        }
+
+        let body = serde_json::json!({ "fields": fields });
+
+        let resp = check_rate_limit(
+            self.client
+                .post(&url)
+                .header("Authorization", &self.auth_header)
+                .header("Content-Type", "application/json")
+                .header("Accept", "application/json")
+                .json(&body)
+                .send()
+                .await
+                .context("Failed to send Jira create-bug request")?,
+        )?;
+
+        let status = resp.status();
+        if !status.is_success() {
+            let text = resp
+                .text()
+                .await
+                .unwrap_or_else(|_| "<no body>".to_string());
+            return Err(anyhow::anyhow!(
+                "Jira create-bug failed (HTTP {}) for project '{}': {}",
+                status.as_u16(),
+                project_key,
+                text
+            ));
+        }
+
+        resp.json::<JiraCreatedIssue>()
+            .await
+            .context("Failed to parse Jira create-bug response")
+    }
+
+    /// Add a file attachment to an existing Jira issue.
+    ///
+    /// Uses `POST /rest/api/3/issue/{key}/attachments` with `multipart/form-data`.
+    /// Reads the file from `file_path` on disk.
+    pub async fn add_attachment(&self, issue_key: &str, file_path: &str) -> Result<()> {
+        let path = std::path::Path::new(file_path);
+        let file_name = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("attachment")
+            .to_string();
+
+        let bytes = tokio::fs::read(path)
+            .await
+            .with_context(|| format!("Failed to read attachment file: {}", file_path))?;
+
+        let ext = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("")
+            .to_lowercase();
+
+        let mime = match ext.as_str() {
+            "jpg" | "jpeg" => "image/jpeg",
+            "png" => "image/png",
+            "gif" => "image/gif",
+            "webp" => "image/webp",
+            "bmp" => "image/bmp",
+            "svg" => "image/svg+xml",
+            "mp4" => "video/mp4",
+            "mov" => "video/quicktime",
+            "avi" => "video/x-msvideo",
+            "mkv" => "video/x-matroska",
+            "webm" => "video/webm",
+            _ => "application/octet-stream",
+        };
+
+        let url = format!(
+            "{}/rest/api/3/issue/{}/attachments",
+            self.base_url,
+            issue_key.trim()
+        );
+
+        let part = reqwest::multipart::Part::bytes(bytes)
+            .file_name(file_name)
+            .mime_str(mime)
+            .context("Invalid MIME type")?;
+
+        let form = reqwest::multipart::Form::new().part("file", part);
+
+        check_rate_limit(
+            self.client
+                .post(&url)
+                .header("Authorization", &self.auth_header)
+                .header("X-Atlassian-Token", "no-check")
+                .multipart(form)
+                .send()
+                .await
+                .context("Failed to send Jira add-attachment request")?,
+        )?
+        .error_for_status()
+        .with_context(|| format!("Jira add-attachment failed for '{}'", issue_key))?;
+
+        Ok(())
     }
 
     /// Fetch all versions for a given Jira project key.

@@ -2,7 +2,8 @@
  * TanStack Query hooks for all data-fetching operations.
  * Mutations use optimistic updates for instant UI feedback.
  */
-import { useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
+import { listen } from "@tauri-apps/api/event";
 import {
   useInfiniteQuery,
   useMutation,
@@ -14,6 +15,7 @@ import {
 } from "@tanstack/react-query";
 import type {
   AppConfig,
+  CreateBugResult,
   CreateTestExecutionResult,
   CreateTestPlanResult,
   CreateTestResult,
@@ -39,6 +41,44 @@ import type {
   XrayTestSet,
 } from "@/types";
 import * as api from "./tauri";
+
+// ── Tests streaming state (module-level, survives component unmounts) ──────────
+//
+// Tracks which project keys are currently being streamed ('streaming') or have
+// finished ('done').  A single Tauri event listener handles all projects so we
+// never register duplicates even if the hook mounts in multiple components.
+
+type StreamState = "streaming" | "done";
+const testStreamMap = new Map<string, StreamState>();
+let testsPageUnlisten: (() => void) | null = null;
+// Promise guard: if registration is already in-flight, subsequent callers
+// await the same promise instead of calling listen() a second time.
+let testsPageSetupPromise: Promise<void> | null = null;
+
+async function ensureTestsListener(queryClient: import("@tanstack/react-query").QueryClient) {
+  if (testsPageUnlisten) return; // listener already active
+  if (!testsPageSetupPromise) {
+    // Set the promise synchronously so any concurrent caller sees it immediately
+    // and awaits it instead of registering a second listener.
+    testsPageSetupPromise = listen<{ project_key: string; tests: XrayTest[]; done: boolean }>(
+      "tests:page",
+      (event) => {
+        const { project_key, tests, done } = event.payload;
+        // Always call setQueryData so React re-renders on every batch including the final done signal.
+        queryClient.setQueryData<XrayTest[]>(
+          queryKeys.tests(project_key),
+          (prev) => (tests.length > 0 ? [...(prev ?? []), ...tests] : (prev ?? [])),
+        );
+        if (done) {
+          testStreamMap.set(project_key, "done");
+        }
+      },
+    ).then((unlisten) => {
+      testsPageUnlisten = unlisten;
+    });
+  }
+  await testsPageSetupPromise;
+}
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -197,6 +237,17 @@ export function useTransitionIssue() {
           queryKey: queryKeys.versionIssues(executionProjectKey, versionName),
         });
       }
+    },
+  });
+}
+
+/** Apply a workflow transition to any Jira issue without execution-specific cache side-effects. */
+export function useApplyTransition() {
+  const queryClient = useQueryClient();
+  return useMutation<void, Error, { issueKey: string; transitionId: string }>({
+    mutationFn: ({ issueKey, transitionId }) => api.transitionIssue(issueKey, transitionId),
+    onSuccess: (_data, { issueKey }) => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.issueTransitions(issueKey) });
     },
   });
 }
@@ -821,10 +872,31 @@ export function useCreateTestExecution() {
  * Fetches tests for the given project key.
  *
  * Page 1 is returned immediately so the UI can render without delay.
- * If there are more pages, the Rust backend emits `tests:page` events in the
- * background — this hook listens for them and appends each batch to the cache.
+ * Remaining pages arrive as `tests:page` Tauri events emitted by a background
+ * Rust task — a module-level listener appends each batch to the cache so the
+ * list grows progressively.  The listener persists across component unmounts so
+ * navigating away does NOT cancel the in-flight fetch.
  */
 export function useGetTests(projectKey: string | undefined, enabled = true) {
+  const queryClient = useQueryClient();
+
+  useEffect(() => {
+    if (!projectKey || !enabled) return;
+    // Don't start a second stream if one is already running or finished.
+    if (testStreamMap.has(projectKey)) return;
+    // If we already have cached data it came from localStorage — treat as done.
+    const cached = queryClient.getQueryData<XrayTest[]>(queryKeys.tests(projectKey));
+    if (cached && cached.length > 0) {
+      testStreamMap.set(projectKey, "done");
+      return;
+    }
+    testStreamMap.set(projectKey, "streaming");
+    // Wire up the global listener (no-op if already set up).
+    void ensureTestsListener(queryClient);
+    // The queryFn below will trigger the actual backend call.
+    // Intentionally no cleanup return — the stream continues in the background.
+  }, [projectKey, enabled, queryClient]);
+
   return useQuery<XrayTest[]>({
     queryKey: queryKeys.tests(projectKey!),
     queryFn: () => api.getTests(projectKey!),
@@ -833,6 +905,44 @@ export function useGetTests(projectKey: string | undefined, enabled = true) {
     gcTime: Infinity,
     meta: { persist: true },
   });
+}
+
+/**
+ * Returns true while background pages are still arriving for the given project.
+ * Subscribing to the query data ensures this hook re-renders on every batch.
+ */
+export function useIsTestsStreaming(projectKey: string | undefined): boolean {
+  useQuery<XrayTest[]>({
+    queryKey: queryKeys.tests(projectKey ?? ""),
+    enabled: false, // observe only — never trigger a fetch
+    staleTime: Infinity,
+    gcTime: Infinity,
+  });
+  if (!projectKey) return false;
+  return testStreamMap.get(projectKey) === "streaming";
+}
+
+/**
+ * Returns a callback that fully resets and re-streams tests for the given project.
+ * Using TanStack Query's built-in `refetch()` is NOT safe here because its
+ * queryFn result (first page only) would overwrite streamed pages that were
+ * appended to the cache while the fetch was in-flight.
+ */
+export function useReloadTests(projectKey: string | undefined) {
+  const queryClient = useQueryClient();
+
+  return useCallback(async () => {
+    if (!projectKey) return;
+    // Reset stream state so the effect in useGetTests won't block a new stream.
+    testStreamMap.set(projectKey, "streaming");
+    // Clear existing cache so we start from scratch.
+    queryClient.setQueryData<XrayTest[]>(queryKeys.tests(projectKey), []);
+    // Ensure the global page listener is wired (may already be).
+    await ensureTestsListener(queryClient);
+    // Fetch first page — Rust also spawns the background streaming task.
+    const firstPage = await api.getTests(projectKey);
+    queryClient.setQueryData<XrayTest[]>(queryKeys.tests(projectKey), firstPage);
+  }, [projectKey, queryClient]);
 }
 
 // ── Get Test Sets ─────────────────────────────────────────────────────────────
@@ -1488,6 +1598,83 @@ interface AddDefectsVars {
  * Optimistically appends defect issue keys to a test run and writes them back
  * to Xray. Rolls back on error, re-fetches on settle.
  */
+interface CreateBugVars {
+  projectKey: string;
+  /** The version name — needed to key the cache for optimistic update. */
+  versionName: string;
+  summary: string;
+  affectedVersionId: string;
+  description?: string;
+  componentId?: string;
+  assigneeAccountId?: string;
+  assigneeDisplayName?: string;
+  /** Local file paths to attach after bug creation. */
+  attachmentPaths?: string[];
+}
+
+export function useCreateBug() {
+  const queryClient = useQueryClient();
+  return useMutation<CreateBugResult, Error, CreateBugVars>({
+    mutationFn: async ({
+      projectKey,
+      summary,
+      affectedVersionId,
+      description,
+      componentId,
+      assigneeAccountId,
+      attachmentPaths = [],
+    }) => {
+      const result = await api.createBug(
+        projectKey,
+        summary,
+        affectedVersionId,
+        description,
+        componentId,
+        assigneeAccountId,
+      );
+      for (const path of attachmentPaths) {
+        await api.addAttachment(result.key, path);
+      }
+      return result;
+    },
+    onMutate: async ({ projectKey, versionName, summary, assigneeAccountId, assigneeDisplayName }) => {
+      const queryKey = queryKeys.bugsByVersion(projectKey, versionName);
+      await queryClient.cancelQueries({ queryKey });
+      const previous = queryClient.getQueryData<JiraBug[]>(queryKey);
+
+      const optimisticFields: JiraBug["fields"] = {
+        summary,
+        status: { name: "Open", category: { key: "new", name: "To Do" } },
+        issue_type: { name: "Bug" },
+        issue_links: [],
+      };
+      if (assigneeAccountId && assigneeDisplayName) {
+        optimisticFields.assignee = {
+          account_id: assigneeAccountId,
+          display_name: assigneeDisplayName,
+        };
+      }
+      const optimisticBug: JiraBug = {
+        id: `optimistic-${Date.now()}`,
+        key: "…",
+        fields: optimisticFields,
+      };
+
+      queryClient.setQueryData<JiraBug[]>(queryKey, (old) => [optimisticBug, ...(old ?? [])]);
+      return { previous, queryKey };
+    },
+    onError: (_err, _vars, context) => {
+      const ctx = context as { previous: JiraBug[] | undefined; queryKey: readonly unknown[] } | undefined;
+      if (ctx) queryClient.setQueryData(ctx.queryKey, ctx.previous);
+    },
+    onSettled: (_data, _err, { projectKey, versionName }) => {
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.bugsByVersion(projectKey, versionName),
+      });
+    },
+  });
+}
+
 export function useAddDefectsToTestRun() {
   const queryClient = useQueryClient();
   return useMutation<string[], Error, AddDefectsVars>({
