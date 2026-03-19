@@ -294,6 +294,8 @@ export interface XrayTestWithStatus {
   jira: {
     key: string;
     summary: string;
+    /** Jira workflow status (Active, Deprecated, Won't Do, etc.). */
+    status?: { name: string };
   };
   /** undefined if the test has never been executed. */
   latest_status?: LatestTestStatus;
@@ -305,6 +307,7 @@ export interface XrayTestSet {
   jira: {
     key: string;
     summary: string;
+    status?: { name: string };
   };
 }
 

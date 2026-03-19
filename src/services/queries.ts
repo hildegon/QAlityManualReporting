@@ -39,6 +39,7 @@ import type {
   XrayTest,
   XrayTestRunStatus,
   XrayTestSet,
+  XrayTestWithStatus,
 } from "@/types";
 import * as api from "./tauri";
 
@@ -974,7 +975,17 @@ export function useGetTestSetTests(issueId: string | null) {
   });
 }
 
-// ── Get Test Set Tests with latest status (Coverage page) ────────────────────
+// ── Get Test Set Tests with latest status (Coverage + Sets Health pages) ─────
+
+export function useGetTestSetTestsWithStatus(issueId: string | null) {
+  return useQuery<XrayTestWithStatus[]>({
+    queryKey: queryKeys.testSetTestsWithStatus(issueId ?? ""),
+    queryFn: () => api.getTestSetTestsWithStatus(issueId!),
+    enabled: !!issueId,
+    staleTime: 5 * 60 * 1_000,
+    gcTime: Infinity,
+  });
+}
 
 // ── Get Test Plan Tests ───────────────────────────────────────────────────────
 

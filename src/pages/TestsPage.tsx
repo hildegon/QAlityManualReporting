@@ -16,6 +16,7 @@ import {
   useApplyTransition,
   useReloadTests,
   useIsTestsStreaming,
+  useGetTestSetTestsWithStatus,
   queryKeys,
 } from "@/services/queries";
 
@@ -33,6 +34,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
   AlertTriangle,
+  Ban,
   FlaskConical,
   Layers,
   Search,
@@ -49,13 +51,20 @@ import {
   X,
   MoreHorizontal,
   Activity,
+  ShieldAlert,
 } from "lucide-react";
 import * as Dialog from "@radix-ui/react-dialog";
-import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 
 import { cn } from "@/components/ui/utils";
-import type { JiraTransition, TestLastRunEntry, XrayTest, XrayTestSet } from "@/types";
+import { useHealthStore } from "@/stores/healthStore";
+import type {
+  JiraTransition,
+  TestLastRunEntry,
+  XrayTest,
+  XrayTestSet,
+  XrayTestWithStatus,
+} from "@/types";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -91,7 +100,9 @@ function loadHiddenKeys(storageKey: string): Set<string> {
 function saveHiddenKeys(storageKey: string, keys: Set<string>) {
   try {
     localStorage.setItem(storageKey, JSON.stringify([...keys]));
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
 }
 
 function categoryColor(key?: string): string {
@@ -145,7 +156,6 @@ function TransitionMenu({
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, [open]);
-
 
   const dropdown = open
     ? createPortal(
@@ -336,18 +346,16 @@ const TestRow = memo(function TestRow({
           <TransitionMenu
             issueKey={test.jira.key}
             onToast={onToast}
-            onTransitioned={(name) => { if (isDeprecatingStatus(name)) onHide(test.jira.key); }}
+            onTransitioned={(name) => {
+              if (isDeprecatingStatus(name)) onHide(test.jira.key);
+            }}
             align="right"
             triggerClassName={
-              selected
-                ? "text-white/60 hover:bg-white/10 dark:hover:bg-white/10"
-                : undefined
+              selected ? "text-white/60 hover:bg-white/10 dark:hover:bg-white/10" : undefined
             }
           />
         </div>
-        <GripVertical
-          className={cn("h-4 w-4", selected ? "text-white/40" : "text-slate-300")}
-        />
+        <GripVertical className={cn("h-4 w-4", selected ? "text-white/40" : "text-slate-300")} />
       </div>
     </div>
   );
@@ -656,6 +664,10 @@ const TestSetDropTarget = memo(function TestSetDropTarget({
     );
   }, [members, memberSearch]);
 
+  const isSetDeprecated = !!(
+    testSet.jira.status?.name && isDeprecatingStatus(testSet.jira.status.name)
+  );
+
   return (
     <div
       ref={dropRef}
@@ -665,9 +677,12 @@ const TestSetDropTarget = memo(function TestSetDropTarget({
           ? "border-slate-700 bg-slate-50 ring-2 ring-slate-700 dark:border-slate-400 dark:bg-slate-700 dark:ring-slate-400"
           : isDragging
             ? "border-slate-300 bg-white ring-1 ring-slate-200 dark:border-slate-600 dark:bg-slate-800 dark:ring-slate-600"
-            : "border-slate-200 bg-white dark:border-slate-600 dark:bg-slate-800",
+            : isSetDeprecated
+              ? "border-red-200 bg-white dark:border-red-900/50 dark:bg-slate-800"
+              : "border-slate-200 bg-white dark:border-slate-600 dark:bg-slate-800",
       )}
     >
+      {isSetDeprecated && <div className="h-1 w-full bg-red-400 dark:bg-red-600" />}
       {/* Header */}
       <div className="flex w-full items-center gap-3 px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-700">
         <button className="flex items-center gap-3 text-left" onClick={handleToggleExpand}>
@@ -676,11 +691,29 @@ const TestSetDropTarget = memo(function TestSetDropTarget({
           ) : (
             <ChevronRight className="h-4 w-4 shrink-0 text-slate-400" />
           )}
-          <Layers className="h-4 w-4 shrink-0 text-slate-400" />
-          <span className="w-28 shrink-0 font-mono text-xs text-slate-500 dark:text-slate-400">
+          <Layers
+            className={cn(
+              "h-4 w-4 shrink-0",
+              isSetDeprecated ? "text-red-300 dark:text-red-700" : "text-slate-400",
+            )}
+          />
+          <span
+            className={cn(
+              "w-28 shrink-0 font-mono text-xs",
+              isSetDeprecated
+                ? "text-slate-400 line-through dark:text-slate-500"
+                : "text-slate-500 dark:text-slate-400",
+            )}
+          >
             {testSet.jira.key}
           </span>
         </button>
+        {isSetDeprecated && (
+          <span className="flex shrink-0 items-center gap-1 rounded-full bg-red-100 px-2.5 py-0.5 text-xs font-semibold text-red-700 dark:bg-red-900/40 dark:text-red-300">
+            <Ban className="h-3 w-3" />
+            {testSet.jira.status!.name}
+          </span>
+        )}
 
         {/* Summary — inline editable */}
         {isRenaming ? (
@@ -757,7 +790,9 @@ const TestSetDropTarget = memo(function TestSetDropTarget({
           <TransitionMenu
             issueKey={testSet.jira.key}
             onToast={onToast}
-            onTransitioned={(name) => { if (isDeprecatingStatus(name)) onHide(testSet.jira.key); }}
+            onTransitioned={(name) => {
+              if (isDeprecatingStatus(name)) onHide(testSet.jira.key);
+            }}
             align="right"
           />
         )}
@@ -902,7 +937,9 @@ function TestSetsPanel({
       (testSets ?? []).filter(
         (ts) =>
           (showHidden || !hiddenKeys.has(ts.jira.key)) &&
-          (!q || ts.jira.key.toLowerCase().includes(q) || ts.jira.summary.toLowerCase().includes(q)),
+          (!q ||
+            ts.jira.key.toLowerCase().includes(q) ||
+            ts.jira.summary.toLowerCase().includes(q)),
       ),
     [testSets, q, hiddenKeys, showHidden],
   );
@@ -1270,6 +1307,378 @@ function CreateTestSetDialog({ open, onOpenChange, projectKey }: CreateTestSetDi
   );
 }
 
+// ── Test Sets Health Panel ────────────────────────────────────────────────────
+
+/** One row in the test-sets health panel: expands to show member tests with their Jira status. */
+const TestSetHealthRow = memo(function TestSetHealthRow({
+  testSet,
+  projectKey,
+  onToast,
+}: {
+  testSet: XrayTestSet;
+  projectKey: string;
+  onToast: ToastFn;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const { data: tests, isLoading } = useGetTestSetTestsWithStatus(testSet.issue_id);
+  const removeTests = useRemoveTestsFromTestSet();
+  const rowHeaderCheckRef = useRef<HTMLInputElement>(null);
+
+  const deprecated = useMemo<XrayTestWithStatus[]>(
+    () =>
+      tests?.filter((t) => t.jira.status?.name && isDeprecatingStatus(t.jira.status.name)) ?? [],
+    [tests],
+  );
+
+  useEffect(() => {
+    if (rowHeaderCheckRef.current) {
+      rowHeaderCheckRef.current.indeterminate =
+        selectedIds.size > 0 && selectedIds.size < (tests?.length ?? 0);
+    }
+  }, [selectedIds.size, tests?.length]);
+
+  const handleRemoveSelected = useCallback(async () => {
+    const ids = [...selectedIds];
+    try {
+      await removeTests.mutateAsync({
+        testSetIssueId: testSet.issue_id,
+        testIssueIds: ids,
+        projectKey,
+      });
+      setSelectedIds(new Set());
+      onToast(
+        `Removed ${ids.length} test${ids.length !== 1 ? "s" : ""} from ${testSet.jira.key}`,
+        "success",
+      );
+    } catch (e) {
+      onToast(`Failed to remove: ${String(e)}`, "error");
+    }
+  }, [selectedIds, testSet, projectKey, removeTests, onToast]);
+
+  const handleRemoveDeprecated = useCallback(
+    async (e: React.MouseEvent) => {
+      e.stopPropagation();
+      const ids = deprecated.map((t) => t.issue_id);
+      try {
+        await removeTests.mutateAsync({
+          testSetIssueId: testSet.issue_id,
+          testIssueIds: ids,
+          projectKey,
+        });
+        onToast(
+          `Removed ${ids.length} deprecated test${ids.length !== 1 ? "s" : ""} from ${testSet.jira.key}`,
+          "success",
+        );
+      } catch (e) {
+        onToast(`Failed: ${String(e)}`, "error");
+      }
+    },
+    [deprecated, testSet, projectKey, removeTests, onToast],
+  );
+
+  const isSetDeprecated = !!(
+    testSet.jira.status?.name && isDeprecatingStatus(testSet.jira.status.name)
+  );
+
+  return (
+    <div
+      className={cn(
+        "border-b border-slate-200 dark:border-slate-700 last:border-b-0",
+        isSetDeprecated && "bg-red-50/60 dark:bg-red-950/20",
+      )}
+    >
+      {/* Header */}
+      <div
+        className={cn(
+          "group flex w-full items-center gap-2 px-3 py-2.5",
+          isSetDeprecated
+            ? "hover:bg-red-100/60 dark:hover:bg-red-950/40"
+            : "hover:bg-slate-50 dark:hover:bg-slate-800/50",
+        )}
+      >
+        {/* Expand toggle — takes all available space */}
+        <button
+          type="button"
+          onClick={() => setExpanded((p) => !p)}
+          className="flex min-w-0 flex-1 items-center gap-2 text-left"
+        >
+          {expanded ? (
+            <ChevronDown className="h-4 w-4 shrink-0 text-slate-400" />
+          ) : (
+            <ChevronRight className="h-4 w-4 shrink-0 text-slate-400" />
+          )}
+          <span
+            className={cn(
+              "font-mono text-xs",
+              isSetDeprecated
+                ? "text-red-400 line-through dark:text-red-700"
+                : "text-slate-500 dark:text-slate-400",
+            )}
+          >
+            {testSet.jira.key}
+          </span>
+          <span
+            className={cn(
+              "min-w-0 flex-1 truncate text-sm",
+              isSetDeprecated
+                ? "text-red-500 line-through dark:text-red-600"
+                : "text-slate-800 dark:text-slate-200",
+            )}
+          >
+            {testSet.jira.summary}
+          </span>
+          {isSetDeprecated && (
+            <span className="flex shrink-0 items-center gap-1 rounded-full bg-red-100 px-2.5 py-0.5 text-xs font-semibold text-red-700 dark:bg-red-900/50 dark:text-red-300">
+              <Ban className="h-3 w-3" />
+              {testSet.jira.status!.name}
+            </span>
+          )}
+        </button>
+
+        {/* Actions */}
+        {deprecated.length > 0 && (
+          <>
+            <span className="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
+              {deprecated.length} deprecated
+            </span>
+            <button
+              type="button"
+              onClick={handleRemoveDeprecated}
+              disabled={removeTests.isPending}
+              className="shrink-0 rounded px-2 py-0.5 text-xs font-medium text-red-600 hover:bg-red-50 disabled:opacity-50 dark:text-red-400 dark:hover:bg-red-900/20"
+            >
+              Remove all
+            </button>
+          </>
+        )}
+        <div className="shrink-0 opacity-0 transition-opacity group-hover:opacity-100">
+          <TransitionMenu issueKey={testSet.jira.key} onToast={onToast} align="right" />
+        </div>
+      </div>
+
+      {/* Expanded content */}
+      {expanded && (
+        <div className="border-t border-slate-100 dark:border-slate-800">
+          {/* Bulk selection bar */}
+          {selectedIds.size > 0 && (
+            <div className="flex items-center gap-2 border-b border-slate-700 bg-slate-800 px-3 py-2">
+              <span className="text-sm font-medium text-slate-200">
+                {selectedIds.size} selected
+              </span>
+              <div className="flex-1" />
+              <button
+                type="button"
+                onClick={() => void handleRemoveSelected()}
+                disabled={removeTests.isPending}
+                className="rounded px-2 py-0.5 text-xs font-medium text-red-400 hover:bg-red-900/20 disabled:opacity-50"
+              >
+                Remove from set
+              </button>
+              <button
+                type="button"
+                onClick={() => setSelectedIds(new Set())}
+                className="text-slate-400 hover:text-slate-200"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+          )}
+
+          {isLoading ? (
+            <div className="flex items-center gap-2 p-3 text-sm text-slate-400">
+              <Spinner size="sm" />
+              Loading tests…
+            </div>
+          ) : !tests?.length ? (
+            <p className="px-4 py-3 text-xs italic text-slate-400">No tests in this set.</p>
+          ) : (
+            <div>
+              {/* Column header */}
+              <div className="grid grid-cols-[2.5rem_1fr_9rem_2.5rem] border-b border-slate-100 bg-slate-50 text-xs font-semibold uppercase tracking-wider text-slate-400 dark:border-slate-800 dark:bg-slate-800/50">
+                <div className="flex items-center py-1.5 pl-8">
+                  <input
+                    ref={rowHeaderCheckRef}
+                    type="checkbox"
+                    checked={selectedIds.size === tests.length}
+                    onChange={(e) =>
+                      setSelectedIds(
+                        e.target.checked ? new Set(tests.map((t) => t.issue_id)) : new Set(),
+                      )
+                    }
+                    className="h-3.5 w-3.5 cursor-pointer accent-teal-500"
+                  />
+                </div>
+                <div className="py-1.5">Test</div>
+                <div className="py-1.5">Status</div>
+                <div className="py-1.5" />
+              </div>
+
+              {tests.map((test) => {
+                const isDeprecated = test.jira.status?.name
+                  ? isDeprecatingStatus(test.jira.status.name)
+                  : false;
+                const isSelected = selectedIds.has(test.issue_id);
+                return (
+                  <div
+                    key={test.issue_id}
+                    className={cn(
+                      "group grid grid-cols-[2.5rem_1fr_9rem_2.5rem] items-center border-b border-slate-50 dark:border-slate-800/50",
+                      isSelected
+                        ? "bg-teal-50 dark:bg-teal-900/20"
+                        : isDeprecated
+                          ? "bg-red-50/40 dark:bg-red-900/10"
+                          : "hover:bg-slate-50 dark:hover:bg-slate-800/50",
+                    )}
+                  >
+                    <div className="flex items-center py-1.5 pl-8">
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={(e) =>
+                          setSelectedIds((prev) => {
+                            const next = new Set(prev);
+                            if (e.target.checked) next.add(test.issue_id);
+                            else next.delete(test.issue_id);
+                            return next;
+                          })
+                        }
+                        className="h-3.5 w-3.5 cursor-pointer accent-teal-500 opacity-0 transition-opacity group-hover:opacity-100"
+                        style={isSelected ? { opacity: 1 } : undefined}
+                      />
+                    </div>
+                    <div className="min-w-0 py-1.5 pr-3">
+                      <span className="mr-2 font-mono text-xs text-slate-500 dark:text-slate-400">
+                        {test.jira.key}
+                      </span>
+                      <span
+                        className="text-sm text-slate-800 dark:text-slate-200"
+                        title={test.jira.summary}
+                      >
+                        {test.jira.summary}
+                      </span>
+                    </div>
+                    <div className="py-1.5 pr-3">
+                      {test.jira.status?.name ? (
+                        <span
+                          className={cn(
+                            "inline-flex items-center rounded px-2 py-0.5 text-xs font-medium",
+                            isDeprecated
+                              ? "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300"
+                              : "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300",
+                          )}
+                        >
+                          {test.jira.status.name}
+                        </span>
+                      ) : (
+                        <span className="text-xs text-slate-400">—</span>
+                      )}
+                    </div>
+                    <div className="py-1.5 pr-2">
+                      <button
+                        type="button"
+                        title={`Remove from ${testSet.jira.key}`}
+                        disabled={removeTests.isPending}
+                        onClick={() =>
+                          removeTests.mutate(
+                            {
+                              testSetIssueId: testSet.issue_id,
+                              testIssueIds: [test.issue_id],
+                              projectKey,
+                            },
+                            {
+                              onSuccess: () =>
+                                onToast(
+                                  `Removed ${test.jira.key} from ${testSet.jira.key}`,
+                                  "success",
+                                ),
+                              onError: (e) => onToast(`Failed: ${String(e)}`, "error"),
+                            },
+                          )
+                        }
+                        className="flex h-6 w-6 items-center justify-center rounded text-slate-300 opacity-0 transition-opacity hover:bg-red-50 hover:text-red-500 group-hover:opacity-100 disabled:opacity-30 dark:hover:bg-red-900/20"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+});
+
+function TestSetsHealthPanel({ projectKey, onToast }: { projectKey: string; onToast: ToastFn }) {
+  const { data: testSets, isLoading } = useGetTestSets(projectKey);
+  const [search, setSearch] = useState("");
+
+  const filtered = useMemo(() => {
+    if (!testSets) return [];
+    if (!search) return testSets;
+    const lower = search.toLowerCase();
+    return testSets.filter(
+      (s) =>
+        s.jira.key.toLowerCase().includes(lower) || s.jira.summary.toLowerCase().includes(lower),
+    );
+  }, [testSets, search]);
+
+  if (isLoading) {
+    return (
+      <div className="space-y-2 p-2">
+        {Array.from({ length: 8 }).map((_, i) => (
+          <Skeleton key={i} className="h-10 w-full" />
+        ))}
+      </div>
+    );
+  }
+
+  if (!testSets?.length) {
+    return <EmptyState icon={Tag} message="No test sets found for this project." />;
+  }
+
+  return (
+    <div className="flex h-full flex-col">
+      {/* Search */}
+      <div className="mb-3 flex items-center gap-3">
+        <div className="relative flex-1">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+          <Input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Filter test sets…"
+            className="h-8 pl-8 text-sm"
+          />
+        </div>
+        <span className="shrink-0 text-xs text-slate-500">
+          {filtered.length} set{filtered.length !== 1 ? "s" : ""}
+        </span>
+      </div>
+      <p className="mb-2 text-xs text-slate-400">
+        Expand a test set to see its tests and remove deprecated ones.
+      </p>
+
+      <div className="flex-1 overflow-y-auto rounded-md border border-slate-200 dark:border-slate-700">
+        {filtered.length === 0 ? (
+          <p className="p-4 text-sm text-slate-400">No test sets match your filter.</p>
+        ) : (
+          filtered.map((testSet) => (
+            <TestSetHealthRow
+              key={testSet.issue_id}
+              testSet={testSet}
+              projectKey={projectKey}
+              onToast={onToast}
+            />
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── Test Health Panel ─────────────────────────────────────────────────────────
 
 /** Format an ISO-8601 date string to a short human-readable form. */
@@ -1299,8 +1708,10 @@ interface TestHealthPanelProps {
   onToast: ToastFn;
   onReload: () => Promise<void>;
   isReloading: boolean;
-  /** Increment this to force health data to re-fetch after a tests reload. */
-  resetKey: number;
+  /** Lifted from parent so data survives tab switches. */
+  healthMap: Map<string, TestLastRunEntry>;
+  healthLoading: boolean;
+  healthProgress: { processed: number; total: number };
 }
 
 function TestHealthPanel({
@@ -1311,100 +1722,17 @@ function TestHealthPanel({
   onToast,
   onReload,
   isReloading,
-  resetKey,
+  healthMap,
+  healthLoading,
+  healthProgress,
 }: TestHealthPanelProps) {
   const { data: tests, isLoading: testsLoading } = useGetTests(projectKey, enabled);
   const isStreaming = useIsTestsStreaming(projectKey);
-
-  // ── Health data (last run per test, streamed from Rust) ──────────────────────
-  const [healthMap, setHealthMap] = useState<Map<string, TestLastRunEntry>>(new Map());
-  const [healthLoading, setHealthLoading] = useState(false);
-  const [healthProgress, setHealthProgress] = useState({ processed: 0, total: 0 });
-  const healthListenerRef = useRef<(() => void) | null>(null);
-  const healthStartedRef = useRef<string | null>(null);
-  /** Accumulates fresh entries during a fetch so we can persist them when done. */
-  const healthAccRef = useRef<Map<string, TestLastRunEntry>>(new Map());
 
   // ── Bulk selection ────────────────────────────────────────────────────────────
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkApplying, setBulkApplying] = useState(false);
   const headerCheckRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    if (!enabled || !tests?.length || isStreaming) return;
-    const stateKey = `${projectKey}:${resetKey}`;
-    if (healthStartedRef.current === stateKey) return;
-
-    healthStartedRef.current = stateKey;
-    healthAccRef.current = new Map();
-    setHealthLoading(true);
-    setHealthProgress({ processed: 0, total: 0 });
-
-    const start = async () => {
-      // Load persisted cache so user sees stale data immediately while fresh fetch runs.
-      try {
-        const cached = await invoke<TestLastRunEntry[]>("load_health_cache", { projectKey });
-        if (cached.length > 0) {
-          setHealthMap(new Map(cached.map((e) => [e.test_issue_id, e])));
-        } else {
-          setHealthMap(new Map());
-        }
-      } catch {
-        setHealthMap(new Map());
-      }
-
-      console.log("[health] starting listener, tests count:", tests.length);
-
-      const unlistenError = await listen<string>("tests:health:error", (event) => {
-        console.error("[health] error from backend:", event.payload);
-        onToast(`Health check failed: ${event.payload}`, "error");
-        setHealthLoading(false);
-        unlistenError();
-      });
-
-      const unlisten = await listen<{ entries: TestLastRunEntry[]; done: boolean; total: number; processed: number }>(
-        "tests:health:batch",
-        (event) => {
-          const { entries, done, total, processed } = event.payload;
-          console.log(`[health] batch received: ${entries.length} entries, ${processed}/${total}, done=${done}`);
-          if (entries.length > 0) {
-            for (const e of entries) healthAccRef.current.set(e.test_issue_id, e);
-            setHealthMap(new Map(healthAccRef.current));
-          }
-          setHealthProgress({ processed, total });
-          if (done) {
-            console.log("[health] all batches received");
-            setHealthLoading(false);
-            healthListenerRef.current?.();
-            healthListenerRef.current = null;
-            unlistenError();
-            // Persist fresh data so next session loads immediately.
-            void invoke("save_health_cache", {
-              projectKey,
-              entries: [...healthAccRef.current.values()],
-            });
-          }
-        },
-      );
-      healthListenerRef.current = unlisten;
-
-      try {
-        console.log("[health] invoking get_tests_health_data");
-        await invoke<void>("get_tests_health_data", {
-          testIssueIds: tests.map((t) => t.issue_id),
-        });
-        console.log("[health] invoke returned ok");
-      } catch (e) {
-        console.error("[health] invoke error:", e);
-        setHealthLoading(false);
-        unlistenError();
-      }
-    };
-
-    void start();
-    // No cleanup — listener persists across re-renders so in-flight data still arrives.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [enabled, projectKey, resetKey, !!tests?.length, isStreaming]);
 
   const [search, setSearch] = useState("");
   const parentRef = useRef<HTMLDivElement>(null);
@@ -1464,7 +1792,10 @@ function TestHealthPanel({
       let failed = 0;
       for (const test of targets) {
         try {
-          await invoke("transition_issue", { issueKey: test.jira.key, transitionId: transition.id });
+          await invoke("transition_issue", {
+            issueKey: test.jira.key,
+            transitionId: transition.id,
+          });
           success++;
         } catch {
           failed++;
@@ -1549,7 +1880,7 @@ function TestHealthPanel({
             {sorted.length}
             {isStreaming || isReloading ? ` / ${tests.length}…` : " tests"}
           </span>
-          {(isStreaming || isReloading || testsLoading) ? (
+          {isStreaming || isReloading || testsLoading ? (
             <span className="flex items-center gap-1 text-slate-400">
               <RefreshCw className="h-3 w-3 animate-spin" />
               {isReloading ? "Reloading…" : "Fetching tests…"}
@@ -1624,7 +1955,9 @@ function TestHealthPanel({
               type="checkbox"
               checked={selectedIds.size === sorted.length && sorted.length > 0}
               onChange={(e) =>
-                setSelectedIds(e.target.checked ? new Set(sorted.map((t) => t.issue_id)) : new Set())
+                setSelectedIds(
+                  e.target.checked ? new Set(sorted.map((t) => t.issue_id)) : new Set(),
+                )
               }
               className="h-3.5 w-3.5 cursor-pointer accent-teal-500"
             />
@@ -1643,7 +1976,9 @@ function TestHealthPanel({
           </div>
         ) : (
           <div ref={parentRef} className="overflow-y-auto" style={{ height: "calc(100% - 33px)" }}>
-            <div style={{ height: virtualizer.getTotalSize(), width: "100%", position: "relative" }}>
+            <div
+              style={{ height: virtualizer.getTotalSize(), width: "100%", position: "relative" }}
+            >
               {virtualizer.getVirtualItems().map((vRow) => {
                 const test = sorted[vRow.index];
                 if (!test) return null;
@@ -1774,7 +2109,7 @@ export function TestsPage() {
 
   // true = user confirmed loading | null = user dismissed/cancelled (page shown, tests not loaded) | false = dialog not yet answered
   const [loadConfirmed, setLoadConfirmed] = useState<boolean | null>(hasCachedTests ? true : false);
-  const [activeTab, setActiveTab] = useState<"tests" | "health">("tests");
+  const [activeTab, setActiveTab] = useState<"tests" | "health" | "sets-health">("tests");
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [pendingSetId, setPendingSetId] = useState<string | null>(null);
@@ -1873,14 +2208,37 @@ export function TestsPage() {
     startDrag,
   } = useDragAndDrop(dropTargetRefs, handleDropTests);
 
-  const [healthResetKey, setHealthResetKey] = useState(0);
+  // ── Health data — persisted in Zustand store so it survives tab/route switches ─
+  const { data: allTests } = useGetTests(projectKey ?? "", loadConfirmed === true);
+  const isTestsStreaming = useIsTestsStreaming(projectKey ?? "");
+  const healthStore = useHealthStore();
+  const projectHealth = healthStore.getProjectHealth(projectKey ?? "");
+  const healthMap = projectHealth.healthMap;
+  const healthLoading = projectHealth.loading;
+  const healthProgress = projectHealth.progress;
+
+  // Trigger the health fetch once tests are available and loaded.
+  // The store itself guards against duplicate/redundant fetches.
+  useEffect(() => {
+    if (!loadConfirmed || !allTests?.length || isTestsStreaming || !projectKey) return;
+    healthStore.startHealthFetch(
+      projectKey,
+      allTests.map((t) => t.issue_id),
+      handleToast,
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loadConfirmed, projectKey, !!allTests?.length, isTestsStreaming]);
 
   const handleReloadTests = useCallback(async () => {
+    if (!projectKey) return;
     setIsRefreshingTests(true);
+    // Clear the store so the next startHealthFetch won't no-op.
+    healthStore.resetProject(projectKey);
     await reloadTests();
-    setHealthResetKey((k) => k + 1);
     setIsRefreshingTests(false);
-  }, [reloadTests]);
+    // Once the fresh test list arrives via TanStack Query, the useEffect
+    // above will fire with fetched=false and kick off a new health fetch.
+  }, [reloadTests, projectKey, healthStore]);
 
   const handleReloadTestSets = useCallback(async () => {
     setIsRefreshingTestSets(true);
@@ -2017,10 +2375,22 @@ export function TestsPage() {
           <Activity className="h-4 w-4" />
           Health
         </button>
+        <button
+          onClick={() => setActiveTab("sets-health")}
+          className={cn(
+            "flex items-center gap-1.5 border-b-2 px-3 pb-2 text-sm font-medium transition-colors",
+            activeTab === "sets-health"
+              ? "border-blue-500 text-blue-600 dark:border-blue-400 dark:text-blue-400"
+              : "border-transparent text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-300",
+          )}
+        >
+          <ShieldAlert className="h-4 w-4" />
+          Sets Health
+        </button>
       </div>
 
       {/* Tab content */}
-      {activeTab === "tests" ? (
+      {activeTab === "tests" && (
         <div className="flex h-[calc(100vh-13rem)] gap-6">
           {/* Left: all tests */}
           <div className="flex min-w-0 flex-1 flex-col">
@@ -2071,9 +2441,7 @@ export function TestsPage() {
                 title="Reload test sets"
                 className="rounded p-1 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 disabled:opacity-40 dark:hover:bg-slate-700 dark:text-slate-400"
               >
-                <RefreshCw
-                  className={cn("h-3.5 w-3.5", isRefreshingTestSets && "animate-spin")}
-                />
+                <RefreshCw className={cn("h-3.5 w-3.5", isRefreshingTestSets && "animate-spin")} />
               </button>
             </div>
             <div className="flex-1 overflow-hidden">
@@ -2093,7 +2461,9 @@ export function TestsPage() {
             </div>
           </div>
         </div>
-      ) : (
+      )}
+
+      {activeTab === "health" && (
         <div className="h-[calc(100vh-13rem)]">
           <TestHealthPanel
             projectKey={projectKey}
@@ -2103,8 +2473,16 @@ export function TestsPage() {
             onToast={handleToast}
             onReload={handleReloadTests}
             isReloading={isRefreshingTests}
-            resetKey={healthResetKey}
+            healthMap={healthMap}
+            healthLoading={healthLoading}
+            healthProgress={healthProgress}
           />
+        </div>
+      )}
+
+      {activeTab === "sets-health" && (
+        <div className="h-[calc(100vh-13rem)]">
+          <TestSetsHealthPanel projectKey={projectKey} onToast={handleToast} />
         </div>
       )}
 

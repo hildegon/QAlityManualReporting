@@ -686,7 +686,7 @@ impl XrayClient {
         // fetch their most recent run by testIssueId across ALL versions.
         let fallback_query = r#"
             query GetFallbackRuns($testIssueIds: [String]!, $limit: Int!) {
-                getTestRuns(testIssueIds: $testIssueIds, limit: $limit, orderBy: { field: FINISHED_ON, direction: DESC }) {
+                getTestRuns(testIssueIds: $testIssueIds, limit: $limit) {
                     total
                     results {
                         finishedOn
@@ -763,11 +763,15 @@ impl XrayClient {
                 {
                   Err(e) => eprintln!("[health] fallback query error (non-fatal): {:#}", e),
                   Ok(fb) => {
-                    // Results arrive DESC by finishedOn; first seen per test = most recent.
+                    // Pick the most-recent run per test by comparing finishedOn strings
+                    // (ISO-8601 sorts lexicographically).
                     let mut best: std::collections::HashMap<String, (Option<String>, Option<crate::models::xray::LatestTestStatus>)> =
                         std::collections::HashMap::new();
                     for run in fb.get_test_runs.results {
-                        best.entry(run.test.issue_id).or_insert((run.finished_on, run.status));
+                        let entry = best.entry(run.test.issue_id).or_insert((None, None));
+                        if run.finished_on > entry.0 {
+                            *entry = (run.finished_on, run.status);
+                        }
                     }
                     eprintln!("[health] fallback resolved dates for {}/{} tests", best.len(), fallback_ids.len());
                     for entry in &mut entries {
@@ -812,7 +816,7 @@ impl XrayClient {
                     limit
                     results {
                         issueId
-                        jira(fields: ["key", "summary"])
+                        jira(fields: ["key", "summary", "status"])
                     }
                 }
             }
@@ -898,7 +902,7 @@ impl XrayClient {
                     tests(limit: $limit) {
                         results {
                             issueId
-                            jira(fields: ["key", "summary"])
+                            jira(fields: ["key", "summary", "status"])
                             status {
                                 name
                                 color
