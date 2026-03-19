@@ -1,6 +1,7 @@
 import { memo, useState, useMemo, useRef, useEffect } from "react";
 import { useQueries, useQueryClient } from "@tanstack/react-query";
 import { save as saveDialog } from "@tauri-apps/plugin-dialog";
+import { openPath } from "@tauri-apps/plugin-opener";
 import { useGetTestSets, queryKeys } from "@/services/queries";
 import { useContentProjectKey } from "@/hooks/useProjectKey";
 import { parseRateLimitError } from "@/stores/uiStore";
@@ -22,8 +23,11 @@ import {
   CheckSquare2,
   ChevronDown,
   ChevronRight,
+  ChevronsDown,
+  ChevronsUp,
   Clock,
   Download,
+  FileText,
   Layers,
   Pencil,
   RefreshCw,
@@ -47,40 +51,466 @@ import {
 } from "@/components/charts/StatusCharts";
 import type { Slice } from "@/components/charts/StatusCharts";
 
-// ── CSV builder ───────────────────────────────────────────────────────────────
+// ── SVG chart helpers for HTML report ────────────────────────────────────────
 
-function escapeCsvCell(value: string): string {
-  if (value.includes(",") || value.includes('"') || value.includes("\n")) {
-    return `"${value.replace(/"/g, '""')}"`;
-  }
-  return value;
+function buildSvgDonut(
+  slices: Array<{ pct: number; color: string; label: string; count: number }>,
+  size = 140,
+): string {
+  const R = size * 0.37;
+  const holeR = size * 0.25;
+  const CX = size / 2;
+  const CY = size / 2;
+  const CIRCUM = 2 * Math.PI * R;
+  const GAP = 1.5;
+  const sw = R - holeR;
+
+  let cumPct = 0;
+  const circles = slices
+    .map((d) => {
+      const dashLen = Math.max(0, d.pct * CIRCUM - GAP);
+      const dashOffset = -(cumPct * CIRCUM);
+      cumPct += d.pct;
+      return `<circle cx="${CX.toFixed(1)}" cy="${CY.toFixed(1)}" r="${R.toFixed(1)}" fill="none" stroke="${d.color}" stroke-width="${sw.toFixed(1)}" stroke-dasharray="${dashLen.toFixed(2)} ${CIRCUM.toFixed(2)}" stroke-dashoffset="${dashOffset.toFixed(2)}" transform="rotate(-90 ${CX.toFixed(1)} ${CY.toFixed(1)})"><title>${esc(d.label)}: ${d.count} (${Math.round(d.pct * 100)}%)</title></circle>`;
+    })
+    .join("");
+
+  const total = slices.reduce((acc, s) => acc + s.count, 0);
+  const bg = `<circle cx="${CX.toFixed(1)}" cy="${CY.toFixed(1)}" r="${R.toFixed(1)}" fill="none" stroke="#e2e8f0" stroke-width="${sw.toFixed(1)}"/>`;
+  const fs = (size * 0.15).toFixed(1);
+  const sfs = (size * 0.08).toFixed(1);
+  const center = `<text x="${CX}" y="${CY - 3}" text-anchor="middle" font-family="system-ui,sans-serif" font-size="${fs}" font-weight="700" fill="#0f172a">${total}</text><text x="${CX}" y="${CY + parseFloat(sfs) + 5}" text-anchor="middle" font-family="system-ui,sans-serif" font-size="${sfs}" fill="#94a3b8">tests</text>`;
+
+  return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">${bg}${circles}${center}</svg>`;
 }
 
-function buildCoverageCSV(
-  sets: XrayTestSet[],
-  queryBySetId: Map<string, { tests: XrayTestWithStatus[] | undefined }>,
+function buildSvgMiniBar(
+  slices: Array<{ pct: number; color: string; label: string; count: number }>,
+  width = 200,
+  height = 10,
 ): string {
-  const header = ["Set Key", "Set Name", "Test Key", "Test Summary", "Status"];
-  const rows: string[][] = [header];
+  let x = 0;
+  const rects = slices
+    .map((d) => {
+      const w = Math.max(0, d.pct * width);
+      const rect = `<rect x="${x.toFixed(1)}" y="0" width="${w.toFixed(1)}" height="${height}" fill="${d.color}"><title>${esc(d.label)}: ${d.count} (${Math.round(d.pct * 100)}%)</title></rect>`;
+      x += w;
+      return rect;
+    })
+    .join("");
+  return `<svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" style="border-radius:5px;overflow:hidden;display:block"><rect x="0" y="0" width="${width}" height="${height}" fill="#e2e8f0"/>${rects}</svg>`;
+}
 
-  for (const ts of sets) {
-    const tests = queryBySetId.get(ts.issue_id)?.tests ?? [];
-    if (tests.length === 0) {
-      rows.push([ts.jira.key, ts.jira.summary, "", "", ""]);
-    } else {
-      for (const t of tests) {
-        rows.push([
-          ts.jira.key,
-          ts.jira.summary,
-          t.jira.key,
-          t.jira.summary,
-          t.latest_status?.name ?? "NOT RUN",
-        ]);
-      }
-    }
+function buildSvgGauge(pct: number, size = 110): string {
+  const R = size * 0.38;
+  const CX = size / 2;
+  const CY = size * 0.6;
+  const startAngle = (-Math.PI * 4) / 5;
+  const endAngle = (Math.PI * 4) / 5;
+  const totalAngle = endAngle - startAngle;
+  const fillAngle = startAngle + totalAngle * (pct / 100);
+  const sw = size * 0.085;
+
+  const toXY = (a: number) => ({
+    x: (CX + R * Math.cos(a)).toFixed(2),
+    y: (CY + R * Math.sin(a)).toFixed(2),
+  });
+
+  const sBg = toXY(startAngle);
+  const eBg = toXY(endAngle);
+  const pathBg = `M ${sBg.x} ${sBg.y} A ${R.toFixed(1)} ${R.toFixed(1)} 0 1 1 ${eBg.x} ${eBg.y}`;
+
+  let pathFg = "";
+  const gaugeColor = pct >= 80 ? "#10b981" : pct >= 50 ? "#f59e0b" : "#ef4444";
+  if (pct > 1) {
+    const sFg = toXY(startAngle);
+    const eFg = toXY(fillAngle);
+    const largeArc = fillAngle - startAngle > Math.PI ? 1 : 0;
+    pathFg = `<path d="M ${sFg.x} ${sFg.y} A ${R.toFixed(1)} ${R.toFixed(1)} 0 ${largeArc} 1 ${eFg.x} ${eFg.y}" fill="none" stroke="${gaugeColor}" stroke-width="${sw.toFixed(1)}" stroke-linecap="round"/>`;
   }
 
-  return rows.map((r) => r.map(escapeCsvCell).join(",")).join("\r\n");
+  const textColor = pct >= 80 ? "#059669" : pct >= 50 ? "#d97706" : "#dc2626";
+  const fs = (size * 0.2).toFixed(1);
+  const sfs = (size * 0.1).toFixed(1);
+  const centerText = `<text x="${CX}" y="${CY + 5}" text-anchor="middle" font-family="system-ui,sans-serif" font-size="${fs}" font-weight="700" fill="${textColor}">${pct}%</text><text x="${CX}" y="${(CY + parseFloat(sfs) * 2 + 4).toFixed(1)}" text-anchor="middle" font-family="system-ui,sans-serif" font-size="${sfs}" fill="#94a3b8">coverage</text>`;
+
+  const svgHeight = (CY + R * 0.85).toFixed(0);
+  return `<svg width="${size}" height="${svgHeight}" viewBox="0 0 ${size} ${svgHeight}"><path d="${pathBg}" fill="none" stroke="#e2e8f0" stroke-width="${sw.toFixed(1)}" stroke-linecap="round"/>${pathFg}${centerText}</svg>`;
+}
+
+// ── HTML report builder ───────────────────────────────────────────────────────
+
+function statusPillClass(status: string | undefined): string {
+  const s = (status ?? "").toUpperCase();
+  if (s === "PASS" || s === "PASSED") return "pass";
+  if (s === "FAIL" || s === "FAILED") return "fail";
+  if (s === "ABORTED" || s === "BLOCKED") return "aborted";
+  if (!status) return "todo";
+  return "other";
+}
+
+function esc(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+/** Palette colours matching STATUS_PALETTE in StatusCharts.tsx */
+const REPORT_STATUS_COLORS: Record<string, string> = {
+  PASS: "#10b981",
+  FAIL: "#ef4444",
+  BLOCKED: "#3b82f6",
+  EXECUTING: "#eab308",
+  TODO: "#94a3b8",
+  "N/A": "#f97316",
+};
+
+
+interface ReportSlice {
+  key: string;
+  label: string;
+  color: string;
+  count: number;
+  pct: number;
+}
+
+function buildReportSlices(tests: XrayTestWithStatus[]): ReportSlice[] {
+  const counts: Record<string, number> = {};
+  for (const t of tests) {
+    const name = t.latest_status?.name ?? "TODO";
+    const upper = name.toUpperCase();
+    const key = upper.startsWith("PASS")
+      ? "PASS"
+      : upper.startsWith("FAIL")
+        ? "FAIL"
+        : upper === "BLOCKED"
+          ? "BLOCKED"
+          : upper === "EXECUTING"
+            ? "EXECUTING"
+            : upper === "N/A" || upper === "NA"
+              ? "N/A"
+              : "TODO";
+    counts[key] = (counts[key] ?? 0) + 1;
+  }
+  const total = tests.length;
+  const order = ["PASS", "FAIL", "BLOCKED", "EXECUTING", "N/A", "TODO"];
+  const labels: Record<string, string> = {
+    PASS: "Passed",
+    FAIL: "Failed",
+    BLOCKED: "Blocked",
+    EXECUTING: "Executing",
+    "N/A": "N/A",
+    TODO: "Not Run",
+  };
+  return order
+    .filter((k) => counts[k])
+    .map((k) => ({
+      key: k,
+      label: labels[k] ?? k,
+      color: REPORT_STATUS_COLORS[k] ?? "#94a3b8",
+      count: counts[k] ?? 0,
+      pct: total > 0 ? (counts[k] ?? 0) / total : 0,
+    }));
+}
+
+function buildCoverageHTML(
+  sets: XrayTestSet[],
+  queryBySetId: Map<string, { tests: XrayTestWithStatus[] | undefined }>,
+  projectKey: string,
+): string {
+  const date = new Date().toLocaleDateString("en-US", {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  });
+  const time = new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
+
+  const allTests = [...queryBySetId.values()].flatMap((q) => q.tests ?? []);
+  const total = allTests.length;
+  const overallSlices = buildReportSlices(allTests);
+  const passed = overallSlices.find((s) => s.key === "PASS")?.count ?? 0;
+  const failed = overallSlices.find((s) => s.key === "FAIL")?.count ?? 0;
+  const notRun = overallSlices.find((s) => s.key === "TODO")?.count ?? 0;
+  const ran = total - notRun;
+  const coveragePct = total > 0 ? Math.round((ran / total) * 100) : 0;
+  const passRatePct = total > 0 ? Math.round((passed / total) * 100) : 0;
+
+  // ── Charts row ──────────────────────────────────────────────────────────────
+  const donutSvg = buildSvgDonut(overallSlices, 140);
+  const gaugeSvg = buildSvgGauge(coveragePct, 110);
+  const overallBarSvg = buildSvgMiniBar(overallSlices, 300, 14);
+
+  const legendHtml = overallSlices
+    .map(
+      (s) =>
+        `<div style="display:flex;align-items:center;gap:7px;">
+          <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${s.color};flex-shrink:0"></span>
+          <span style="color:#475569;font-size:12px;">${esc(s.label)}</span>
+          <span style="margin-left:auto;font-weight:600;color:#1e293b;font-size:12px;font-variant-numeric:tabular-nums;">${s.count}</span>
+          <span style="color:#94a3b8;font-size:11px;width:32px;text-align:right;">${Math.round(s.pct * 100)}%</span>
+        </div>`,
+    )
+    .join("");
+
+  // ── Sets summary table ──────────────────────────────────────────────────────
+  const setsSummaryRows = sets
+    .map((ts) => {
+      const tests = queryBySetId.get(ts.issue_id)?.tests ?? [];
+      const slices = buildReportSlices(tests);
+      const setPassed = slices.find((s) => s.key === "PASS")?.count ?? 0;
+      const setFailed = slices.find((s) => s.key === "FAIL")?.count ?? 0;
+      const setNotRun = slices.find((s) => s.key === "TODO")?.count ?? 0;
+      const setCovPct =
+        tests.length > 0 ? Math.round(((tests.length - setNotRun) / tests.length) * 100) : 0;
+      const setPassPct = tests.length > 0 ? Math.round((setPassed / tests.length) * 100) : 0;
+      const miniBar = buildSvgMiniBar(slices, 120, 8);
+      const covColor =
+        setCovPct >= 80 ? "#059669" : setCovPct >= 50 ? "#d97706" : "#dc2626";
+      const passColor =
+        setPassPct >= 80 ? "#059669" : setPassPct >= 50 ? "#d97706" : "#dc2626";
+      const hasFail = setFailed > 0;
+      return `<tr style="${hasFail ? "background:#fff5f5;" : ""}">
+        <td style="white-space:nowrap;font-family:monospace;font-size:11px;color:#475569;">${esc(ts.jira.key)}</td>
+        <td style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(ts.jira.summary)}</td>
+        <td style="text-align:center;font-weight:600;">${tests.length}</td>
+        <td>${miniBar}</td>
+        <td style="text-align:center;font-weight:700;color:${covColor}">${setCovPct}%</td>
+        <td style="text-align:center;font-weight:700;color:${passColor}">${setPassPct}%</td>
+        <td style="text-align:center;font-weight:600;color:#059669">${setPassed}</td>
+        <td style="text-align:center;font-weight:600;color:${setFailed > 0 ? "#dc2626" : "#94a3b8"}">${setFailed}</td>
+        <td style="text-align:center;font-weight:600;color:#94a3b8">${setNotRun}</td>
+      </tr>`;
+    })
+    .join("");
+
+  // ── Per-set detail sections ─────────────────────────────────────────────────
+  const setsHtml = sets
+    .map((ts) => {
+      const tests = queryBySetId.get(ts.issue_id)?.tests ?? [];
+      const slices = buildReportSlices(tests);
+      const setNotRun = slices.find((s) => s.key === "TODO")?.count ?? 0;
+      const setCovPct =
+        tests.length > 0 ? Math.round(((tests.length - setNotRun) / tests.length) * 100) : 0;
+      const setPassed = slices.find((s) => s.key === "PASS")?.count ?? 0;
+      const setFailed = slices.find((s) => s.key === "FAIL")?.count ?? 0;
+
+      const setDonut = tests.length > 0 ? buildSvgDonut(slices, 80) : "";
+      const setBar = tests.length > 0 ? buildSvgMiniBar(slices, 180, 8) : "";
+      const setLegend = slices
+        .map(
+          (s) =>
+            `<span style="display:inline-flex;align-items:center;gap:5px;margin-right:12px;font-size:11px;color:#64748b">
+            <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${s.color}"></span>
+            ${esc(s.label)} <strong style="color:#1e293b">${s.count}</strong>
+          </span>`,
+        )
+        .join("");
+
+      const rowsHtml =
+        tests.length === 0
+          ? `<tr><td colspan="3" style="text-align:center;color:#94a3b8;padding:20px;">No tests in this set.</td></tr>`
+          : tests
+              .map((t) => {
+                const statusName = t.latest_status?.name ?? "NOT RUN";
+                const pillClass = statusPillClass(t.latest_status?.name);
+                const rowBg =
+                  pillClass === "fail" || pillClass === "aborted" ? "background:#fff5f5;" : "";
+                return `<tr style="${rowBg}">
+              <td class="key-cell">${esc(t.jira.key)}</td>
+              <td>${esc(t.jira.summary)}</td>
+              <td><span class="status-pill ${pillClass}">${esc(statusName)}</span></td>
+            </tr>`;
+              })
+              .join("");
+
+      return `
+      <div class="section">
+        <div class="section-header">
+          <div style="display:flex;align-items:center;gap:10px;min-width:0;flex:1">
+            <span class="key">${esc(ts.jira.key)}</span>
+            <h2 style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(ts.jira.summary)}</h2>
+          </div>
+          <div class="badges">
+            <span class="badge total">${tests.length} tests</span>
+            ${setPassed > 0 ? `<span class="badge pass">✓ ${setPassed} passed</span>` : ""}
+            ${setFailed > 0 ? `<span class="badge fail">✗ ${setFailed} failed</span>` : ""}
+            ${setNotRun > 0 ? `<span class="badge todo">⏳ ${setNotRun} not run</span>` : ""}
+          </div>
+        </div>
+        ${
+          tests.length > 0
+            ? `<div style="display:flex;align-items:center;gap:20px;padding:14px 20px;background:#fafafa;border-bottom:1px solid #f1f5f9">
+            <div style="flex-shrink:0">${setDonut}</div>
+            <div style="flex:1">
+              <div style="margin-bottom:8px">${setLegend}</div>
+              ${setBar}
+              <div style="display:flex;justify-content:space-between;margin-top:8px;font-size:11px;color:#64748b">
+                <span>Coverage: <strong style="color:${setCovPct >= 80 ? "#059669" : setCovPct >= 50 ? "#d97706" : "#dc2626"}">${setCovPct}%</strong></span>
+                <span>Pass rate: <strong style="color:${setPassed / (tests.length || 1) >= 0.8 ? "#059669" : "#d97706"}">${Math.round((setPassed / (tests.length || 1)) * 100)}%</strong></span>
+              </div>
+            </div>
+          </div>`
+            : ""
+        }
+        <table>
+          <thead><tr><th style="width:110px;">Key</th><th>Summary</th><th style="width:120px;">Status</th></tr></thead>
+          <tbody>${rowsHtml}</tbody>
+        </table>
+      </div>`;
+    })
+    .join("");
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Coverage Report – ${esc(projectKey)}</title>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:#1e293b;background:#fff;font-size:13px}
+    .header{background:linear-gradient(135deg,#0f172a 0%,#1e3a5f 100%);color:#fff;padding:28px 48px;display:flex;justify-content:space-between;align-items:flex-end}
+    .header-left h1{font-size:22px;font-weight:700;letter-spacing:-0.5px}
+    .header-left .sub{font-size:12px;color:#94a3b8;margin-top:3px}
+    .header-right{text-align:right;font-size:12px;color:#94a3b8;line-height:1.6}
+    .header-right .project{font-size:16px;font-weight:600;color:#e2e8f0;font-family:monospace}
+    .charts-row{display:grid;grid-template-columns:1fr 1fr;gap:0;border-bottom:1px solid #e2e8f0}
+    .chart-cell{padding:24px 32px;display:flex;align-items:center;gap:20px}
+    .chart-cell:first-child{border-right:1px solid #e2e8f0;background:#fafafa}
+    .chart-cell:last-child{background:#fff}
+    .chart-cell-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:#94a3b8;margin-bottom:12px}
+    .chart-cell-content{flex:1}
+    .legend{display:flex;flex-direction:column;gap:6px;min-width:140px}
+    .gauge-stats{display:flex;flex-direction:column;gap:8px;flex:1}
+    .gauge-stat-row{display:flex;align-items:center;justify-content:space-between;font-size:12px}
+    .gauge-stat-label{color:#64748b}
+    .gauge-stat-value{font-weight:700;color:#1e293b}
+    .gauge-stat-value.green{color:#059669}
+    .gauge-stat-value.red{color:#dc2626}
+    .gauge-stat-value.amber{color:#d97706}
+    .bar-label-row{display:flex;justify-content:space-between;font-size:10px;color:#94a3b8;margin-bottom:6px}
+    .summary-section{padding:20px 48px;background:#f8fafc;border-bottom:1px solid #e2e8f0}
+    .summary-section h3{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:#94a3b8;margin-bottom:12px}
+    .summary-table{width:100%;border-collapse:collapse;background:white;border-radius:8px;overflow:hidden;border:1px solid #e2e8f0}
+    .summary-table th{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:#94a3b8;padding:8px 12px;text-align:left;background:#f8fafc;border-bottom:1px solid #e2e8f0}
+    .summary-table td{font-size:12px;padding:9px 12px;border-bottom:1px solid #f1f5f9;vertical-align:middle}
+    .summary-table tr:last-child td{border-bottom:none}
+    .content{padding:20px 48px 32px}
+    .section{margin-bottom:20px;border:1px solid #e2e8f0;border-radius:10px;overflow:hidden;page-break-inside:avoid}
+    .section-header{background:#f8fafc;padding:12px 18px;border-bottom:1px solid #e2e8f0;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+    .section-header h2{font-size:13px;font-weight:600;color:#0f172a;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .key{font-size:11px;font-family:monospace;color:#475569;background:#e2e8f0;padding:2px 7px;border-radius:4px;white-space:nowrap;flex-shrink:0}
+    .badges{display:flex;gap:6px;align-items:center;flex-shrink:0}
+    .badge{font-size:11px;font-weight:600;padding:2px 8px;border-radius:100px;white-space:nowrap}
+    .badge.pass{background:#d1fae5;color:#065f46}
+    .badge.fail{background:#fee2e2;color:#991b1b}
+    .badge.todo{background:#fef3c7;color:#92400e}
+    .badge.total{background:#e2e8f0;color:#475569}
+    table{width:100%;border-collapse:collapse}
+    th{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:#94a3b8;padding:9px 16px;text-align:left;border-bottom:1px solid #e2e8f0;background:#f8fafc}
+    td{font-size:12px;padding:9px 16px;border-bottom:1px solid #f1f5f9;color:#374151;vertical-align:middle}
+    tr:last-child td{border-bottom:none}
+    .key-cell{font-family:monospace;font-size:11px;color:#64748b;white-space:nowrap}
+    .status-pill{display:inline-flex;align-items:center;font-size:10px;font-weight:700;padding:2px 9px;border-radius:100px;letter-spacing:.3px;text-transform:uppercase}
+    .status-pill.pass{background:#d1fae5;color:#065f46}
+    .status-pill.fail{background:#fee2e2;color:#991b1b}
+    .status-pill.aborted{background:#fce7f3;color:#9d174d}
+    .status-pill.todo{background:#f1f5f9;color:#64748b}
+    .status-pill.other{background:#e2e8f0;color:#475569}
+    .footer{padding:16px 48px;border-top:1px solid #e2e8f0;display:flex;justify-content:space-between;color:#94a3b8;font-size:11px}
+    @media print{
+      body{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+      .section{page-break-inside:avoid}
+      .charts-row,.summary-section{page-break-inside:avoid}
+      @page{margin:0.6in 0.5in}
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="header-left">
+      <h1>QAlity · Coverage Report</h1>
+      <div class="sub">Test execution coverage across selected test sets</div>
+    </div>
+    <div class="header-right">
+      <div class="project">${esc(projectKey)}</div>
+      <div>${esc(date)} · ${esc(time)}</div>
+      <div>${sets.length} test set${sets.length !== 1 ? "s" : ""} · ${total} tests</div>
+    </div>
+  </div>
+
+  <div class="charts-row">
+    <!-- Left: Donut + legend -->
+    <div class="chart-cell">
+      ${donutSvg}
+      <div class="legend">${legendHtml}</div>
+    </div>
+    <!-- Right: Gauge + bar + stats -->
+    <div class="chart-cell">
+      ${gaugeSvg}
+      <div class="gauge-stats">
+        <div>
+          <div class="bar-label-row">
+            <span>Status distribution</span>
+          </div>
+          ${overallBarSvg}
+        </div>
+        <div style="margin-top:4px;display:flex;flex-direction:column;gap:5px">
+          <div class="gauge-stat-row">
+            <span class="gauge-stat-label">Total tests</span>
+            <span class="gauge-stat-value">${total}</span>
+          </div>
+          <div class="gauge-stat-row">
+            <span class="gauge-stat-label">Passed</span>
+            <span class="gauge-stat-value green">${passed}</span>
+          </div>
+          <div class="gauge-stat-row">
+            <span class="gauge-stat-label">Failed</span>
+            <span class="gauge-stat-value ${failed > 0 ? "red" : ""}">${failed}</span>
+          </div>
+          <div class="gauge-stat-row">
+            <span class="gauge-stat-label">Not yet run</span>
+            <span class="gauge-stat-value ${notRun > 0 ? "amber" : ""}">${notRun}</span>
+          </div>
+          <div class="gauge-stat-row">
+            <span class="gauge-stat-label">Pass rate</span>
+            <span class="gauge-stat-value ${passRatePct >= 80 ? "green" : passRatePct >= 50 ? "amber" : "red"}">${passRatePct}%</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="summary-section">
+    <h3>Test Sets Summary</h3>
+    <table class="summary-table">
+      <thead>
+        <tr>
+          <th style="width:90px">Key</th>
+          <th>Test Set Name</th>
+          <th style="width:56px;text-align:center">Tests</th>
+          <th style="width:130px">Distribution</th>
+          <th style="width:72px;text-align:center">Coverage</th>
+          <th style="width:72px;text-align:center">Pass Rate</th>
+          <th style="width:52px;text-align:center">✓</th>
+          <th style="width:52px;text-align:center">✗</th>
+          <th style="width:52px;text-align:center">⏳</th>
+        </tr>
+      </thead>
+      <tbody>${setsSummaryRows}</tbody>
+    </table>
+  </div>
+
+  <div class="content">
+    ${setsHtml}
+  </div>
+
+  <div class="footer">
+    <span>Generated by QAlity Manual Reporting</span>
+    <span>${esc(date)} at ${esc(time)}</span>
+  </div>
+
+  <script>window.onload = () => { window.print(); }</script>
+</body>
+</html>`;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -765,6 +1195,8 @@ interface TestSetSectionProps {
   onRetry: () => void;
   testSearch: string;
   statusFilter: string | null;
+  expandSignal: number;
+  collapseSignal: number;
 }
 
 const TestSetSection = memo(function TestSetSection({
@@ -776,8 +1208,24 @@ const TestSetSection = memo(function TestSetSection({
   onRetry,
   testSearch,
   statusFilter,
+  expandSignal,
+  collapseSignal,
 }: TestSetSectionProps) {
   const [collapsed, setCollapsed] = useState(true);
+  const lastExpandSignal = useRef(0);
+  const lastCollapseSignal = useRef(0);
+  useEffect(() => {
+    if (expandSignal !== lastExpandSignal.current) {
+      lastExpandSignal.current = expandSignal;
+      setCollapsed(false);
+    }
+  }, [expandSignal]);
+  useEffect(() => {
+    if (collapseSignal !== lastCollapseSignal.current) {
+      lastCollapseSignal.current = collapseSignal;
+      setCollapsed(true);
+    }
+  }, [collapseSignal]);
   const [sortBy, setSortBy] = useState<SortBy>("key");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
 
@@ -1423,6 +1871,8 @@ export function CoveragePage() {
   const [isExporting, setIsExporting] = useState(false);
   const [activePresetId, setActivePresetId] = useState<string | null>(null);
   const [loadedPresetSetIds, setLoadedPresetSetIds] = useState<string[]>([]);
+  const [expandSignal, setExpandSignal] = useState(0);
+  const [collapseSignal, setCollapseSignal] = useState(0);
 
   // Dirty detection: preset is "modified" when selection drifts from what was loaded.
   const isModified = useMemo(() => {
@@ -1551,18 +2001,19 @@ export function CoveragePage() {
     setIsRefreshing(false);
   };
 
-  const handleExportCSV = async () => {
+  const handleExportPDF = async () => {
     if (selectedSets.length === 0) return;
     const path = await saveDialog({
-      title: "Export coverage as CSV",
-      defaultPath: "coverage.csv",
-      filters: [{ name: "CSV", extensions: ["csv"] }],
+      title: "Save coverage report",
+      defaultPath: `coverage-${projectKey}-${new Date().toISOString().slice(0, 10)}.html`,
+      filters: [{ name: "HTML Report", extensions: ["html"] }],
     });
     if (!path) return;
     setIsExporting(true);
     try {
-      const csv = buildCoverageCSV(selectedSets, queryBySetId);
-      await api.writeTextFile(path, csv);
+      const html = buildCoverageHTML(selectedSets, queryBySetId, projectKey!);
+      await api.writeTextFile(path, html);
+      await openPath(path);
     } finally {
       setIsExporting(false);
     }
@@ -1806,16 +2257,46 @@ export function CoveragePage() {
               onChange={(e) => setTestSearch(e.target.value)}
             />
           </div>
-          {/* CSV Export */}
+          {selectedSets.length > 1 && (
+            <div className="flex items-center gap-1 ml-auto">
+              <button
+                onClick={() => setExpandSignal((n) => n + 1)}
+                className="flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-700 dark:hover:text-slate-200"
+                title="Expand all test sets"
+              >
+                <ChevronsDown className="h-3.5 w-3.5" />
+                Expand all
+              </button>
+              <button
+                onClick={() => setCollapseSignal((n) => n + 1)}
+                className="flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-700 dark:hover:text-slate-200"
+                title="Collapse all test sets"
+              >
+                <ChevronsUp className="h-3.5 w-3.5" />
+                Collapse all
+              </button>
+            </div>
+          )}
+          {/* PDF Export */}
           {selectedSets.length > 0 && (
             <button
-              onClick={() => void handleExportCSV()}
-              disabled={isExporting}
+              onClick={() => void handleExportPDF()}
+              disabled={isExporting || !allQueriesSettled}
               className="flex shrink-0 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 hover:border-slate-300 hover:bg-slate-50 disabled:opacity-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:border-slate-500 dark:hover:bg-slate-700"
-              title="Export coverage data to CSV"
+              title={
+                !allQueriesSettled
+                  ? "Wait for all tests to finish loading"
+                  : "Export coverage report — opens in browser for printing to PDF"
+              }
             >
-              {isExporting ? <Spinner size="sm" /> : <Download className="h-3.5 w-3.5" />}
-              Export CSV
+              {isExporting ? (
+                <Spinner size="sm" />
+              ) : !allQueriesSettled ? (
+                <Download className="h-3.5 w-3.5 animate-pulse" />
+              ) : (
+                <FileText className="h-3.5 w-3.5" />
+              )}
+              Export PDF
             </button>
           )}
         </div>
@@ -1858,6 +2339,8 @@ export function CoveragePage() {
                   }
                   testSearch={testSearch}
                   statusFilter={statusFilter}
+                  expandSignal={expandSignal}
+                  collapseSignal={collapseSignal}
                 />
               );
             })}

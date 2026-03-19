@@ -214,6 +214,13 @@ pub struct IssueLinkTypesResponse {
     pub issue_link_types: Vec<IssueLinkType>,
 }
 
+/// Response from `POST /rest/api/3/issue` — the created issue reference.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct JiraCreatedIssue {
+    pub id: String,
+    pub key: String,
+}
+
 /// Response from `POST /rest/api/3/search/jql` (enhanced search, cursor-based).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct JiraSearchResponse {

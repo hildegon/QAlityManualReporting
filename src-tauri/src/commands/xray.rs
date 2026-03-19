@@ -1,4 +1,4 @@
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::{
     api::xray_client::XrayClient,
@@ -6,9 +6,10 @@ use crate::{
     models::xray::{
         AddTestsToTestPlanInput, CreateTestExecutionInput, CreateTestExecutionResult,
         CreateTestPlanInput, CreateTestPlanResult, CreateTestResult, CreateTestSetResult,
-        CreateTestStepInput, CreateXrayTestInput, TestExecution, TestPlan, TestRunIteration,
-        TestRunsPage, TestSetMembershipsResponse, UpdateTestRunStatusInput, UpdateTestRunStepData,
-        XrayStepStatus, XrayTest, XrayTestRunStatus, XrayTestSet, XrayTestWithStatus,
+        CreateTestStepInput, CreateXrayTestInput, TestExecution, TestLastRunEntry, TestPlan,
+        TestRunIteration, TestRunsPage, TestSetMembershipsResponse, TestsStreamPage,
+        UpdateTestRunStatusInput, UpdateTestRunStepData, XrayStepStatus, XrayTest,
+        XrayTestRunStatus, XrayTestSet, XrayTestWithStatus,
     },
     state::XrayClientState,
 };
@@ -336,6 +337,10 @@ pub async fn authenticate_xray(
     client.authenticate().await.map_err(format_err)
 }
 
+/// Returns the first page of tests immediately so the UI can start rendering.
+/// If there are more pages the remaining tests are emitted as `tests:page` events
+/// from a background task — the frontend listens for these and appends them to
+/// the cache, so they appear progressively without blocking the UI.
 #[tauri::command]
 pub async fn get_tests(
     app: AppHandle,
@@ -343,7 +348,100 @@ pub async fn get_tests(
     project_key: String,
 ) -> Result<Vec<XrayTest>, String> {
     let client = get_xray_client(&app, &state).await?;
-    client.get_tests(&project_key).await.map_err(format_err)
+    let first = client.get_tests_first_page(&project_key).await.map_err(format_err)?;
+
+    if first.done {
+        // All tests fit in the first page — emit a done event so the frontend
+        // knows streaming is complete, then return.
+        let _ = app.emit(
+            "tests:page",
+            TestsStreamPage { project_key, tests: vec![], done: true },
+        );
+    } else {
+        let start = first.results.len() as u32;
+        let total = first.total;
+        let key = project_key.clone();
+        tokio::spawn(async move {
+            if let Err(_) = client.stream_tests_from(&app, &key, start, total).await {
+                // Emit a done signal so the frontend doesn't wait forever.
+                let _ = app.emit(
+                    "tests:page",
+                    TestsStreamPage { project_key: key, tests: vec![], done: true },
+                );
+            }
+        });
+    }
+
+    Ok(first.results)
+}
+
+/// Start fetching the most-recent test run for each of the given test issue IDs.
+///
+/// Returns immediately. Results arrive as `tests:health:batch` Tauri events,
+/// each carrying a `{ entries, done, total, processed }` payload. The final event
+/// has `done: true` so the frontend knows when all pages have been processed.
+#[tauri::command]
+pub async fn get_tests_health_data(
+    app: AppHandle,
+    state: State<'_, XrayClientState>,
+    test_issue_ids: Vec<String>,
+) -> Result<(), String> {
+    let client = get_xray_client(&app, &state).await?;
+    tokio::spawn(async move {
+        if let Err(e) = client.stream_health_batched(&app, &test_issue_ids).await {
+            let _ = app.emit(
+                "tests:health:error",
+                format!("Failed to load test health data: {e:#}"),
+            );
+        }
+    });
+    Ok(())
+}
+
+/// Persist the health-cache for `project_key` to disk so it survives app restarts.
+///
+/// Stored at `{app_config_dir}/health_cache/{project_key}.json`.
+#[tauri::command]
+pub async fn save_health_cache(
+    app: AppHandle,
+    project_key: String,
+    entries: Vec<TestLastRunEntry>,
+) -> Result<(), String> {
+    let cache_dir = app
+        .path()
+        .app_config_dir()
+        .map_err(|e: tauri::Error| e.to_string())?
+        .join("health_cache");
+    std::fs::create_dir_all(&cache_dir)
+        .map_err(|e: std::io::Error| format!("Failed to create health cache directory: {e}"))?;
+    let path = cache_dir.join(format!("{project_key}.json"));
+    let json = serde_json::to_string(&entries)
+        .map_err(|e: serde_json::Error| format!("Failed to serialize entries: {e}"))?;
+    std::fs::write(&path, json.as_bytes())
+        .map_err(|e: std::io::Error| format!("Failed to write health cache: {e}"))
+}
+
+/// Load the persisted health-cache for `project_key` from disk.
+///
+/// Returns an empty list if no cache file exists yet.
+#[tauri::command]
+pub async fn load_health_cache(
+    app: AppHandle,
+    project_key: String,
+) -> Result<Vec<TestLastRunEntry>, String> {
+    let path = app
+        .path()
+        .app_config_dir()
+        .map_err(|e: tauri::Error| e.to_string())?
+        .join("health_cache")
+        .join(format!("{project_key}.json"));
+    if !path.exists() {
+        return Ok(vec![]);
+    }
+    let json = std::fs::read_to_string(&path)
+        .map_err(|e: std::io::Error| format!("Failed to read health cache: {e}"))?;
+    serde_json::from_str::<Vec<TestLastRunEntry>>(&json)
+        .map_err(|e: serde_json::Error| format!("Failed to parse health cache: {e}"))
 }
 
 #[tauri::command]

@@ -6,10 +6,10 @@ mod state;
 use commands::{
     config::{clear_config, get_config, save_config_cmd},
     jira::{
-        create_issue_link, get_bugs_by_version, get_issue_link_types, get_issue_transitions,
-        get_jira_projects, get_project_components, get_project_versions, get_version_issues,
-        search_users, transition_issue, update_assignee, update_issue_fix_version,
-        update_issue_summary, validate_jira_credentials,
+        add_attachment, create_bug, create_issue_link, get_bugs_by_version, get_issue_link_types,
+        get_issue_transitions, get_jira_projects, get_project_components, get_project_versions,
+        get_version_issues, search_users, transition_issue, update_assignee,
+        update_issue_fix_version, update_issue_summary, validate_jira_credentials,
     },
     utils::write_text_file,
     xray::{
@@ -19,6 +19,7 @@ use commands::{
         get_iteration_step_results, get_step_statuses, get_test_executions,
         get_test_executions_by_version, get_test_plan_tests, get_test_plans, get_test_runs,
         get_test_set_tests, get_test_set_tests_with_status, get_test_sets, get_tests,
+        get_tests_health_data, load_health_cache, save_health_cache,
         get_xray_statuses, remove_tests_from_test_plan, remove_tests_from_test_set,
         update_iteration_status, update_test_run_comment, update_test_run_status,
         update_test_run_step, update_test_run_step_status,
@@ -53,6 +54,8 @@ pub fn run() {
             update_issue_summary,
             update_issue_fix_version,
             search_users,
+            create_bug,
+            add_attachment,
             // Xray
             authenticate_xray,
             get_test_plans,
@@ -69,6 +72,9 @@ pub fn run() {
             update_test_run_step,
             create_test_execution,
             get_tests,
+            get_tests_health_data,
+            save_health_cache,
+            load_health_cache,
             get_test_sets,
             get_test_set_tests,
             get_test_set_tests_with_status,

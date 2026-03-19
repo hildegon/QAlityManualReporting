@@ -3,6 +3,7 @@ use reqwest::Client;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
+use tauri::Emitter;
 use tokio::sync::Mutex;
 
 use crate::models::xray::{
@@ -10,11 +11,12 @@ use crate::models::xray::{
     CreateTestExecutionResponse, CreateTestExecutionResult, CreateTestPlanInput,
     CreateTestPlanResponse, CreateTestPlanResult, CreateTestResponse, CreateTestResult,
     CreateTestSetResponse, CreateTestSetResult, CreateXrayTestInput, FirstPageResult,
-    GetTestRunResult, GraphQLRequest, GraphQLResponse, StatusesResult, StepStatusesResult,
-    TestExecutionsResult, TestPlanResult, TestPlansResult, TestRunIteration, TestRunsResult,
-    TestSetMemberInfo, TestSetMembershipsResponse, TestSetResult, TestSetWithStatusResult,
-    TestSetsResult, TestsResult, UpdateTestRunStatusInput, XrayAuthRequest, XrayStepStatus,
-    XrayTest, XrayTestRunStatus, XrayTestSet, XrayTestWithStatus,
+    GetTestRunResult, GraphQLRequest, GraphQLResponse, HealthBatch, StatusesResult,
+    StepStatusesResult, TestExecutionsResult, TestLastRunEntry, TestPlanResult, TestPlansResult,
+    TestRunIteration, TestRunsResult, TestSetMemberInfo,
+    TestSetMembershipsResponse, TestSetResult, TestSetWithStatusResult, TestSetsResult,
+    TestsForHealthResult, TestRunsForHealthResult, TestsResult, TestsStreamPage, UpdateTestRunStatusInput, XrayAuthRequest,
+    XrayStepStatus, XrayTest, XrayTestRunStatus, XrayTestSet, XrayTestWithStatus,
 };
 
 const XRAY_AUTH_URL: &str = "https://xray.cloud.getxray.app/api/v2/authenticate";
@@ -162,7 +164,12 @@ impl XrayClient {
     }
 
     /// Execute a GraphQL query against the Xray Cloud API.
-    /// Automatically retries once on 401 by re-authenticating.
+    ///
+    /// Retry behaviour:
+    /// - **401 Unauthorized** – clears the cached token and retries once.
+    /// - **429 Too Many Requests** – sleeps until the rate-limit window resets
+    ///   (honouring `X-RateLimit-Reset` / `Retry-After` headers, defaulting to
+    ///   30 s) and retries indefinitely until the request succeeds.
     async fn graphql<T: serde::de::DeserializeOwned>(
         &self,
         query: &str,
@@ -173,7 +180,9 @@ impl XrayClient {
             variables,
         };
 
-        for attempt in 0..2u8 {
+        let mut auth_retried = false;
+
+        loop {
             let token = self.get_token().await?;
             let resp = self
                 .client
@@ -184,21 +193,36 @@ impl XrayClient {
                 .await
                 .context("Failed to send Xray GraphQL request")?;
 
-            if resp.status() == reqwest::StatusCode::UNAUTHORIZED && attempt == 0 {
-                // Clear the cached token and retry once.
+            let status = resp.status();
+
+            // ── 401: refresh token and retry once ────────────────────────────
+            if status == reqwest::StatusCode::UNAUTHORIZED {
+                if auth_retried {
+                    bail!("Xray authentication failed after token refresh");
+                }
+                auth_retried = true;
                 *self.token.lock().await = None;
                 continue;
             }
 
-            if resp.status() == reqwest::StatusCode::TOO_MANY_REQUESTS {
-                let until_ms = rate_limit_until_ms(resp.headers());
-                match until_ms {
-                    Some(ms) => bail!("RATE_LIMITED:{ms}"),
-                    None => bail!("RATE_LIMITED"),
-                }
+            // ── 429: sleep until the rate-limit window resets, then retry ────
+            if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
+                let wait_ms = match rate_limit_until_ms(resp.headers()) {
+                    Some(until_ms) => {
+                        let now_ms = SystemTime::now()
+                            .duration_since(UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_millis() as u64;
+                        // Add a 500 ms buffer so we don't hit the boundary.
+                        until_ms.saturating_sub(now_ms) + 500
+                    }
+                    // No header — wait 30 s as a safe default.
+                    None => 30_000,
+                };
+                tokio::time::sleep(tokio::time::Duration::from_millis(wait_ms)).await;
+                continue;
             }
 
-            let status = resp.status();
             let raw_body = resp
                 .text()
                 .await
@@ -239,7 +263,6 @@ impl XrayClient {
             })?;
             return Ok(typed);
         }
-        bail!("Xray authentication failed after retry");
     }
 
     // ── Test Plans ────────────────────────────────────────────────────────────
@@ -501,7 +524,7 @@ impl XrayClient {
                     limit
                     results {
                         issueId
-                        jira(fields: ["key", "summary"])
+                        jira(fields: ["key", "summary", "status"])
                     }
                 }
             }
@@ -578,6 +601,203 @@ impl XrayClient {
             .await?;
         all.extend(rest);
         Ok(all)
+    }
+
+    /// Fetch remaining test pages starting at `start`, emitting a `tests:page`
+    /// Tauri event for each page so the frontend can render progressively.
+    /// Designed to run in a `tokio::spawn` background task.
+    pub async fn stream_tests_from(
+        &self,
+        app: &tauri::AppHandle,
+        project_key: &str,
+        mut start: u32,
+        total: u32,
+    ) -> Result<()> {
+        const PAGE_SIZE: u32 = 100;
+        let jql = format!("project = '{project_key}'");
+        loop {
+            let result: TestsResult = self
+                .graphql(
+                    Self::tests_gql_query(),
+                    serde_json::json!({ "jql": jql, "limit": PAGE_SIZE, "start": start }),
+                )
+                .await?;
+            let page = result.get_tests;
+            let fetched = page.results.len() as u32;
+            start += fetched;
+            let done = fetched == 0 || start >= total;
+            let _ = app.emit(
+                "tests:page",
+                TestsStreamPage {
+                    project_key: project_key.to_string(),
+                    tests: page.results,
+                    done,
+                },
+            );
+            if done {
+                break;
+            }
+        }
+        Ok(())
+    }
+
+    // ── Test Health (batched last-run fetch) ──────────────────────────────────
+
+    /// Fetches the most-recent run for each test by querying `getTests` in
+    /// small batches using `jql: "id in (...)"` with `testRuns(limit: 1)`.
+    ///
+    /// This avoids the pagination-inflation bug that occurs when `testRuns` is
+    /// included in the project-wide `getTests` query (Xray's `total` reflects
+    /// run count rather than test count, causing every test to be fetched twice).
+    pub async fn stream_health_batched(
+        &self,
+        app: &tauri::AppHandle,
+        test_issue_ids: &[String],
+    ) -> Result<()> {
+        if test_issue_ids.is_empty() {
+            let _ = app.emit(
+                "tests:health:batch",
+                HealthBatch { entries: vec![], done: true, total: 0, processed: 0 },
+            );
+            return Ok(());
+        }
+
+        // Primary query: get the most recent test run AND the cross-version latestStatus.
+        // `latestStatus` is set even when `testRuns` is empty (which happens when the test
+        // was edited after its last run — Xray scopes `testRuns` to the current version).
+        let query = r#"
+            query GetTestsHealth($jql: String!, $limit: Int!) {
+                getTests(jql: $jql, limit: $limit, start: 0) {
+                    results {
+                        issueId
+                        status { name color final }
+                        testRuns(limit: 1) {
+                            results {
+                                finishedOn
+                                status { name color final }
+                            }
+                        }
+                    }
+                }
+            }
+        "#;
+
+        // Fallback query: for tests that have a latestStatus but no testRuns (version mismatch),
+        // fetch their most recent run by testIssueId across ALL versions.
+        let fallback_query = r#"
+            query GetFallbackRuns($testIssueIds: [String]!, $limit: Int!) {
+                getTestRuns(testIssueIds: $testIssueIds, limit: $limit, orderBy: { field: FINISHED_ON, direction: DESC }) {
+                    total
+                    results {
+                        finishedOn
+                        status { name color final }
+                        test { issueId }
+                    }
+                }
+            }
+        "#;
+
+        const BATCH_SIZE: usize = 50;
+        let total = test_issue_ids.len() as u32;
+        let mut processed: u32 = 0;
+
+        eprintln!("[health] starting: {} tests, batch size {}", total, BATCH_SIZE);
+
+        for chunk in test_issue_ids.chunks(BATCH_SIZE) {
+            let ids_jql = chunk.join(", ");
+            let jql = format!("id in ({ids_jql})");
+
+            eprintln!("[health] batch {}/{}: querying {} tests", processed + chunk.len() as u32, total, chunk.len());
+
+            let result: TestsForHealthResult = match self
+                .graphql(
+                    query,
+                    serde_json::json!({ "jql": jql, "limit": chunk.len() as u32 }),
+                )
+                .await
+            {
+                Ok(r) => r,
+                Err(e) => {
+                    eprintln!("[health] primary query error at batch {}/{}: {:#}", processed, total, e);
+                    return Err(e);
+                }
+            };
+
+            let mut entries: Vec<TestLastRunEntry> = Vec::new();
+            // Tests that have latestStatus but no testRuns — need a secondary lookup.
+            let mut fallback_ids: Vec<String> = Vec::new();
+
+            for t in result.get_tests.results {
+                let run = t.test_runs.and_then(|tr| tr.results.into_iter().next());
+                if let Some(run) = run {
+                    entries.push(TestLastRunEntry {
+                        test_issue_id: t.issue_id,
+                        finished_on: run.finished_on,
+                        started_on: None,
+                        status: run.status.or(t.latest_status),
+                    });
+                } else if t.latest_status.is_some() {
+                    // Has been executed (latestStatus set) but testRuns is empty — version mismatch.
+                    // Add a placeholder entry with status but no date; date filled in below.
+                    fallback_ids.push(t.issue_id.clone());
+                    entries.push(TestLastRunEntry {
+                        test_issue_id: t.issue_id,
+                        finished_on: None,
+                        started_on: None,
+                        status: t.latest_status,
+                    });
+                }
+                // No latestStatus and no testRuns → never executed; omit from entries.
+            }
+
+            // Secondary pass: retrieve finishedOn for version-mismatched tests.
+            if !fallback_ids.is_empty() {
+                eprintln!("[health] fallback query for {} tests with latestStatus but no testRuns", fallback_ids.len());
+                let fallback_limit = (fallback_ids.len() as u32).saturating_mul(5).max(50);
+                match self
+                    .graphql::<TestRunsForHealthResult>(
+                        fallback_query,
+                        serde_json::json!({ "testIssueIds": fallback_ids, "limit": fallback_limit }),
+                    )
+                    .await
+                {
+                  Err(e) => eprintln!("[health] fallback query error (non-fatal): {:#}", e),
+                  Ok(fb) => {
+                    // Results arrive DESC by finishedOn; first seen per test = most recent.
+                    let mut best: std::collections::HashMap<String, (Option<String>, Option<crate::models::xray::LatestTestStatus>)> =
+                        std::collections::HashMap::new();
+                    for run in fb.get_test_runs.results {
+                        best.entry(run.test.issue_id).or_insert((run.finished_on, run.status));
+                    }
+                    eprintln!("[health] fallback resolved dates for {}/{} tests", best.len(), fallback_ids.len());
+                    for entry in &mut entries {
+                        if entry.finished_on.is_none() {
+                            if let Some((finished_on, status)) = best.get(&entry.test_issue_id) {
+                                entry.finished_on = finished_on.clone();
+                                if entry.status.is_none() {
+                                    entry.status = status.clone();
+                                }
+                            }
+                        }
+                    }
+                  }
+                } // end match fallback
+            } // end if !fallback_ids.is_empty()
+
+            processed += chunk.len() as u32;
+            let done = processed >= total;
+
+            eprintln!("[health] emitting batch: {} entries, {}/{} processed, done={}", entries.len(), processed, total, done);
+            let _ = app.emit(
+                "tests:health:batch",
+                HealthBatch { entries, done, total, processed },
+            );
+
+            if done {
+                break;
+            }
+        }
+        Ok(())
     }
 
     // ── Test Sets ─────────────────────────────────────────────────────────────

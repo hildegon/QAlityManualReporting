@@ -54,6 +54,7 @@ import { Badge, statusVariant } from "@/components/ui/badge";
 import { cn } from "@/components/ui/utils";
 import { TestExecutionDetail } from "@/components/test-execution/TestExecutionDetail";
 import type { JiraBug, JiraTransition, JiraVersion, TestExecution } from "@/types";
+import { CreateBugModal } from "@/components/bugs/CreateBugModal";
 import type { TestRunHistory } from "@/services/queries";
 
 // ── Fetch progress ────────────────────────────────────────────────────────────
@@ -1256,9 +1257,13 @@ interface BugsPanelProps {
   error: unknown;
   /** Failed test histories for this version — used to show which tests detected each bug. */
   failedTests: TestRunHistory[];
+  /** The version this panel belongs to — used for the Create Bug modal. */
+  version: JiraVersion;
+  projectKey: string;
 }
 
-function BugsPanel({ bugs, isLoading, isError, error, failedTests }: BugsPanelProps) {
+function BugsPanel({ bugs, isLoading, isError, error, failedTests, version, projectKey }: BugsPanelProps) {
+  const [createBugOpen, setCreateBugOpen] = useState(false);
   // ── priority summary counts ───────────────────────────────────────────────
   const prioritySummary = useMemo(() => {
     const list = bugs ?? [];
@@ -1395,6 +1400,13 @@ function BugsPanel({ bugs, isLoading, isError, error, failedTests }: BugsPanelPr
             </span>
           )}
         </div>
+        <button
+          onClick={() => setCreateBugOpen(true)}
+          className="flex items-center gap-1.5 rounded-lg bg-red-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-red-700 dark:bg-red-700 dark:hover:bg-red-600"
+        >
+          <Bug className="h-3 w-3" />
+          Create Bug
+        </button>
         {/* Priority summary bar — shows unresolved counts per priority */}
         {prioritySummary.length > 0 && (
           <div className="flex flex-wrap items-center gap-2">
@@ -1561,6 +1573,13 @@ function BugsPanel({ bugs, isLoading, isError, error, failedTests }: BugsPanelPr
           </div>
         )}
       </div>
+
+      <CreateBugModal
+        open={createBugOpen}
+        onClose={() => setCreateBugOpen(false)}
+        projectKey={projectKey}
+        version={version}
+      />
     </div>
   );
 }
@@ -1939,6 +1958,8 @@ function VersionContent({
         isError={bugsError}
         error={bugsErr}
         failedTests={stats.failedTests}
+        version={version}
+        projectKey={projectKey}
       />
 
       <div id="version-section-issues">
