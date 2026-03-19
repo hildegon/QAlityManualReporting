@@ -553,6 +553,7 @@ pub struct XrayTestSet {
 pub struct XrayTestSetJira {
     pub key: String,
     pub summary: String,
+    pub status: Option<XrayStatus>,
 }
 
 /// Paginated result from `getTestSets`.
