@@ -6,9 +6,9 @@ mod state;
 use commands::{
     config::{clear_config, get_config, save_config_cmd},
     jira::{
-        add_attachment, create_bug, create_issue_link, get_bugs_by_version, get_issue_link_types,
-        get_issue_transitions, get_jira_projects, get_project_components, get_project_versions,
-        get_version_issues, search_users, transition_issue, update_assignee,
+        add_attachment, add_jira_comment, create_bug, create_issue_link, get_bugs_by_version,
+        get_issue_link_types, get_issue_transitions, get_jira_projects, get_project_components,
+        get_project_versions, get_version_issues, search_users, transition_issue, update_assignee,
         update_issue_fix_version, update_issue_summary, validate_jira_credentials,
     },
     utils::write_text_file,
@@ -56,6 +56,7 @@ pub fn run() {
             search_users,
             create_bug,
             add_attachment,
+            add_jira_comment,
             // Xray
             authenticate_xray,
             get_test_plans,

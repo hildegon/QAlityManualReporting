@@ -242,6 +242,18 @@ export function useTransitionIssue() {
   });
 }
 
+/** Post a plain-text comment to a Jira issue, then upload any attachments. */
+export function useAddJiraComment() {
+  return useMutation<void, Error, { issueKey: string; body: string; attachmentPaths?: string[] }>({
+    mutationFn: async ({ issueKey, body, attachmentPaths = [] }) => {
+      await api.addJiraComment(issueKey, body);
+      for (const path of attachmentPaths) {
+        await api.addAttachment(issueKey, path);
+      }
+    },
+  });
+}
+
 /** Apply a workflow transition to any Jira issue without execution-specific cache side-effects. */
 export function useApplyTransition() {
   const queryClient = useQueryClient();

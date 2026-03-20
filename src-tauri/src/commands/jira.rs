@@ -211,6 +211,17 @@ pub async fn create_bug(
         .map_err(format_err)
 }
 
+/// Add a plain-text comment to an existing Jira issue.
+#[tauri::command]
+pub async fn add_jira_comment(
+    app: AppHandle,
+    issue_key: String,
+    body: String,
+) -> Result<(), String> {
+    let client = make_jira_client(&app)?;
+    client.add_comment(&issue_key, &body).await.map_err(format_err)
+}
+
 /// Attach a local file to an existing Jira issue.
 #[tauri::command]
 pub async fn add_attachment(
