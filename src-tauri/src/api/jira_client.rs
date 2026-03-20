@@ -737,6 +737,46 @@ impl JiraClient {
     }
 
     /// Fetch all versions for a given Jira project key.
+    /// Add a plain-text comment to an existing Jira issue.
+    ///
+    /// Uses `POST /rest/api/3/issue/{key}/comment` with an ADF body.
+    pub async fn add_comment(&self, issue_key: &str, body: &str) -> Result<()> {
+        let url = format!(
+            "{}/rest/api/3/issue/{}/comment",
+            self.base_url,
+            issue_key.trim()
+        );
+        let payload = serde_json::json!({
+            "body": {
+                "version": 1,
+                "type": "doc",
+                "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": body }] }]
+            }
+        });
+        let resp = check_rate_limit(
+            self.client
+                .post(&url)
+                .header("Authorization", &self.auth_header)
+                .header("Content-Type", "application/json")
+                .header("Accept", "application/json")
+                .json(&payload)
+                .send()
+                .await
+                .context("Failed to send Jira add-comment request")?,
+        )?;
+        let status = resp.status();
+        if !status.is_success() {
+            let text = resp.text().await.unwrap_or_else(|_| "<no body>".to_string());
+            return Err(anyhow::anyhow!(
+                "Jira add-comment failed (HTTP {}) for '{}': {}",
+                status.as_u16(),
+                issue_key,
+                text
+            ));
+        }
+        Ok(())
+    }
+
     ///
     /// Uses `GET /rest/api/3/project/{key}/versions`.
     pub async fn get_project_versions(&self, project_key: &str) -> Result<Vec<JiraVersion>> {

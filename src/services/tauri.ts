@@ -274,6 +274,10 @@ export const createBug = (
 export const addAttachment = (issueKey: string, filePath: string): Promise<void> =>
   invoke("add_attachment", { issueKey, filePath });
 
+/** Add a plain-text comment to an existing Jira issue. */
+export const addJiraComment = (issueKey: string, body: string): Promise<void> =>
+  invoke("add_jira_comment", { issueKey, body });
+
 /**
  * Write a UTF-8 text file to an absolute path chosen by the user via the
  * dialog plugin on the frontend.
