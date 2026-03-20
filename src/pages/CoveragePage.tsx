@@ -7,8 +7,6 @@ import { useContentProjectKey } from "@/hooks/useProjectKey";
 import { parseRateLimitError } from "@/stores/uiStore";
 import { useCoveragePresetsStore } from "@/stores/coveragePresetsStore";
 import type { CoveragePreset } from "@/stores/coveragePresetsStore";
-import { useCoverageHistoryStore, buildViewKey } from "@/stores/coverageHistoryStore";
-import type { CoverageSnapshot } from "@/stores/coverageHistoryStore";
 import { Spinner } from "@/components/ui/spinner";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
@@ -49,7 +47,6 @@ import {
   buildSlicesFromTests,
   findSlice,
 } from "@/components/charts/StatusCharts";
-import type { Slice } from "@/components/charts/StatusCharts";
 
 // ── SVG chart helpers for HTML report ────────────────────────────────────────
 
@@ -503,6 +500,120 @@ function buildCoverageHTML(
     ${setsHtml}
   </div>
 
+  <div class="summary-section" style="page-break-before:always">
+    <h3>Analysis</h3>
+
+    <!-- Insights -->
+    <div style="margin-bottom:20px">
+      <h4 style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#64748b;margin-bottom:10px">Key Findings</h4>
+      <ul style="list-style:none;display:flex;flex-direction:column;gap:7px">
+        ${(() => {
+          const neverRun = allTests.filter((t) => t.latest_status?.is_final !== true);
+          const runAtLeastOnce = total - neverRun.length;
+          const coveragePct2 = total > 0 ? Math.round((runAtLeastOnce / total) * 100) : 0;
+          const passRatePct2 = total > 0 ? Math.round((passed / total) * 100) : 0;
+          const failRatePct2 = total > 0 ? Math.round((failed / total) * 100) : 0;
+
+          const highFailSets = sets.filter((ts) => {
+            const t = queryBySetId.get(ts.issue_id)?.tests ?? [];
+            if (t.length === 0) return false;
+            const f = t.filter((x) => {
+              const sl = buildReportSlices([x]);
+              return sl.find((s) => s.key === "FAIL")?.count ?? 0 > 0;
+            }).length;
+            return f / t.length >= 0.5;
+          });
+
+          const findings: string[] = [
+            `<li style="display:flex;align-items:flex-start;gap:8px;font-size:12px"><span style="color:#3b82f6;font-size:10px;margin-top:2px">●</span><span style="color:#475569">${coveragePct2}% coverage — ${runAtLeastOnce} of ${total} tests run at least once</span></li>`,
+            `<li style="display:flex;align-items:flex-start;gap:8px;font-size:12px"><span style="color:${passRatePct2 >= 80 ? "#059669" : passRatePct2 >= 50 ? "#d97706" : "#dc2626"};font-size:10px;margin-top:2px">●</span><span style="color:#475569">${passRatePct2}% overall pass rate — ${passed} passed, ${failed} failed</span></li>`,
+          ];
+          if (failed > 0) findings.push(`<li style="display:flex;align-items:flex-start;gap:8px;font-size:12px"><span style="color:#f59e0b;font-size:10px;margin-top:2px">▲</span><span style="color:#92400e">${failed} test${failed !== 1 ? "s" : ""} failing (${failRatePct2}% of total)</span></li>`);
+          if (highFailSets.length > 0) findings.push(`<li style="display:flex;align-items:flex-start;gap:8px;font-size:12px"><span style="color:#dc2626;font-size:10px;margin-top:2px">▲</span><span style="color:#991b1b">${highFailSets.length} set${highFailSets.length !== 1 ? "s have" : " has"} &gt;50% failure rate: ${highFailSets.map((ts) => esc(ts.jira.key)).join(", ")}</span></li>`);
+          if (neverRun.length > 0) findings.push(`<li style="display:flex;align-items:flex-start;gap:8px;font-size:12px"><span style="color:#94a3b8;font-size:10px;margin-top:2px">●</span><span style="color:#475569">${neverRun.length} test${neverRun.length !== 1 ? "s" : ""} never executed (${100 - coveragePct2}% gap)</span></li>`);
+          return findings.join("");
+        })()}
+      </ul>
+    </div>
+
+    <!-- Failure concentration -->
+    ${(() => {
+      const withFails = sets
+        .map((ts) => {
+          const t = queryBySetId.get(ts.issue_id)?.tests ?? [];
+          const slices = buildReportSlices(t);
+          const f = slices.find((s) => s.key === "FAIL")?.count ?? 0;
+          return { ts, failCount: f, total: t.length };
+        })
+        .filter((r) => r.failCount > 0)
+        .sort((a, b) => b.failCount - a.failCount);
+      if (withFails.length === 0) return "";
+      const maxF = withFails[0]!.failCount;
+      const rows = withFails
+        .map(({ ts, failCount, total: t }) => {
+          const pct = t > 0 ? Math.round((failCount / t) * 100) : 0;
+          const barW = maxF > 0 ? Math.round((failCount / maxF) * 100) : 0;
+          return `<tr>
+            <td style="white-space:nowrap;font-family:monospace;font-size:11px;color:#475569">${esc(ts.jira.key)}</td>
+            <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(ts.jira.summary)}</td>
+            <td style="text-align:center;font-weight:700;color:#dc2626">${failCount}</td>
+            <td style="text-align:center;color:#dc2626">${pct}%</td>
+            <td style="width:120px">
+              <div style="background:#fee2e2;border-radius:4px;height:8px;overflow:hidden">
+                <div style="background:#dc2626;height:100%;width:${barW}%;border-radius:4px"></div>
+              </div>
+            </td>
+          </tr>`;
+        })
+        .join("");
+      return `<div style="margin-bottom:20px">
+        <h4 style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#64748b;margin-bottom:10px">Failure Concentration</h4>
+        <table class="summary-table">
+          <thead><tr><th style="width:90px">Key</th><th>Set Name</th><th style="width:70px;text-align:center">Failures</th><th style="width:60px;text-align:center">Rate</th><th style="width:130px">Bar</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>`;
+    })()}
+
+    <!-- Never-run tests -->
+    ${(() => {
+      const withNeverRun = sets
+        .map((ts) => {
+          const t = queryBySetId.get(ts.issue_id)?.tests ?? [];
+          const nr = t.filter((x) => x.latest_status?.is_final !== true).length;
+          return { ts, neverRun: nr, total: t.length };
+        })
+        .filter((r) => r.neverRun > 0)
+        .sort((a, b) => b.neverRun - a.neverRun);
+      if (withNeverRun.length === 0) return "";
+      const maxNR = withNeverRun[0]!.neverRun;
+      const rows = withNeverRun
+        .map(({ ts, neverRun: nr, total: t }) => {
+          const pct = t > 0 ? Math.round((nr / t) * 100) : 0;
+          const barW = maxNR > 0 ? Math.round((nr / maxNR) * 100) : 0;
+          return `<tr>
+            <td style="white-space:nowrap;font-family:monospace;font-size:11px;color:#475569">${esc(ts.jira.key)}</td>
+            <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(ts.jira.summary)}</td>
+            <td style="text-align:center;font-weight:700;color:#d97706">${nr}</td>
+            <td style="text-align:center;color:#d97706">${pct}%</td>
+            <td style="width:120px">
+              <div style="background:#fef3c7;border-radius:4px;height:8px;overflow:hidden">
+                <div style="background:#f59e0b;height:100%;width:${barW}%;border-radius:4px"></div>
+              </div>
+            </td>
+          </tr>`;
+        })
+        .join("");
+      return `<div>
+        <h4 style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#64748b;margin-bottom:10px">Never-Run Tests by Set</h4>
+        <table class="summary-table">
+          <thead><tr><th style="width:90px">Key</th><th>Set Name</th><th style="width:80px;text-align:center">Never Run</th><th style="width:60px;text-align:center">Rate</th><th style="width:130px">Bar</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>`;
+    })()}
+  </div>
+
   <div class="footer">
     <span>Generated by QAlity Manual Reporting</span>
     <span>${esc(date)} at ${esc(time)}</span>
@@ -531,368 +642,321 @@ function hasFail(tests: XrayTestWithStatus[]): boolean {
   });
 }
 
-// ── Coverage history sparkline panel ─────────────────────────────────────────
+// ── Overall dashboard card ────────────────────────────────────────────────────
 
-interface CoverageHistoryPanelProps {
-  history: CoverageSnapshot[];
-  onClear: () => void;
-}
+// ── Analysis sub-panels ───────────────────────────────────────────────────────
 
-function CoverageHistoryPanel({ history, onClear }: CoverageHistoryPanelProps) {
-  const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
+type SetQueryMap = Map<
+  string,
+  { tests: XrayTestWithStatus[] | undefined; isLoading: boolean; isError: boolean }
+>;
 
-  if (history.length === 0) return null;
+function InsightsPanel({
+  allTests,
+  selectedSets,
+  queryBySetId,
+}: {
+  allTests: XrayTestWithStatus[];
+  selectedSets: XrayTestSet[];
+  queryBySetId: SetQueryMap;
+}) {
+  const data = useMemo(() => {
+    const total = allTests.length;
+    const failingTests = allTests.filter(
+      (t) => findSlice(t.latest_status?.name ?? "TODO").key === "FAIL",
+    );
+    const blockedTests = allTests.filter(
+      (t) => findSlice(t.latest_status?.name ?? "TODO").key === "BLOCKED",
+    );
+    const executingTests = allTests.filter(
+      (t) => findSlice(t.latest_status?.name ?? "TODO").key === "EXECUTING",
+    );
+    const neverRun = allTests.filter((t) => t.latest_status?.is_final !== true);
+    const runAtLeastOnce = total - neverRun.length;
+    const passedTests = allTests.filter(
+      (t) => findSlice(t.latest_status?.name ?? "TODO").key === "PASS",
+    );
+    const coveragePct = total > 0 ? Math.round((runAtLeastOnce / total) * 100) : 0;
+    const passRatePct = total > 0 ? Math.round((passedTests.length / total) * 100) : 0;
+    const failRatePct = total > 0 ? Math.round((failingTests.length / total) * 100) : 0;
 
-  // ── Chart dimensions ────────────────────────────────────────────────────────
-  const W = 560;
-  const H = 140;
-  const PAD_L = 32; // room for Y-axis labels
-  const PAD_R = 8;
-  const PAD_T = 12;
-  const PAD_B = 24; // room for X-axis labels
-
-  const innerW = W - PAD_L - PAD_R;
-  const innerH = H - PAD_T - PAD_B;
-
-  const xOf = (i: number) =>
-    history.length === 1 ? PAD_L + innerW / 2 : PAD_L + (i / (history.length - 1)) * innerW;
-
-  const yOf = (pct: number) => PAD_T + innerH - (pct / 100) * innerH;
-
-  const polylinePoints = (values: number[]) =>
-    values.map((v, i) => `${xOf(i)},${yOf(v)}`).join(" ");
-
-  const areaPoints = (values: number[]) => {
-    const line = values.map((v, i) => `${xOf(i)},${yOf(v)}`).join(" ");
-    const baseline = `${xOf(values.length - 1)},${yOf(0)} ${xOf(0)},${yOf(0)}`;
-    return `${line} ${baseline}`;
-  };
-
-  const coverageVals = history.map((s) => s.coveragePct);
-  const passVals = history.map((s) =>
-    s.total > 0 ? Math.round((s.passCount / s.total) * 100) : 0,
-  );
-  const failVals = history.map((s) =>
-    s.total > 0 ? Math.round((s.failCount / s.total) * 100) : 0,
-  );
-
-  const hovered = hoveredIdx !== null ? history[hoveredIdx] : null;
-
-  const formatDate = (ts: number) => {
-    const d = new Date(ts);
-    return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
-  };
-
-  const formatDateTime = (ts: number) => {
-    const d = new Date(ts);
-    return d.toLocaleString(undefined, {
-      month: "short",
-      day: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
+    const setsWithFails = [...queryBySetId.values()].filter(
+      (q) => q.tests && hasFail(q.tests),
+    ).length;
+    const setsWithNeverRun = [...queryBySetId.values()].filter(
+      (q) => q.tests && q.tests.some((t) => t.latest_status?.is_final !== true),
+    ).length;
+    const uncoveredSets = selectedSets.filter((ts) => {
+      const q = queryBySetId.get(ts.issue_id);
+      return q?.tests && q.tests.length > 0 && q.tests.every((t) => t.latest_status?.is_final !== true);
     });
-  };
+    const fullyPassingSets = selectedSets.filter((ts) => {
+      const q = queryBySetId.get(ts.issue_id);
+      return q?.tests && q.tests.length > 0 && passRate(q.tests) === 1;
+    });
+    const highFailSets = selectedSets.filter((ts) => {
+      const tests = queryBySetId.get(ts.issue_id)?.tests ?? [];
+      if (tests.length === 0) return false;
+      const fails = tests.filter((t) => findSlice(t.latest_status?.name ?? "TODO").key === "FAIL").length;
+      return fails / tests.length >= 0.5;
+    });
+    const topFailSet = selectedSets
+      .map((ts) => {
+        const tests = queryBySetId.get(ts.issue_id)?.tests ?? [];
+        const fails = tests.filter((t) => findSlice(t.latest_status?.name ?? "TODO").key === "FAIL").length;
+        return { ts, fails };
+      })
+      .filter((r) => r.fails > 0)
+      .sort((a, b) => b.fails - a.fails)[0];
 
-  // X-axis date labels: show first, last, and up to 3 evenly-spaced middle ones
-  const labelIndices = (() => {
-    if (history.length <= 2) return history.map((_, i) => i);
-    const indices = new Set([0, history.length - 1]);
-    const steps = Math.min(3, history.length - 2);
-    for (let s = 1; s <= steps; s++) {
-      indices.add(Math.round((s / (steps + 1)) * (history.length - 1)));
+    const items: { type: "critical" | "warn" | "ok" | "info"; text: string }[] = [];
+
+    // Summary metrics
+    items.push({
+      type: "info",
+      text: `${coveragePct}% coverage — ${runAtLeastOnce} of ${total} tests run at least once`,
+    });
+    items.push({
+      type: passRatePct === 100 ? "ok" : passRatePct >= 80 ? "info" : passRatePct >= 50 ? "warn" : "critical",
+      text: `${passRatePct}% overall pass rate (${passedTests.length} passed, ${failingTests.length} failed)`,
+    });
+
+    // Failure findings
+    if (failingTests.length > 0) {
+      items.push({
+        type: "warn",
+        text: `${failingTests.length} test${failingTests.length !== 1 ? "s" : ""} failing across ${setsWithFails} set${setsWithFails !== 1 ? "s" : ""} — ${failRatePct}% of total`,
+      });
     }
-    return [...indices].sort((a, b) => a - b);
-  })();
+    if (highFailSets.length > 0) {
+      items.push({
+        type: "critical",
+        text: `${highFailSets.length} set${highFailSets.length !== 1 ? "s have" : " has"} >50% failure rate: ${highFailSets.map((ts) => ts.jira.summary).join(", ")}`,
+      });
+    }
+    if (topFailSet) {
+      items.push({
+        type: "warn",
+        text: `Most failures in "${topFailSet.ts.jira.summary}" (${topFailSet.fails} failing)`,
+      });
+    }
 
-  // Y-axis tick values
-  const yTicks = [0, 25, 50, 75, 100];
+    // Blocked / executing
+    if (blockedTests.length > 0) {
+      items.push({
+        type: "warn",
+        text: `${blockedTests.length} test${blockedTests.length !== 1 ? "s are" : " is"} blocked`,
+      });
+    }
+    if (executingTests.length > 0) {
+      items.push({
+        type: "info",
+        text: `${executingTests.length} test${executingTests.length !== 1 ? "s are" : " is"} currently executing`,
+      });
+    }
 
-  // Latest snapshot change indicators
-  const latest = history[history.length - 1]!;
-  const prev = history.length >= 2 ? history[history.length - 2]! : null;
-  const covDelta = prev ? latest.coveragePct - prev.coveragePct : 0;
-  const passDelta =
-    prev && prev.total > 0 && latest.total > 0
-      ? Math.round((latest.passCount / latest.total) * 100) -
-        Math.round((prev.passCount / prev.total) * 100)
-      : 0;
+    // Coverage gaps
+    if (neverRun.length > 0) {
+      items.push({
+        type: "info",
+        text: `${neverRun.length} test${neverRun.length !== 1 ? "s" : ""} never executed (${100 - coveragePct}% coverage gap) across ${setsWithNeverRun} set${setsWithNeverRun !== 1 ? "s" : ""}`,
+      });
+    }
+    if (uncoveredSets.length > 0) {
+      items.push({
+        type: "warn",
+        text: `${uncoveredSets.length} set${uncoveredSets.length !== 1 ? "s have" : " has"} 0% coverage — not a single test has been run: ${uncoveredSets.map((ts) => ts.jira.summary).join(", ")}`,
+      });
+    }
 
-  const series = [
-    { label: "Coverage", color: "#3b82f6", vals: coverageVals, delta: covDelta },
-    { label: "Passed", color: "#10b981", vals: passVals, delta: passDelta },
-    { label: "Failed", color: "#ef4444", vals: failVals, delta: 0 },
-  ];
+    // Good news
+    if (fullyPassingSets.length > 0) {
+      items.push({
+        type: "ok",
+        text: `${fullyPassingSets.length} of ${selectedSets.length} set${fullyPassingSets.length !== 1 ? "s are" : " is"} fully passing`,
+      });
+    }
+    if (coveragePct === 100) {
+      items.push({ type: "ok", text: "All tests have been run at least once — coverage is complete" });
+    }
+
+    return items;
+  }, [allTests, selectedSets, queryBySetId]);
+
+  if (data.length === 0) return null;
 
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800">
-      {/* Header */}
-      <div className="mb-3 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <div className="flex h-6 w-6 items-center justify-center rounded-md bg-blue-50 dark:bg-blue-900/30">
-            <Activity className="h-3.5 w-3.5 text-blue-500 dark:text-blue-400" />
-          </div>
-          <div className="flex items-center gap-2">
-            <p className="text-xs font-semibold text-slate-700 dark:text-slate-200">
-              Coverage trend
-            </p>
-            <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-slate-500 dark:bg-slate-700 dark:text-slate-400">
-              {history.length} snapshot{history.length !== 1 ? "s" : ""}
-            </span>
-          </div>
-        </div>
-        <button
-          onClick={onClear}
-          className="rounded-md p-1 text-slate-400 transition-colors hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-900/30 dark:hover:text-red-400"
-          title="Clear history for this selection"
-        >
-          <Trash2 className="h-3.5 w-3.5" />
-        </button>
+    <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+      <div className="mb-4 flex items-center gap-1.5">
+        <Activity className="h-3.5 w-3.5 text-slate-400" />
+        <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">Insights</p>
       </div>
-
-      {history.length < 2 ? (
-        <div className="flex flex-col items-center gap-1.5 rounded-lg border border-dashed border-slate-200 py-5 dark:border-slate-700">
-          <Clock className="h-4 w-4 text-slate-300 dark:text-slate-600" />
-          <p className="text-xs text-slate-400">
-            More snapshots will be recorded as you revisit this selection.
-          </p>
-        </div>
-      ) : (
-        <>
-          {/* Legend + delta badges */}
-          <div className="mb-3 flex items-center gap-4">
-            {series.map(({ label, color, vals, delta }) => (
-              <div key={label} className="flex items-center gap-1.5">
-                <span
-                  className="inline-block h-2 w-2 rounded-full"
-                  style={{ backgroundColor: color }}
-                />
-                <span className="text-[10px] font-medium text-slate-500 dark:text-slate-400">
-                  {label}
-                </span>
-                <span className="tabular-nums text-[10px] font-semibold" style={{ color }}>
-                  {vals[vals.length - 1]}%
-                </span>
-                {delta !== 0 && (
-                  <span
-                    className={cn(
-                      "inline-flex items-center rounded px-1 py-0.5 text-[9px] font-semibold tabular-nums",
-                      delta > 0
-                        ? "bg-emerald-50 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400"
-                        : "bg-red-50 text-red-600 dark:bg-red-900/30 dark:text-red-400",
-                    )}
-                  >
-                    {delta > 0 ? "+" : ""}
-                    {delta}
-                  </span>
-                )}
-              </div>
-            ))}
-          </div>
-
-          {/* SVG chart */}
-          <div className="relative" onMouseLeave={() => setHoveredIdx(null)}>
-            <svg
-              viewBox={`0 0 ${W} ${H}`}
-              className="w-full"
-              style={{ height: H }}
-              onMouseMove={(e) => {
-                const rect = e.currentTarget.getBoundingClientRect();
-                const mx = ((e.clientX - rect.left) / rect.width) * W;
-                let best = 0;
-                let bestDist = Infinity;
-                history.forEach((_, i) => {
-                  const d = Math.abs(xOf(i) - mx);
-                  if (d < bestDist) {
-                    bestDist = d;
-                    best = i;
-                  }
-                });
-                setHoveredIdx(best);
-              }}
-            >
-              {/* Y-axis gridlines and labels */}
-              {yTicks.map((pct) => (
-                <g key={pct}>
-                  <line
-                    x1={PAD_L}
-                    y1={yOf(pct)}
-                    x2={W - PAD_R}
-                    y2={yOf(pct)}
-                    stroke="currentColor"
-                    strokeWidth="0.5"
-                    className="text-slate-200 dark:text-slate-700"
-                    strokeDasharray={pct === 0 ? "none" : "3,3"}
-                  />
-                  <text
-                    x={PAD_L - 6}
-                    y={yOf(pct) + 3}
-                    textAnchor="end"
-                    fontSize="8"
-                    className="fill-slate-400 dark:fill-slate-500"
-                  >
-                    {pct}%
-                  </text>
-                </g>
-              ))}
-
-              {/* Area fills */}
-              <polygon points={areaPoints(coverageVals)} fill="#3b82f6" fillOpacity={0.06} />
-              <polygon points={areaPoints(passVals)} fill="#10b981" fillOpacity={0.06} />
-
-              {/* Lines */}
-              {series.map(({ color, vals }) => (
-                <polyline
-                  key={color}
-                  points={polylinePoints(vals)}
-                  fill="none"
-                  stroke={color}
-                  strokeWidth="2"
-                  strokeLinejoin="round"
-                  strokeLinecap="round"
-                />
-              ))}
-
-              {/* Data point markers (small circles on each data point) */}
-              {history.length <= 20 &&
-                series.map(({ color, vals }) =>
-                  vals.map((v, i) => (
-                    <circle
-                      key={`${color}-${i}`}
-                      cx={xOf(i)}
-                      cy={yOf(v)}
-                      r={history.length <= 8 ? 2.5 : 1.5}
-                      fill={hoveredIdx === i ? color : "white"}
-                      stroke={color}
-                      strokeWidth={hoveredIdx === i ? 2 : 1}
-                    />
-                  )),
-                )}
-
-              {/* Hovered vertical line */}
-              {hoveredIdx !== null && (
-                <line
-                  x1={xOf(hoveredIdx)}
-                  y1={PAD_T}
-                  x2={xOf(hoveredIdx)}
-                  y2={PAD_T + innerH}
-                  stroke="currentColor"
-                  strokeWidth="1"
-                  className="text-slate-300 dark:text-slate-500"
-                  strokeDasharray="3,2"
-                />
-              )}
-
-              {/* Hovered dots (larger) */}
-              {hoveredIdx !== null &&
-                series.map(({ vals, color }) => (
-                  <circle
-                    key={color}
-                    cx={xOf(hoveredIdx)}
-                    cy={yOf(vals[hoveredIdx]!)}
-                    r={4}
-                    fill={color}
-                    stroke="white"
-                    strokeWidth="2"
-                  />
-                ))}
-
-              {/* X-axis date labels */}
-              {labelIndices.map((i) => (
-                <text
-                  key={i}
-                  x={xOf(i)}
-                  y={H - 4}
-                  textAnchor={i === 0 ? "start" : i === history.length - 1 ? "end" : "middle"}
-                  fontSize="8"
-                  className="fill-slate-400 dark:fill-slate-500"
-                >
-                  {formatDate(history[i]!.timestamp)}
-                </text>
-              ))}
-            </svg>
-
-            {/* Tooltip */}
-            {hovered && hoveredIdx !== null && (
-              <div
-                className="pointer-events-none absolute z-10 min-w-[140px] rounded-lg border border-slate-200 bg-white/95 px-3 py-2.5 shadow-lg backdrop-blur-sm dark:border-slate-600 dark:bg-slate-800/95"
-                style={{
-                  top: 4,
-                  left:
-                    hoveredIdx < history.length / 2
-                      ? `calc(${(xOf(hoveredIdx) / W) * 100}% + 12px)`
-                      : undefined,
-                  right:
-                    hoveredIdx >= history.length / 2
-                      ? `calc(${((W - xOf(hoveredIdx)) / W) * 100}% + 12px)`
-                      : undefined,
-                }}
-              >
-                <p className="mb-2 border-b border-slate-100 pb-1.5 text-[10px] font-semibold text-slate-500 dark:border-slate-700">
-                  {formatDateTime(hovered.timestamp)}
-                </p>
-                <div className="space-y-1">
-                  {[
-                    {
-                      label: "Coverage",
-                      value: `${hovered.coveragePct}%`,
-                      color: "#3b82f6",
-                    },
-                    {
-                      label: "Passed",
-                      value: `${hovered.total > 0 ? Math.round((hovered.passCount / hovered.total) * 100) : 0}%`,
-                      color: "#10b981",
-                    },
-                    {
-                      label: "Failed",
-                      value: `${hovered.total > 0 ? Math.round((hovered.failCount / hovered.total) * 100) : 0}%`,
-                      color: "#ef4444",
-                    },
-                    {
-                      label: "Not yet run",
-                      value: `${hovered.todoCount} / ${hovered.total}`,
-                      color: "#94a3b8",
-                    },
-                  ].map(({ label, value, color }) => (
-                    <div key={label} className="flex items-center gap-2 text-[11px]">
-                      <span
-                        className="inline-block h-2 w-2 shrink-0 rounded-full"
-                        style={{ backgroundColor: color }}
-                      />
-                      <span className="text-slate-500 dark:text-slate-400">{label}</span>
-                      <span className="ml-auto tabular-nums font-semibold text-slate-700 dark:text-slate-200">
-                        {value}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
+      <ul className="space-y-2.5">
+        {data.map((item, i) => (
+          <li key={i} className="flex items-start gap-2 text-xs">
+            {item.type === "critical" ? (
+              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-red-500" />
+            ) : item.type === "warn" ? (
+              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500" />
+            ) : item.type === "ok" ? (
+              <CheckSquare2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-500" />
+            ) : (
+              <Clock className="mt-0.5 h-3.5 w-3.5 shrink-0 text-blue-400" />
             )}
-          </div>
-        </>
-      )}
+            <span
+              className={
+                item.type === "critical"
+                  ? "text-red-700 dark:text-red-300"
+                  : item.type === "warn"
+                    ? "text-slate-700 dark:text-slate-200"
+                    : item.type === "ok"
+                      ? "text-emerald-700 dark:text-emerald-300"
+                      : "text-slate-500 dark:text-slate-400"
+              }
+            >
+              {item.text}
+            </span>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
 
-// ── Overall dashboard card ────────────────────────────────────────────────────
+function FailureConcentrationPanel({
+  selectedSets,
+  queryBySetId,
+}: {
+  selectedSets: XrayTestSet[];
+  queryBySetId: SetQueryMap;
+}) {
+  const ranked = useMemo(() => {
+    return selectedSets
+      .map((ts) => {
+        const tests = queryBySetId.get(ts.issue_id)?.tests ?? [];
+        const failCount = tests.filter(
+          (t) => findSlice(t.latest_status?.name ?? "TODO").key === "FAIL",
+        ).length;
+        return { ts, failCount, total: tests.length };
+      })
+      .filter((r) => r.failCount > 0)
+      .sort((a, b) => b.failCount - a.failCount);
+  }, [selectedSets, queryBySetId]);
+
+  if (ranked.length === 0) return null;
+
+  const maxFails = ranked[0]!.failCount;
+
+  return (
+    <div className="rounded-xl border border-slate-100 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800/60">
+      <div className="mb-3 flex items-center gap-1.5">
+        <XCircle className="h-3.5 w-3.5 text-red-400" />
+        <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+          Failure concentration
+        </p>
+      </div>
+      <div className="space-y-3">
+        {ranked.map(({ ts, failCount, total }) => {
+          const pct = total > 0 ? Math.round((failCount / total) * 100) : 0;
+          const barWidth = maxFails > 0 ? (failCount / maxFails) * 100 : 0;
+          return (
+            <div key={ts.issue_id}>
+              <div className="mb-1 flex items-center justify-between gap-2">
+                <div className="min-w-0 flex-1">
+                  <span className="block truncate text-xs font-medium text-slate-700 dark:text-slate-200">
+                    {ts.jira.summary}
+                  </span>
+                  <span className="font-mono text-[10px] text-slate-400">{ts.jira.key}</span>
+                </div>
+                <span className="shrink-0 text-xs font-semibold text-red-600 dark:text-red-400">
+                  {failCount} ({pct}%)
+                </span>
+              </div>
+              <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700">
+                <div
+                  className="h-full rounded-full bg-red-400 transition-all duration-500"
+                  style={{ width: `${barWidth}%` }}
+                />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function NeverRunPanel({
+  selectedSets,
+  queryBySetId,
+}: {
+  selectedSets: XrayTestSet[];
+  queryBySetId: SetQueryMap;
+}) {
+  const ranked = useMemo(() => {
+    return selectedSets
+      .map((ts) => {
+        const tests = queryBySetId.get(ts.issue_id)?.tests ?? [];
+        const neverRun = tests.filter((t) => t.latest_status?.is_final !== true).length;
+        return { ts, neverRun, total: tests.length };
+      })
+      .filter((r) => r.neverRun > 0)
+      .sort((a, b) => b.neverRun - a.neverRun);
+  }, [selectedSets, queryBySetId]);
+
+  if (ranked.length === 0) return null;
+
+  const maxNever = ranked[0]!.neverRun;
+
+  return (
+    <div className="rounded-xl border border-slate-100 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800/60">
+      <div className="mb-3 flex items-center gap-1.5">
+        <Clock className="h-3.5 w-3.5 text-amber-400" />
+        <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+          Never-run tests
+        </p>
+      </div>
+      <div className="space-y-3">
+        {ranked.map(({ ts, neverRun, total }) => {
+          const pct = total > 0 ? Math.round((neverRun / total) * 100) : 0;
+          const barWidth = maxNever > 0 ? (neverRun / maxNever) * 100 : 0;
+          return (
+            <div key={ts.issue_id}>
+              <div className="mb-1 flex items-center justify-between gap-2">
+                <div className="min-w-0 flex-1">
+                  <span className="block truncate text-xs font-medium text-slate-700 dark:text-slate-200">
+                    {ts.jira.summary}
+                  </span>
+                  <span className="font-mono text-[10px] text-slate-400">{ts.jira.key}</span>
+                </div>
+                <span className="shrink-0 text-xs font-semibold text-amber-600 dark:text-amber-400">
+                  {neverRun} ({pct}%)
+                </span>
+              </div>
+              <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700">
+                <div
+                  className="h-full rounded-full bg-amber-400 transition-all duration-500"
+                  style={{ width: `${barWidth}%` }}
+                />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
 
 interface OverallDashboardProps {
   allTests: XrayTestWithStatus[];
   selectedCount: number;
-  queryBySetId: Map<
-    string,
-    { tests: XrayTestWithStatus[] | undefined; isLoading: boolean; isError: boolean }
-  >;
-  history: CoverageSnapshot[];
-  onClearHistory: () => void;
+  queryBySetId: SetQueryMap;
 }
 
 function OverallDashboard({
   allTests,
   selectedCount,
   queryBySetId,
-  history,
-  onClearHistory,
 }: OverallDashboardProps) {
   const slices = useMemo(() => buildSlicesFromTests(allTests), [allTests]);
   const total = allTests.length;
@@ -1077,8 +1141,6 @@ function OverallDashboard({
           </div>
         </div>
 
-        {/* ── Coverage history sparkline ── */}
-        <CoverageHistoryPanel history={history} onClear={onClearHistory} />
       </div>
     </div>
   );
@@ -1562,51 +1624,6 @@ function StatusBadge({ name, color }: StatusBadgeProps) {
   );
 }
 
-// ── Status filter chips ───────────────────────────────────────────────────────
-
-interface StatusFilterChipsProps {
-  slices: Slice[];
-  activeFilter: string | null;
-  onToggle: (key: string) => void;
-}
-
-function StatusFilterChips({ slices, activeFilter, onToggle }: StatusFilterChipsProps) {
-  if (slices.length === 0) return null;
-  return (
-    <div className="flex flex-wrap items-center gap-1.5">
-      <span className="text-[10px] font-medium text-slate-400">Filter:</span>
-      {slices.map((sl) => {
-        const isActive = activeFilter === sl.key;
-        return (
-          <button
-            key={sl.key}
-            onClick={() => onToggle(sl.key)}
-            className={cn(
-              "flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors",
-              isActive
-                ? "border-transparent text-white"
-                : "border-slate-200 bg-white text-slate-500 hover:border-slate-300 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-400 dark:hover:border-slate-500 dark:hover:bg-slate-700",
-            )}
-            style={isActive ? { backgroundColor: sl.color, borderColor: sl.color } : {}}
-            title={`Show only ${sl.label} tests (${sl.count})`}
-          >
-            {isActive && <XCircle className="h-3 w-3 opacity-80" />}
-            {sl.label}
-            <span
-              className={cn(
-                "ml-0.5 rounded-full px-1 text-[10px]",
-                isActive ? "bg-white/20" : "bg-slate-100 dark:bg-slate-700",
-              )}
-            >
-              {sl.count}
-            </span>
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-
 // ── Presets bar ───────────────────────────────────────────────────────────────
 
 interface PresetsBarProps {
@@ -1865,7 +1882,6 @@ export function CoveragePage() {
 
   const [setSearch, setSetSearch] = useState("");
   const [testSearch, setTestSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState<string | null>(null);
   const [selectedSetIds, setSelectedSetIds] = useState<Set<string>>(new Set());
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
@@ -1942,21 +1958,6 @@ export function CoveragePage() {
     [queryBySetId],
   );
 
-  // Slices for the status filter chips (derived from all loaded tests).
-  const allSlices = useMemo(() => buildSlicesFromTests(allTests), [allTests]);
-
-  // ── Coverage history ─────────────────────────────────────────────────────────
-  const recordSnapshot = useCoverageHistoryStore((s) => s.recordSnapshot);
-  const clearHistory = useCoverageHistoryStore((s) => s.clearHistory);
-  const historyByView = useCoverageHistoryStore((s) => s.history);
-
-  // Stable view key for the current project + set selection.
-  const viewKey = useMemo(
-    () =>
-      projectKey && selectedSetIds.size > 0 ? buildViewKey(projectKey, [...selectedSetIds]) : null,
-    [projectKey, selectedSetIds],
-  );
-
   // All queries are "settled" when none are still loading/fetching.
   const allQueriesSettled = useMemo(
     () =>
@@ -1965,40 +1966,26 @@ export function CoveragePage() {
     [testQueries],
   );
 
-  // Auto-record a snapshot whenever the selection settles with fresh data.
-  useEffect(() => {
-    if (!viewKey || !allQueriesSettled || allTests.length === 0) return;
-
-    const passCount = allSlices.find((s) => s.key === "PASS")?.count ?? 0;
-    const failCount = allSlices.find((s) => s.key === "FAIL")?.count ?? 0;
-    const todoCount = allTests.filter((t) => t.latest_status?.is_final !== true).length;
-    const runCount = allTests.length - todoCount;
-    const coveragePct = allTests.length > 0 ? Math.round((runCount / allTests.length) * 100) : 0;
-
-    recordSnapshot(viewKey, {
-      total: allTests.length,
-      runCount,
-      passCount,
-      failCount,
-      todoCount,
-      coveragePct,
-    });
-  }, [viewKey, allQueriesSettled, allTests, allSlices, recordSnapshot]);
-
-  // Snapshots for the current view key, oldest-first.
-  const currentHistory = useMemo(
-    () => (viewKey ? (historyByView[viewKey] ?? []) : []),
-    [viewKey, historyByView],
-  );
-
-  const handleToggleStatusFilter = (key: string) => {
-    setStatusFilter((prev) => (prev === key ? null : key));
-  };
-
   const handleRefresh = async () => {
     setIsRefreshing(true);
     await refetchSets();
     setIsRefreshing(false);
+  };
+
+  const [isRefetchingResults, setIsRefetchingResults] = useState(false);
+  const [coverageTab, setCoverageTab] = useState<"coverage" | "analysis">("coverage");
+
+  const handleRefetchResults = async () => {
+    if (selectedSets.length === 0) return;
+    setIsRefetchingResults(true);
+    await Promise.all(
+      selectedSets.map((ts) =>
+        queryClient.refetchQueries({
+          queryKey: queryKeys.testSetTestsWithStatus(ts.issue_id),
+        }),
+      ),
+    );
+    setIsRefetchingResults(false);
   };
 
   const handleExportPDF = async () => {
@@ -2228,7 +2215,7 @@ export function CoveragePage() {
       </div>
 
       {/* ── Right panel: coverage dashboard ── */}
-      <div className="flex min-w-0 flex-1 flex-col gap-4 overflow-hidden">
+      <div className="flex min-w-0 flex-1 flex-col gap-3 overflow-hidden">
         {/* Header row */}
         <div className="flex flex-wrap items-center gap-3">
           <div className="flex items-center gap-2">
@@ -2240,42 +2227,21 @@ export function CoveragePage() {
               </span>
             </h1>
           </div>
-          {/* Status filter chips — shown when tests are loaded */}
-          {allSlices.length > 0 && (
-            <StatusFilterChips
-              slices={allSlices}
-              activeFilter={statusFilter}
-              onToggle={handleToggleStatusFilter}
-            />
-          )}
-          <div className="relative ml-auto w-48 shrink-0">
-            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
-            <Input
-              className="pl-8 text-xs"
-              placeholder="Filter tests…"
-              value={testSearch}
-              onChange={(e) => setTestSearch(e.target.value)}
-            />
-          </div>
-          {selectedSets.length > 1 && (
-            <div className="flex items-center gap-1 ml-auto">
-              <button
-                onClick={() => setExpandSignal((n) => n + 1)}
-                className="flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-700 dark:hover:text-slate-200"
-                title="Expand all test sets"
-              >
-                <ChevronsDown className="h-3.5 w-3.5" />
-                Expand all
-              </button>
-              <button
-                onClick={() => setCollapseSignal((n) => n + 1)}
-                className="flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-700 dark:hover:text-slate-200"
-                title="Collapse all test sets"
-              >
-                <ChevronsUp className="h-3.5 w-3.5" />
-                Collapse all
-              </button>
-            </div>
+          {/* Refetch results */}
+          {selectedSets.length > 0 && (
+            <button
+              onClick={() => void handleRefetchResults()}
+              disabled={isRefetchingResults}
+              className="ml-auto flex shrink-0 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 hover:border-slate-300 hover:bg-slate-50 disabled:opacity-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:border-slate-500 dark:hover:bg-slate-700"
+              title="Refetch latest results for selected test sets"
+            >
+              {isRefetchingResults ? (
+                <Spinner size="sm" />
+              ) : (
+                <RefreshCw className="h-3.5 w-3.5" />
+              )}
+              Refetch results
+            </button>
           )}
           {/* PDF Export */}
           {selectedSets.length > 0 && (
@@ -2301,6 +2267,26 @@ export function CoveragePage() {
           )}
         </div>
 
+        {/* Tab bar */}
+        {selectedSets.length > 0 && (
+          <div className="flex items-center gap-1 border-b border-slate-200 dark:border-slate-700">
+            {(["coverage", "analysis"] as const).map((tab) => (
+              <button
+                key={tab}
+                onClick={() => setCoverageTab(tab)}
+                className={cn(
+                  "px-4 py-2 text-sm font-medium capitalize transition-colors",
+                  coverageTab === tab
+                    ? "border-b-2 border-slate-800 text-slate-900 dark:border-slate-300 dark:text-slate-100"
+                    : "text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200",
+                )}
+              >
+                {tab}
+              </button>
+            ))}
+          </div>
+        )}
+
         {selectedSets.length === 0 && (
           <div className="flex flex-1 flex-col items-center justify-center gap-3 text-slate-400 dark:text-slate-500">
             <Layers className="h-12 w-12 opacity-30" />
@@ -2308,42 +2294,87 @@ export function CoveragePage() {
           </div>
         )}
 
-        {selectedSets.length > 0 && (
-          <div className="flex-1 space-y-4 overflow-y-auto pb-4">
-            {/* Overall dashboard with smarter metrics + coverage completeness */}
-            <OverallDashboard
-              allTests={allTests}
-              selectedCount={selectedSets.length}
-              queryBySetId={queryBySetId}
-              history={currentHistory}
-              onClearHistory={() => {
-                if (viewKey) clearHistory(viewKey);
-              }}
-            />
-
-            {/* Per-set sections */}
-            {selectedSets.map((ts) => {
-              const q = queryBySetId.get(ts.issue_id);
-              return (
-                <TestSetSection
-                  key={ts.issue_id}
-                  testSet={ts}
-                  tests={q?.tests}
-                  isLoading={q?.isLoading ?? false}
-                  isError={q?.isError ?? false}
-                  error={q?.error}
-                  onRetry={() =>
-                    void queryClient.refetchQueries({
-                      queryKey: queryKeys.testSetTestsWithStatus(ts.issue_id),
-                    })
-                  }
-                  testSearch={testSearch}
-                  statusFilter={statusFilter}
-                  expandSignal={expandSignal}
-                  collapseSignal={collapseSignal}
+        {selectedSets.length > 0 && coverageTab === "coverage" && (
+          <>
+            {/* Coverage tab toolbar */}
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="relative ml-auto w-48 shrink-0">
+                <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+                <Input
+                  className="pl-8 text-xs"
+                  placeholder="Filter tests…"
+                  value={testSearch}
+                  onChange={(e) => setTestSearch(e.target.value)}
                 />
-              );
-            })}
+              </div>
+              {selectedSets.length > 1 && (
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => setExpandSignal((n) => n + 1)}
+                    className="flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-700 dark:hover:text-slate-200"
+                    title="Expand all test sets"
+                  >
+                    <ChevronsDown className="h-3.5 w-3.5" />
+                    Expand all
+                  </button>
+                  <button
+                    onClick={() => setCollapseSignal((n) => n + 1)}
+                    className="flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-700 dark:hover:text-slate-200"
+                    title="Collapse all test sets"
+                  >
+                    <ChevronsUp className="h-3.5 w-3.5" />
+                    Collapse all
+                  </button>
+                </div>
+              )}
+            </div>
+            <div className="flex-1 space-y-4 overflow-y-auto pb-4">
+              <OverallDashboard
+                allTests={allTests}
+                selectedCount={selectedSets.length}
+                queryBySetId={queryBySetId}
+              />
+              {selectedSets.map((ts) => {
+                const q = queryBySetId.get(ts.issue_id);
+                return (
+                  <TestSetSection
+                    key={ts.issue_id}
+                    testSet={ts}
+                    tests={q?.tests}
+                    isLoading={q?.isLoading ?? false}
+                    isError={q?.isError ?? false}
+                    error={q?.error}
+                    onRetry={() =>
+                      void queryClient.refetchQueries({
+                        queryKey: queryKeys.testSetTestsWithStatus(ts.issue_id),
+                      })
+                    }
+                    testSearch={testSearch}
+                    statusFilter={null}
+                    expandSignal={expandSignal}
+                    collapseSignal={collapseSignal}
+                  />
+                );
+              })}
+            </div>
+          </>
+        )}
+
+        {selectedSets.length > 0 && coverageTab === "analysis" && (
+          <div className="flex-1 space-y-4 overflow-y-auto pb-4">
+            <InsightsPanel
+              allTests={allTests}
+              selectedSets={selectedSets}
+              queryBySetId={queryBySetId}
+            />
+            <FailureConcentrationPanel
+              selectedSets={selectedSets}
+              queryBySetId={queryBySetId}
+            />
+            <NeverRunPanel
+              selectedSets={selectedSets}
+              queryBySetId={queryBySetId}
+            />
           </div>
         )}
       </div>
