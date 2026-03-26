@@ -2,6 +2,145 @@
 use anyhow::{bail, Result};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use reqwest::header::{HeaderMap, HeaderValue};
+
+    // ── validate_project_key ──────────────────────────────────────────────────
+
+    #[test]
+    fn validate_project_key_accepts_uppercase_letters() {
+        assert!(validate_project_key("PROJ").is_ok());
+        assert!(validate_project_key("MYPROJECT").is_ok());
+    }
+
+    #[test]
+    fn validate_project_key_accepts_digits_and_underscores() {
+        assert!(validate_project_key("PROJ123").is_ok());
+        assert!(validate_project_key("MY_PROJECT").is_ok());
+        assert!(validate_project_key("P1_2").is_ok());
+    }
+
+    #[test]
+    fn validate_project_key_rejects_empty_string() {
+        let err = validate_project_key("").unwrap_err();
+        assert!(err.to_string().contains("empty"));
+    }
+
+    #[test]
+    fn validate_project_key_rejects_lowercase() {
+        assert!(validate_project_key("proj").is_err());
+        assert!(validate_project_key("Proj").is_err());
+    }
+
+    #[test]
+    fn validate_project_key_rejects_special_characters() {
+        assert!(validate_project_key("PROJ-1").is_err());
+        assert!(validate_project_key("PROJ.1").is_err());
+        assert!(validate_project_key("'; DROP TABLE--").is_err());
+    }
+
+    // ── escape_jql_string ─────────────────────────────────────────────────────
+
+    #[test]
+    fn escape_jql_string_leaves_plain_strings_unchanged() {
+        assert_eq!(escape_jql_string("hello world"), "hello world");
+        assert_eq!(escape_jql_string(""), "");
+    }
+
+    #[test]
+    fn escape_jql_string_escapes_double_quotes() {
+        assert_eq!(escape_jql_string(r#"say "hello""#), r#"say \"hello\""#);
+    }
+
+    #[test]
+    fn escape_jql_string_handles_multiple_quotes() {
+        // Two consecutive double-quotes → each escaped independently.
+        assert_eq!(escape_jql_string(r#""""#), r#"\"\""#);
+    }
+
+    // ── truncate_body ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn truncate_body_leaves_short_strings_unchanged() {
+        assert_eq!(truncate_body("hello"), "hello");
+        assert_eq!(truncate_body(""), "");
+    }
+
+    #[test]
+    fn truncate_body_leaves_exactly_200_char_string_unchanged() {
+        let s: String = "a".repeat(200);
+        assert_eq!(truncate_body(&s).len(), 200);
+    }
+
+    #[test]
+    fn truncate_body_truncates_strings_longer_than_200_chars() {
+        let s: String = "a".repeat(300);
+        let result = truncate_body(&s);
+        assert!(result.len() <= 200);
+    }
+
+    #[test]
+    fn truncate_body_produces_valid_utf8_on_multibyte_chars() {
+        // Each '日' is 3 bytes; 67 of them = 201 bytes — just over the 200-byte limit.
+        let s: String = "日".repeat(67);
+        let result = truncate_body(&s);
+        assert!(std::str::from_utf8(result.as_bytes()).is_ok());
+    }
+
+    // ── rate_limit_until_ms ───────────────────────────────────────────────────
+
+    #[test]
+    fn rate_limit_until_ms_returns_none_for_empty_headers() {
+        let headers = HeaderMap::new();
+        assert!(rate_limit_until_ms(&headers).is_none());
+    }
+
+    #[test]
+    fn rate_limit_until_ms_parses_x_ratelimit_reset() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "x-ratelimit-reset",
+            HeaderValue::from_static("1700000000"),
+        );
+        let result = rate_limit_until_ms(&headers).unwrap();
+        assert_eq!(result, 1_700_000_000_000u64);
+    }
+
+    #[test]
+    fn rate_limit_until_ms_falls_back_to_retry_after() {
+        let mut headers = HeaderMap::new();
+        headers.insert("retry-after", HeaderValue::from_static("60"));
+        let result = rate_limit_until_ms(&headers).unwrap();
+        let now_ms = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as u64;
+        // Should be roughly now + 60 seconds, allow ±2s for test execution time.
+        assert!(result >= now_ms + 58_000);
+        assert!(result <= now_ms + 62_000);
+    }
+
+    #[test]
+    fn rate_limit_until_ms_returns_none_for_non_numeric_header() {
+        let mut headers = HeaderMap::new();
+        headers.insert("x-ratelimit-reset", HeaderValue::from_static("not-a-number"));
+        headers.insert("retry-after", HeaderValue::from_static("also-bad"));
+        assert!(rate_limit_until_ms(&headers).is_none());
+    }
+
+    #[test]
+    fn rate_limit_until_ms_prefers_x_ratelimit_reset_over_retry_after() {
+        let mut headers = HeaderMap::new();
+        headers.insert("x-ratelimit-reset", HeaderValue::from_static("2000000000"));
+        headers.insert("retry-after", HeaderValue::from_static("1"));
+        let result = rate_limit_until_ms(&headers).unwrap();
+        // Must come from X-RateLimit-Reset (absolute epoch), not Retry-After (relative).
+        assert_eq!(result, 2_000_000_000_000u64);
+    }
+}
+
 /// Validate that a Jira project key contains only safe characters (`[A-Z0-9_]+`).
 ///
 /// Jira enforces this format server-side, but we validate early to prevent
