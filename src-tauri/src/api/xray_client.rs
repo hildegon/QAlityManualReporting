@@ -15,8 +15,9 @@ use crate::models::xray::{
     StepStatusesResult, TestExecutionsResult, TestLastRunEntry, TestPlanResult, TestPlansResult,
     TestRunIteration, TestRunsResult, TestSetMemberInfo,
     TestSetMembershipsResponse, TestSetResult, TestSetWithStatusResult, TestSetsResult,
-    TestsForHealthResult, TestRunsForHealthResult, TestsResult, TestsStreamPage, UpdateTestRunStatusInput, XrayAuthRequest,
-    XrayStepStatus, XrayTest, XrayTestRunStatus, XrayTestSet, XrayTestWithStatus,
+    TestsExportResult, TestsForHealthResult, TestRunsForHealthResult, TestsResult, TestsStreamPage,
+    UpdateTestRunStatusInput, XrayAuthRequest, XrayStepStatus, XrayTest, XrayTestExportData,
+    XrayTestRunStatus, XrayTestSet, XrayTestWithStatus,
 };
 
 const XRAY_AUTH_URL: &str = "https://xray.cloud.getxray.app/api/v2/authenticate";
@@ -524,7 +525,8 @@ impl XrayClient {
                     limit
                     results {
                         issueId
-                        jira(fields: ["key", "summary", "status"])
+                        testType { name }
+                        jira(fields: ["key", "summary", "status", "priority", "components", "labels", "created", "assignee"])
                     }
                 }
             }
@@ -802,6 +804,49 @@ impl XrayClient {
             }
         }
         Ok(())
+    }
+
+    // ── Export (tests with steps) ─────────────────────────────────────────────
+
+    /// Fetch steps, gherkin, and unstructured content for the given test issue IDs.
+    ///
+    /// Queries in batches of 50 using `id in (...)` JQL so the main test-list
+    /// query stays lean. Returns one entry per test.
+    pub async fn get_tests_export_data(
+        &self,
+        test_issue_ids: &[String],
+    ) -> Result<Vec<XrayTestExportData>> {
+        const BATCH_SIZE: usize = 50;
+        let mut all: Vec<XrayTestExportData> = Vec::new();
+
+        let query = r#"
+            query GetTestsExport($jql: String!, $limit: Int!) {
+                getTests(jql: $jql, limit: $limit, start: 0) {
+                    results {
+                        issueId
+                        steps {
+                            id
+                            action
+                            data
+                            result
+                        }
+                        gherkin
+                        unstructured
+                    }
+                }
+            }
+        "#;
+
+        for chunk in test_issue_ids.chunks(BATCH_SIZE) {
+            let ids_jql = chunk.join(", ");
+            let jql = format!("id in ({ids_jql})");
+            let result: TestsExportResult = self
+                .graphql(query, serde_json::json!({ "jql": jql, "limit": chunk.len() as u32 }))
+                .await?;
+            all.extend(result.get_tests.results);
+        }
+
+        Ok(all)
     }
 
     // ── Test Sets ─────────────────────────────────────────────────────────────

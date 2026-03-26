@@ -86,6 +86,9 @@ export function CreateTestPage() {
   const [keepContext, setKeepContext] = useState(false);
   const [createdKey, setCreatedKey] = useState<string | null>(null);
   const [linkErrors, setLinkErrors] = useState<string[]>([]);
+  const [showComponentPicker, setShowComponentPicker] = useState(false);
+  const [showSetPicker, setShowSetPicker] = useState(false);
+  const pendingFocusIdRef = useRef<string | null>(null);
 
   // ── Bulk tab state ─────────────────────────────────────────────────────────
 
@@ -108,7 +111,11 @@ export function CreateTestPage() {
     setComponentSearch("");
   };
 
-  const addStep = () => setSteps((prev) => [...prev, newDraftStep()]);
+  const addStep = () => {
+    const step = newDraftStep();
+    pendingFocusIdRef.current = step._id;
+    setSteps((prev) => [...prev, step]);
+  };
 
   const removeStep = (id: string) =>
     setSteps((prev) => (prev.length > 1 ? prev.filter((s) => s._id !== id) : prev));
@@ -126,6 +133,31 @@ export function CreateTestPage() {
       return next;
     });
   };
+
+  const duplicateStep = (id: string) => {
+    setSteps((prev) => {
+      const idx = prev.findIndex((s) => s._id === id);
+      if (idx < 0) return prev;
+      const cloneId = String(++_nextId);
+      pendingFocusIdRef.current = cloneId;
+      const clone: DraftStep = { ...prev[idx]!, _id: cloneId };
+      const next = [...prev];
+      next.splice(idx + 1, 0, clone);
+      return next;
+    });
+  };
+
+  // Auto-focus the Action textarea of a newly added/duplicated step.
+  useEffect(() => {
+    if (!pendingFocusIdRef.current) return;
+    const el = document.querySelector<HTMLTextAreaElement>(
+      `[data-step-id="${pendingFocusIdRef.current}"]`,
+    );
+    if (el) {
+      el.focus();
+      pendingFocusIdRef.current = null;
+    }
+  });
 
   const toggleSet = (issueId: string) =>
     setSelectedSetIds((prev) => {
@@ -412,104 +444,186 @@ export function CreateTestPage() {
               />
             </div>
 
+            {/* Steps */}
+            <div className="space-y-3">
+              <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                Test Steps ({steps.length})
+              </span>
+
+              <div className="space-y-2">
+                {steps.map((step, index) => (
+                  <StepRow
+                    key={step._id}
+                    step={step}
+                    index={index}
+                    total={steps.length}
+                    disabled={isSubmitting}
+                    onChange={(field, value) => updateStep(step._id, field, value)}
+                    onRemove={() => removeStep(step._id)}
+                    onDuplicate={() => duplicateStep(step._id)}
+                    {...(index > 0 ? { onMoveUp: () => moveStep(index, index - 1) } : {})}
+                    {...(index < steps.length - 1
+                      ? { onMoveDown: () => moveStep(index, index + 1) }
+                      : {})}
+                    {...(index === steps.length - 1 ? { onTabFromResult: addStep } : {})}
+                  />
+                ))}
+              </div>
+
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={addStep}
+                disabled={isSubmitting}
+              >
+                <Plus className="h-3.5 w-3.5" />
+                Add step
+              </Button>
+
+              <p className="text-xs text-slate-400 dark:text-slate-500">
+                Steps with an empty action will be omitted when saving.
+              </p>
+            </div>
+
             {/* Component */}
             <div className="space-y-1.5">
-              <Label>
-                Component <span className="font-normal text-slate-400">(optional)</span>
-              </Label>
-
-              {jiraConfigured ? (
-                <div className="space-y-2">
-                  {componentName && (
-                    <span className="inline-flex items-center gap-1 rounded-full border border-slate-300 bg-slate-100 py-0.5 pl-2.5 pr-1.5 text-xs font-medium text-slate-700 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200">
-                      <Tag className="h-3 w-3 text-slate-400" />
-                      {componentName}
-                      <button
-                        type="button"
-                        onClick={clearComponent}
-                        disabled={isSubmitting}
-                        className="ml-0.5 rounded-full text-slate-400 hover:text-slate-600 disabled:opacity-50"
-                        aria-label="Clear component"
-                      >
-                        <X className="h-3 w-3" />
-                      </button>
-                    </span>
+              <button
+                type="button"
+                onClick={() => setShowComponentPicker((p) => !p)}
+                className="flex w-full items-center gap-2 rounded-md py-0.5 text-left text-sm font-medium text-slate-700 hover:text-slate-900 dark:text-slate-300 dark:hover:text-slate-100"
+              >
+                <span className="flex-1">
+                  Component{" "}
+                  {componentName ? (
+                    <span className="font-normal text-slate-500">— {componentName}</span>
+                  ) : (
+                    <span className="font-normal text-slate-400">(optional)</span>
                   )}
+                </span>
+                <ChevronDown
+                  className={cn(
+                    "h-4 w-4 shrink-0 text-slate-400 transition-transform",
+                    showComponentPicker && "rotate-180",
+                  )}
+                />
+              </button>
 
-                  <div className="rounded-lg border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-800">
-                    <div className="flex items-center gap-2 border-b border-slate-100 px-3 py-2 dark:border-slate-700">
-                      <Search className="h-3.5 w-3.5 shrink-0 text-slate-400" />
-                      <input
-                        type="text"
-                        placeholder="Filter components…"
-                        value={componentSearch}
-                        onChange={(e) => setComponentSearch(e.target.value)}
-                        disabled={isSubmitting}
-                        className="w-full bg-transparent text-sm text-slate-700 placeholder:text-slate-400 focus:outline-none disabled:cursor-not-allowed dark:text-slate-200 dark:placeholder:text-slate-500"
-                      />
-                      {componentSearch && (
-                        <button
-                          type="button"
-                          onClick={() => setComponentSearch("")}
-                          className="text-slate-400 hover:text-slate-600"
-                          aria-label="Clear filter"
-                        >
-                          <X className="h-3.5 w-3.5" />
-                        </button>
-                      )}
-                    </div>
-
-                    <div className="max-h-40 overflow-y-auto">
-                      {componentsLoading ? (
-                        <div className="flex items-center justify-center py-6">
-                          <Spinner className="h-4 w-4 text-slate-400" />
-                        </div>
-                      ) : filteredComponents.length === 0 ? (
-                        <p className="py-6 text-center text-xs text-slate-400">
-                          {(components ?? []).length === 0
-                            ? "No components found in this project."
-                            : "No components match your filter."}
-                        </p>
-                      ) : (
-                        filteredComponents.map((c) => (
-                          <ComponentRow
-                            key={c.id}
-                            name={c.name}
-                            selected={componentName === c.name}
-                            disabled={isSubmitting}
-                            onSelect={() =>
-                              setComponentName((prev) => (prev === c.name ? "" : c.name))
-                            }
-                          />
-                        ))
-                      )}
-                    </div>
-                  </div>
-
-                  <p className="text-xs text-slate-400 dark:text-slate-500">
-                    Assigned as a Jira component on the created test issue.
-                  </p>
-                </div>
-              ) : (
-                <div className="space-y-1.5">
-                  <Input
-                    placeholder="e.g. Authentication"
-                    value={componentName}
-                    onChange={(e) => setComponentName(e.target.value)}
+              {componentName && (
+                <span className="inline-flex items-center gap-1 rounded-full border border-slate-300 bg-slate-100 py-0.5 pl-2.5 pr-1.5 text-xs font-medium text-slate-700 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200">
+                  <Tag className="h-3 w-3 text-slate-400" />
+                  {componentName}
+                  <button
+                    type="button"
+                    onClick={clearComponent}
                     disabled={isSubmitting}
-                  />
-                  <p className="text-xs text-slate-400 dark:text-slate-500">
-                    Configure Jira credentials in Settings for component autocomplete.
-                  </p>
+                    className="ml-0.5 rounded-full text-slate-400 hover:text-slate-600 disabled:opacity-50"
+                    aria-label="Clear component"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </span>
+              )}
+
+              {showComponentPicker && (
+                <div className="space-y-2">
+                  {jiraConfigured ? (
+                    <>
+                      <div className="rounded-lg border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-800">
+                        <div className="flex items-center gap-2 border-b border-slate-100 px-3 py-2 dark:border-slate-700">
+                          <Search className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+                          <input
+                            type="text"
+                            placeholder="Filter components…"
+                            value={componentSearch}
+                            onChange={(e) => setComponentSearch(e.target.value)}
+                            disabled={isSubmitting}
+                            className="w-full bg-transparent text-sm text-slate-700 placeholder:text-slate-400 focus:outline-none disabled:cursor-not-allowed dark:text-slate-200 dark:placeholder:text-slate-500"
+                          />
+                          {componentSearch && (
+                            <button
+                              type="button"
+                              onClick={() => setComponentSearch("")}
+                              className="text-slate-400 hover:text-slate-600"
+                              aria-label="Clear filter"
+                            >
+                              <X className="h-3.5 w-3.5" />
+                            </button>
+                          )}
+                        </div>
+
+                        <div className="max-h-40 overflow-y-auto">
+                          {componentsLoading ? (
+                            <div className="flex items-center justify-center py-6">
+                              <Spinner className="h-4 w-4 text-slate-400" />
+                            </div>
+                          ) : filteredComponents.length === 0 ? (
+                            <p className="py-6 text-center text-xs text-slate-400">
+                              {(components ?? []).length === 0
+                                ? "No components found in this project."
+                                : "No components match your filter."}
+                            </p>
+                          ) : (
+                            filteredComponents.map((c) => (
+                              <ComponentRow
+                                key={c.id}
+                                name={c.name}
+                                selected={componentName === c.name}
+                                disabled={isSubmitting}
+                                onSelect={() =>
+                                  setComponentName((prev) => (prev === c.name ? "" : c.name))
+                                }
+                              />
+                            ))
+                          )}
+                        </div>
+                      </div>
+
+                      <p className="text-xs text-slate-400 dark:text-slate-500">
+                        Assigned as a Jira component on the created test issue.
+                      </p>
+                    </>
+                  ) : (
+                    <div className="space-y-1.5">
+                      <Input
+                        placeholder="e.g. Authentication"
+                        value={componentName}
+                        onChange={(e) => setComponentName(e.target.value)}
+                        disabled={isSubmitting}
+                      />
+                      <p className="text-xs text-slate-400 dark:text-slate-500">
+                        Configure Jira credentials in Settings for component autocomplete.
+                      </p>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
 
-            {/* Test Sets picker */}
-            <div className="space-y-2">
-              <Label>
-                Test Sets <span className="font-normal text-slate-400">(optional)</span>
-              </Label>
+            {/* Test Sets */}
+            <div className="space-y-1.5">
+              <button
+                type="button"
+                onClick={() => setShowSetPicker((p) => !p)}
+                className="flex w-full items-center gap-2 rounded-md py-0.5 text-left text-sm font-medium text-slate-700 hover:text-slate-900 dark:text-slate-300 dark:hover:text-slate-100"
+              >
+                <span className="flex-1">
+                  Test Sets{" "}
+                  {selectedSets.length > 0 ? (
+                    <span className="font-normal text-slate-500">
+                      — {selectedSets.length} selected
+                    </span>
+                  ) : (
+                    <span className="font-normal text-slate-400">(optional)</span>
+                  )}
+                </span>
+                <ChevronDown
+                  className={cn(
+                    "h-4 w-4 shrink-0 text-slate-400 transition-transform",
+                    showSetPicker && "rotate-180",
+                  )}
+                />
+              </button>
 
               {selectedSets.length > 0 && (
                 <div className="flex flex-wrap gap-1.5">
@@ -534,97 +648,61 @@ export function CreateTestPage() {
                 </div>
               )}
 
-              <div className="rounded-lg border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-800">
-                <div className="flex items-center gap-2 border-b border-slate-100 px-3 py-2 dark:border-slate-700">
-                  <Search className="h-3.5 w-3.5 shrink-0 text-slate-400" />
-                  <input
-                    type="text"
-                    placeholder="Filter test sets…"
-                    value={setSearch}
-                    onChange={(e) => setSetSearch(e.target.value)}
-                    disabled={isSubmitting}
-                    className="w-full bg-transparent text-sm text-slate-700 placeholder:text-slate-400 focus:outline-none disabled:cursor-not-allowed dark:text-slate-200 dark:placeholder:text-slate-500"
-                  />
-                  {setSearch && (
-                    <button
-                      type="button"
-                      onClick={() => setSetSearch("")}
-                      className="text-slate-400 hover:text-slate-600"
-                      aria-label="Clear filter"
-                    >
-                      <X className="h-3.5 w-3.5" />
-                    </button>
-                  )}
-                </div>
-
-                <div className="max-h-52 overflow-y-auto">
-                  {testSetsLoading ? (
-                    <div className="flex items-center justify-center py-6">
-                      <Spinner className="h-4 w-4 text-slate-400" />
-                    </div>
-                  ) : filteredSets.length === 0 ? (
-                    <p className="py-6 text-center text-xs text-slate-400">
-                      {testSets?.length === 0
-                        ? "No test sets found in this project."
-                        : "No test sets match your filter."}
-                    </p>
-                  ) : (
-                    filteredSets.map((ts) => (
-                      <TestSetRow
-                        key={ts.issue_id}
-                        testSet={ts}
-                        selected={selectedSetIds.has(ts.issue_id)}
+              {showSetPicker && (
+                <>
+                  <div className="rounded-lg border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-800">
+                    <div className="flex items-center gap-2 border-b border-slate-100 px-3 py-2 dark:border-slate-700">
+                      <Search className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+                      <input
+                        type="text"
+                        placeholder="Filter test sets…"
+                        value={setSearch}
+                        onChange={(e) => setSetSearch(e.target.value)}
                         disabled={isSubmitting}
-                        onToggle={() => toggleSet(ts.issue_id)}
+                        className="w-full bg-transparent text-sm text-slate-700 placeholder:text-slate-400 focus:outline-none disabled:cursor-not-allowed dark:text-slate-200 dark:placeholder:text-slate-500"
                       />
-                    ))
-                  )}
-                </div>
-              </div>
+                      {setSearch && (
+                        <button
+                          type="button"
+                          onClick={() => setSetSearch("")}
+                          className="text-slate-400 hover:text-slate-600"
+                          aria-label="Clear filter"
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </button>
+                      )}
+                    </div>
 
-              <p className="text-xs text-slate-400 dark:text-slate-500">
-                The new test will be added to every checked test set after it is created.
-              </p>
-            </div>
+                    <div className="max-h-52 overflow-y-auto">
+                      {testSetsLoading ? (
+                        <div className="flex items-center justify-center py-6">
+                          <Spinner className="h-4 w-4 text-slate-400" />
+                        </div>
+                      ) : filteredSets.length === 0 ? (
+                        <p className="py-6 text-center text-xs text-slate-400">
+                          {testSets?.length === 0
+                            ? "No test sets found in this project."
+                            : "No test sets match your filter."}
+                        </p>
+                      ) : (
+                        filteredSets.map((ts) => (
+                          <TestSetRow
+                            key={ts.issue_id}
+                            testSet={ts}
+                            selected={selectedSetIds.has(ts.issue_id)}
+                            disabled={isSubmitting}
+                            onToggle={() => toggleSet(ts.issue_id)}
+                          />
+                        ))
+                      )}
+                    </div>
+                  </div>
 
-            {/* Steps */}
-            <div className="space-y-3">
-              <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
-                Test Steps ({steps.length})
-              </span>
-
-              <div className="space-y-2">
-                {steps.map((step, index) => (
-                  <StepRow
-                    key={step._id}
-                    step={step}
-                    index={index}
-                    total={steps.length}
-                    disabled={isSubmitting}
-                    onChange={(field, value) => updateStep(step._id, field, value)}
-                    onRemove={() => removeStep(step._id)}
-                    {...(index > 0 ? { onMoveUp: () => moveStep(index, index - 1) } : {})}
-                    {...(index < steps.length - 1
-                      ? { onMoveDown: () => moveStep(index, index + 1) }
-                      : {})}
-                  />
-                ))}
-              </div>
-
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={addStep}
-                disabled={isSubmitting}
-              >
-                <Plus className="h-3.5 w-3.5" />
-                Add step
-              </Button>
-
-              <p className="text-xs text-slate-400 dark:text-slate-500">
-                Steps with an empty action will be omitted when saving.
-              </p>
+                  <p className="text-xs text-slate-400 dark:text-slate-500">
+                    The new test will be added to every checked test set after it is created.
+                  </p>
+                </>
+              )}
             </div>
 
             {/* Actions */}
@@ -1195,8 +1273,11 @@ interface StepRowProps {
   disabled: boolean;
   onChange: (field: keyof CreateTestStepInput, value: string) => void;
   onRemove: () => void;
+  onDuplicate: () => void;
   onMoveUp?: (() => void) | undefined;
   onMoveDown?: (() => void) | undefined;
+  /** Called when Tab is pressed on the Expected Result field (last step only). */
+  onTabFromResult?: (() => void) | undefined;
 }
 
 function StepRow({
@@ -1206,8 +1287,10 @@ function StepRow({
   disabled,
   onChange,
   onRemove,
+  onDuplicate,
   onMoveUp,
   onMoveDown,
+  onTabFromResult,
 }: StepRowProps) {
   return (
     <div
@@ -1245,7 +1328,19 @@ function StepRow({
           {total > 1 ? ` / ${total}` : ""}
         </span>
 
-        <div className="ml-auto">
+        <div className="ml-auto flex items-center gap-0.5">
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            onClick={onDuplicate}
+            disabled={disabled}
+            aria-label="Duplicate step"
+            title="Duplicate step"
+            className="h-7 w-7 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
+          >
+            <Copy className="h-3.5 w-3.5" />
+          </Button>
           <Button
             type="button"
             variant="ghost"
@@ -1265,6 +1360,7 @@ function StepRow({
         <div className="space-y-1 sm:col-span-3">
           <Label className="text-xs text-slate-500 dark:text-slate-400">Action *</Label>
           <textarea
+            data-step-id={step._id}
             value={step.action}
             onChange={(e) => onChange("action", e.target.value)}
             disabled={disabled}
@@ -1291,6 +1387,12 @@ function StepRow({
           <textarea
             value={step.result ?? ""}
             onChange={(e) => onChange("result", e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Tab" && !e.shiftKey && onTabFromResult) {
+                e.preventDefault();
+                onTabFromResult();
+              }
+            }}
             disabled={disabled}
             placeholder="Expected outcome (optional)"
             rows={2}

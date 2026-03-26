@@ -6,6 +6,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type {
   AppConfig,
   CreateBugResult,
+  JiraIssueDetail,
   CreateTestExecutionResult,
   CreateTestPlanResult,
   CreateTestResult,
@@ -25,6 +26,7 @@ import type {
   TestSetMembershipsResponse,
   XrayStepStatus,
   XrayTest,
+  XrayTestExportData,
   XrayTestRunStatus,
   XrayTestSet,
   XrayTestWithStatus,
@@ -66,6 +68,28 @@ export const searchUsers = (query: string): Promise<JiraUser[]> =>
 export const getProjectVersions = (projectKey: string): Promise<JiraVersion[]> =>
   invoke("get_project_versions", { projectKey });
 
+/** Create a new project version in Jira. */
+export const createVersion = (
+  projectId: string,
+  name: string,
+  description?: string,
+  startDate?: string,
+  releaseDate?: string,
+): Promise<JiraVersion> =>
+  invoke("create_version", { projectId, name, description, startDate, releaseDate });
+
+/** Update an existing Jira project version. */
+export const updateVersion = (
+  versionId: string,
+  name?: string,
+  description?: string,
+  released?: boolean,
+  archived?: boolean,
+  startDate?: string,
+  releaseDate?: string,
+): Promise<JiraVersion> =>
+  invoke("update_version", { versionId, name, description, released, archived, startDate, releaseDate });
+
 /** Fetch Bug issues with the given affectedVersion in the project. */
 export const getBugsByVersion = (projectKey: string, versionName: string): Promise<JiraBug[]> =>
   invoke("get_bugs_by_version", { projectKey, versionName });
@@ -76,6 +100,17 @@ export const getVersionIssues = (projectKey: string, versionName: string): Promi
 
 /** Fetch all issue link types configured in the Jira instance. */
 export const getIssueLinkTypes = (): Promise<JiraIssueLinkType[]> => invoke("get_issue_link_types");
+
+/** Fetch a single Jira issue with description converted from ADF to plain text. */
+export const getIssueDetail = (issueKey: string): Promise<JiraIssueDetail> =>
+  invoke("get_issue_detail", { issueKey });
+
+/**
+ * Fetch a Jira attachment by its authenticated URL and return it as a base64 data URI.
+ * The result can be used directly in `<img src>` or `<video src>`.
+ */
+export const fetchAttachmentToTemp = (contentUrl: string, mimeType: string): Promise<string> =>
+  invoke("fetch_attachment_to_temp", { contentUrl, mimeType });
 
 /**
  * Create an issue link between two Jira issues.
@@ -176,6 +211,10 @@ export const getTests = (projectKey: string): Promise<XrayTest[]> =>
  */
 export const getTestsHealthData = (testIssueIds: string[]): Promise<void> =>
   invoke("get_tests_health_data", { testIssueIds });
+
+/** Fetch steps, gherkin, and unstructured content for the given test issue IDs. */
+export const getTestsExportData = (testIssueIds: string[]): Promise<XrayTestExportData[]> =>
+  invoke("get_tests_export_data", { testIssueIds });
 
 export const getTestSets = (projectKey: string): Promise<XrayTestSet[]> =>
   invoke("get_test_sets", { projectKey });

@@ -9,7 +9,7 @@ use crate::{
         CreateTestStepInput, CreateXrayTestInput, TestExecution, TestLastRunEntry, TestPlan,
         TestRunIteration, TestRunsPage, TestSetMembershipsResponse, TestsStreamPage,
         UpdateTestRunStatusInput, UpdateTestRunStepData, XrayStepStatus, XrayTest,
-        XrayTestRunStatus, XrayTestSet, XrayTestWithStatus,
+        XrayTestExportData, XrayTestRunStatus, XrayTestSet, XrayTestWithStatus,
     },
     state::XrayClientState,
 };
@@ -396,6 +396,19 @@ pub async fn get_tests_health_data(
         }
     });
     Ok(())
+}
+
+/// Fetch steps, gherkin, and unstructured content for the given test issue IDs.
+///
+/// Used by the export flow to enrich test data without bloating the main test-list query.
+#[tauri::command]
+pub async fn get_tests_export_data(
+    app: AppHandle,
+    state: State<'_, XrayClientState>,
+    test_issue_ids: Vec<String>,
+) -> Result<Vec<XrayTestExportData>, String> {
+    let client = get_xray_client(&app, &state).await?;
+    client.get_tests_export_data(&test_issue_ids).await.map_err(format_err)
 }
 
 /// Persist the health-cache for `project_key` to disk so it survives app restarts.

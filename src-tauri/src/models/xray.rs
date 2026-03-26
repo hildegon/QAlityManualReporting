@@ -283,8 +283,43 @@ pub struct UpdateTestRunStepData {
 pub struct XrayTest {
     #[serde(rename(deserialize = "issueId"))]
     pub issue_id: String,
+    /// Xray test type (Manual, Cucumber, Generic).
+    #[serde(rename(deserialize = "testType"))]
+    pub test_type: Option<TestType>,
     #[serde(deserialize_with = "deserialize_jira_json")]
     pub jira: XrayTestJira,
+}
+
+// ── Test Export (steps + content) ────────────────────────────────────────────
+
+/// A single manual step definition on a test (from `getTests { steps }`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct XrayTestStep {
+    pub id: Option<String>,
+    pub action: Option<String>,
+    pub data: Option<String>,
+    pub result: Option<String>,
+}
+
+/// Subset of a test returned by the export batch query (steps + content).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct XrayTestExportData {
+    #[serde(rename(deserialize = "issueId"))]
+    pub issue_id: String,
+    pub steps: Option<Vec<XrayTestStep>>,
+    pub gherkin: Option<String>,
+    pub unstructured: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TestsExportResult {
+    #[serde(rename(deserialize = "getTests"))]
+    pub get_tests: TestsExportPage,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TestsExportPage {
+    pub results: Vec<XrayTestExportData>,
 }
 
 // ── Test Health (batched last-run fetch) ──────────────────────────────────────
@@ -399,6 +434,11 @@ pub struct XrayTestJira {
     pub summary: String,
     /// Jira workflow status — present when `"status"` is included in the jira fields query.
     pub status: Option<XrayStatus>,
+    pub priority: Option<XrayStatus>,
+    pub components: Option<Vec<XrayStatus>>,
+    pub labels: Option<Vec<String>>,
+    pub created: Option<String>,
+    pub assignee: Option<XrayUser>,
 }
 
 /// Paginated result from `getTests`.

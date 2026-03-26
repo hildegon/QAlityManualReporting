@@ -148,7 +148,7 @@ impl JiraClient {
     /// Fetch a single Jira issue by key (e.g. "PROJ-123").
     pub async fn get_issue(&self, issue_key: &str) -> Result<JiraIssue> {
         let url = format!(
-            "{}/rest/api/3/issue/{}?fields=summary,status,assignee,priority,issuetype",
+            "{}/rest/api/3/issue/{}?fields=summary,status,assignee,priority,issuetype,description,attachment,comment",
             self.base_url, issue_key,
         );
 
@@ -777,6 +777,34 @@ impl JiraClient {
         Ok(())
     }
 
+    /// Fetch an attachment from its authenticated Jira URL and return it as a base64 data URI.
+    ///
+    /// The returned string is a `data:<mime_type>;base64,<encoded>` URI that can be used
+    /// directly in `<img src>` or `<video src>` without requiring filesystem access.
+    pub async fn fetch_attachment_as_data_uri(
+        &self,
+        content_url: &str,
+        mime_type: &str,
+    ) -> Result<String> {
+        use base64::{engine::general_purpose::STANDARD, Engine};
+
+        let bytes = self
+            .client
+            .get(content_url)
+            .header("Authorization", &self.auth_header)
+            .send()
+            .await
+            .context("Failed to fetch attachment")?
+            .error_for_status()
+            .context("Attachment fetch returned an error status")?
+            .bytes()
+            .await
+            .context("Failed to read attachment bytes")?;
+
+        let encoded = STANDARD.encode(&bytes);
+        Ok(format!("data:{mime_type};base64,{encoded}"))
+    }
+
     ///
     /// Uses `GET /rest/api/3/project/{key}/versions`.
     pub async fn get_project_versions(&self, project_key: &str) -> Result<Vec<JiraVersion>> {
@@ -800,5 +828,86 @@ impl JiraClient {
         .json()
         .await
         .context("Failed to parse Jira project versions response")
+    }
+
+    /// Create a new project version.
+    ///
+    /// Uses `POST /rest/api/3/version`. `project_id` is the numeric Jira project ID.
+    pub async fn create_version(
+        &self,
+        project_id: &str,
+        name: &str,
+        description: Option<&str>,
+        start_date: Option<&str>,
+        release_date: Option<&str>,
+    ) -> Result<JiraVersion> {
+        let url = format!("{}/rest/api/3/version", self.base_url);
+        let project_id_num: i64 = project_id.parse().context("Invalid project ID")?;
+        let mut body = serde_json::json!({ "projectId": project_id_num, "name": name });
+        if let Some(d) = description.filter(|s| !s.is_empty()) {
+            body["description"] = d.into();
+        }
+        if let Some(d) = start_date.filter(|s| !s.is_empty()) {
+            body["startDate"] = d.into();
+        }
+        if let Some(d) = release_date.filter(|s| !s.is_empty()) {
+            body["releaseDate"] = d.into();
+        }
+        check_rate_limit(
+            self.client
+                .post(&url)
+                .header("Authorization", &self.auth_header)
+                .header("Content-Type", "application/json")
+                .header("Accept", "application/json")
+                .json(&body)
+                .send()
+                .await
+                .context("Failed to send create-version request")?,
+        )?
+        .error_for_status()
+        .context("Create-version request returned error status")?
+        .json()
+        .await
+        .context("Failed to parse create-version response")
+    }
+
+    /// Update an existing project version.
+    ///
+    /// Uses `PUT /rest/api/3/version/{id}`. Only fields with `Some(...)` are included in the
+    /// request body; `None` fields are left unchanged.
+    pub async fn update_version(
+        &self,
+        version_id: &str,
+        name: Option<&str>,
+        description: Option<&str>,
+        released: Option<bool>,
+        archived: Option<bool>,
+        start_date: Option<&str>,
+        release_date: Option<&str>,
+    ) -> Result<JiraVersion> {
+        let url = format!("{}/rest/api/3/version/{}", self.base_url, version_id.trim());
+        let mut body = serde_json::json!({});
+        if let Some(v) = name { body["name"] = v.into(); }
+        if let Some(v) = description { body["description"] = v.into(); }
+        if let Some(v) = released { body["released"] = v.into(); }
+        if let Some(v) = archived { body["archived"] = v.into(); }
+        if let Some(v) = start_date { body["startDate"] = v.into(); }
+        if let Some(v) = release_date { body["releaseDate"] = v.into(); }
+        check_rate_limit(
+            self.client
+                .put(&url)
+                .header("Authorization", &self.auth_header)
+                .header("Content-Type", "application/json")
+                .header("Accept", "application/json")
+                .json(&body)
+                .send()
+                .await
+                .context("Failed to send update-version request")?,
+        )?
+        .error_for_status()
+        .context("Update-version request returned error status")?
+        .json()
+        .await
+        .context("Failed to parse update-version response")
     }
 }

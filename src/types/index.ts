@@ -66,6 +66,7 @@ export interface JiraVersion {
   archived?: boolean;
   released?: boolean;
   release_date?: string;
+  start_date?: string;
 }
 
 /** A single issue link as returned by Jira's `issuelinks` field. */
@@ -107,6 +108,45 @@ export interface JiraBug {
 export interface CreateBugResult {
   id: string;
   key: string;
+}
+
+/** A file attachment returned as part of a Jira issue's fields. */
+export interface JiraAttachment {
+  id: string;
+  filename: string;
+  mime_type: string;
+  /** Authenticated download URL for the full content. */
+  content: string;
+  /** Thumbnail URL — only present for image attachments. */
+  thumbnail: string | null;
+}
+
+/** A Jira comment with its body pre-converted from ADF to plain text. */
+export interface JiraCommentFlat {
+  id: string;
+  author: string | null;
+  body: string | null;
+  created: string | null;
+  updated: string | null;
+}
+
+/** A block in a rendered description — either plain text or an embedded media attachment. */
+export type DescriptionBlock =
+  | { type: "text"; content: string }
+  | { type: "media"; filename: string };
+
+/** Flattened issue detail returned by `get_issue_detail`. */
+export interface JiraIssueDetail {
+  key: string;
+  summary: string;
+  /** Structured description: interleaved text and inline media blocks. */
+  description_blocks: DescriptionBlock[];
+  assignee: string | null;
+  status: string | null;
+  issue_type: string | null;
+  priority: string | null;
+  attachments: JiraAttachment[];
+  comments: JiraCommentFlat[];
 }
 
 // ── Xray ──────────────────────────────────────────────────────────────────────
@@ -265,11 +305,33 @@ export interface CreateTestExecutionResult {
 /** A single Xray test returned by `get_tests`. */
 export interface XrayTest {
   issue_id: string;
+  test_type?: { name: string };
   jira: {
     key: string;
     summary: string;
     status?: { name: string };
+    priority?: { name: string };
+    components?: { name: string }[];
+    labels?: string[];
+    created?: string;
+    assignee?: { display_name?: string };
   };
+}
+
+/** A step in a Manual test definition, returned by `get_tests_export_data`. */
+export interface XrayTestStep {
+  id?: string;
+  action?: string;
+  data?: string;
+  result?: string;
+}
+
+/** Per-test content returned by `get_tests_export_data` (steps, gherkin, unstructured). */
+export interface XrayTestExportData {
+  issue_id: string;
+  steps?: XrayTestStep[];
+  gherkin?: string;
+  unstructured?: string;
 }
 
 /** The most recent test run for a single test, returned by `get_tests_health_data`. */
