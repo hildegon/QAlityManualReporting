@@ -378,11 +378,11 @@ fn flat_comment(c: JiraComment) -> JiraCommentFlat {
     JiraCommentFlat {
         id: c.id,
         author: c.author.map(|a| a.display_name),
-        body: c.body.map(|b| {
+        body: c.body.and_then(|b| {
             let text = adf_to_text(&b);
             let trimmed = text.trim().to_string();
             if trimmed.is_empty() { None } else { Some(trimmed) }
-        }).flatten(),
+        }),
         created: c.created,
         updated: c.updated,
     }
@@ -413,6 +413,7 @@ pub async fn create_version(
 
 /// Update an existing Jira project version.
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub async fn update_version(
     app: AppHandle,
     version_id: String,

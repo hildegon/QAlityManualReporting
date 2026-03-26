@@ -96,7 +96,7 @@ All API calls flow through the Rust backend — TypeScript never calls Jira or X
 
 ```
 UI component
-  └─ TanStack Query hook  (src/services/queries.ts)
+  └─ TanStack Query hook  (src/services/queries/)
        └─ tauri invoke()  (src/services/tauri.ts)
             └─ Rust command handler  (src-tauri/src/commands/)
                  └─ HTTP client  (src-tauri/src/api/)
@@ -163,9 +163,9 @@ A 32-byte random key is generated on first run and stored alongside the encrypte
   data tables should follow this pattern.
 - **Rate limiting** — background page-loads are staggered 300 ms apart; a sticky banner
   with a live countdown appears when Xray's rate limit is hit.
-- **Two queries files** — `src/services/queries.ts` (flat) takes precedence over
-  `src/services/queries/index.ts` (barrel) in TypeScript module resolution. New hooks must
-  be added to the flat file.
+- **Queries barrel** — `src/services/queries/` is a barrel (`index.ts` re-exports all).
+  Submodules: `queryKeys.ts`, `config.ts`, `jira.ts`, `xray-queries.ts`, `xray-mutations.ts`,
+  `version-stats.ts`. Import via `@/services/queries`.
 
 ---
 

@@ -34,14 +34,26 @@ and writing results back to Xray — without a web server.
 │   │   ├── ui/                     # Base UI primitives (Button, Badge, Input, …)
 │   │   ├── common/                 # Layout: AppShell, ProjectSelector, modals
 │   │   ├── test-execution/         # TestExecutionDetail (virtualised test run table)
+│   │   ├── tests/                  # TestsPage sub-components (TestRow, TestsPanel, TestSetDropTarget, health panels)
+│   │   ├── coverage/               # CoveragePage sub-components (OverallDashboard, TestSetSection, PresetsBar, analysis panels, htmlReportBuilder)
+│   │   ├── versions/               # VersionsPage sub-components (VersionCard, BugsPanel, KpiStrip, VersionDashboard, VersionGroups, …)
 │   │   ├── charts/                 # StatusCharts (pie/bar used in Coverage page)
+│   │   ├── bugs/                   # Bug-related components
+│   │   ├── test-plan/              # Test plan components
 │   │   └── settings/               # (reserved — SettingsPage lives in pages/)
 │   ├── pages/                      # Route-level pages (one file per route)
 │   ├── hooks/                      # Custom React hooks
 │   ├── stores/                     # Zustand stores
 │   ├── services/
 │   │   ├── tauri.ts                # ALL typed wrappers around Tauri invoke()
-│   │   └── queries.ts              # ALL TanStack Query hooks + mutations (canonical)
+│   │   └── queries/                # ALL TanStack Query hooks + mutations (barrel re-export)
+│   │       ├── index.ts            # Barrel — re-exports everything; existing imports unchanged
+│   │       ├── queryKeys.ts        # Single queryKeys object + shared constants
+│   │       ├── config.ts           # useConfig, useSaveConfig
+│   │       ├── jira.ts             # All Jira query/mutation hooks
+│   │       ├── xray-queries.ts     # Xray read hooks (useGetTests, useTestRuns, …)
+│   │       ├── xray-mutations.ts   # Xray write hooks (useUpdateTestRunStatus, …)
+│   │       └── version-stats.ts    # useVersionRunStats (derived/aggregated stats)
 │   ├── types/
 │   │   └── index.ts                # ALL shared TypeScript interfaces
 │   └── test/
@@ -264,10 +276,27 @@ Each export is a `const` arrow function that maps 1:1 to a Rust Tauri command.
 | `addTestsToTestPlan` | `add_tests_to_test_plan` | Add tests to test plan |
 | `removeTestsFromTestPlan` | `remove_tests_from_test_plan` | Remove tests from test plan |
 
-### `src/services/queries.ts` _(canonical — always edit this file)_
-All TanStack Query hooks and mutations.
+### `src/services/queries/` _(barrel — import from `@/services/queries`)_
+TanStack Query hooks and mutations, split by domain. The barrel `index.ts` re-exports
+everything, so all existing imports (`from "@/services/queries"`) continue to work.
 
-**Query hooks** (all use `queryKeys` defined within `queries.ts`):
+| Submodule | Contents |
+|---|---|
+| `queryKeys.ts` | `queryKeys` object, `TEST_RUNS_PAGE_SIZE`, `STATS_PAGE_SIZE` |
+| `config.ts` | `useConfig`, `useSaveConfig` |
+| `jira.ts` | All Jira hooks: `useJiraProjects`, `useProjectVersions`, `useSearchUsers`, `useBugsByVersion`, `useVersionIssues`, `useIssueTransitions`, mutations (`useTransitionIssue`, `useUpdateAssignee`, `useRenameIssue`, `useLinkBugToTest`, …) |
+| `xray-queries.ts` | Xray read hooks: `useGetTests`, `useGetTestSets`, `useTestRuns`, `useTestExecutions`, `useGetTestSetTestsWithStatus`, streaming state helpers (`useIsTestsStreaming`, `useReloadTests`, `useApplyTransition`) |
+| `xray-mutations.ts` | Xray write hooks: `useUpdateTestRunStatus` _(optimistic)_, `useUpdateTestRunStep`, `useCreateTestExecution`, `useAddTestsToTestExecution`, `useCreateTestSet`, `useAddTestsToTestSet`, `useRemoveTestsFromTestSet`, `useCreateTestPlan`, `useAddTestsToTestPlan`, `useRemoveTestsFromTestPlan`, etc. |
+| `version-stats.ts` | `useVersionRunStats` — windowed multi-phase aggregation of test runs across executions |
+
+**Where to add new hooks:**
+- Jira REST hooks → `jira.ts`
+- Xray read hooks → `xray-queries.ts`
+- Xray write hooks → `xray-mutations.ts`
+- New query key → `queryKeys.ts` (add to `queryKeys` object)
+- Complex derived/aggregated hooks → `version-stats.ts` or a new domain file
+
+**Query hooks** (all use `queryKeys` from `queryKeys.ts`):
 
 | Hook | Key | Description |
 |---|---|---|
@@ -303,7 +332,7 @@ All TanStack Query hooks and mutations.
 `useRenameIssue`, `useTransitionIssue`, `useUpdateAssignee`,
 `useUpdateExecutionFixVersion`, `useLinkBugToTest`, `useIssueLinkTypes`
 
-Single `queryKeys` object defined within `queries.ts`. All query hooks must use these keys — never hardcode arrays.
+Single `queryKeys` object defined in `src/services/queries/queryKeys.ts`. All query hooks must use these keys — never hardcode arrays.
 
 ### `src/stores/`
 
@@ -311,8 +340,10 @@ Single `queryKeys` object defined within `queries.ts`. All query hooks must use 
 |---|---|---|
 | `projectStore.ts` | `useProjectStore` | `executionProjectKey`, `contentProjectKey`, `setExecutionProjectKey`, `setContentProjectKey` |
 | `uiStore.ts` | `useUiStore` | `theme`, `toasts`, `rateLimitUntil`, `addToast`, `removeToast`, `setRateLimitUntil` |
-| `versionsStore.ts` | `useVersionsStore` | `favouriteVersions`, `toggleFavourite` |
-| `coveragePresetsStore.ts` | `useCoveragePresetsStore` | `presets`, `savePreset`, `deletePreset` (persisted to localStorage) |
+| `versionsStore.ts` | `useVersionsStore` | `favouriteVersions`, `toggleFavourite`, `versionGroups`, `healthDots` |
+| `coveragePresetsStore.ts` | `useCoveragePresetsStore` | `presets`, `savePreset`, `deletePreset`, `renamePreset` (persisted to localStorage) |
+| `healthStore.ts` | `useHealthStore` | `getProjectHealth`, `startHealthFetch`, `resetProject` — test health data cache |
+| `coverageHistoryStore.ts` | `useCoverageHistoryStore` | Historical coverage snapshots |
 
 ### `src/hooks/`
 
@@ -323,14 +354,14 @@ Single `queryKeys` object defined within `queries.ts`. All query hooks must use 
 
 ### `src/pages/`
 
-| File | Main exports | Key sub-components |
+| File | Main exports | Sub-components location |
 |---|---|---|
-| `TestExecutionsPage.tsx` | `TestExecutionsPage` | `ExecRow`, `CreateExecutionDialog`, `EditExecutionDialog`, `CloneExecutionDialog` |
-| `TestPlansPage.tsx` | `TestPlansPage` | `TestSetsSourcePanel`, `TestPlansDropPanel`, `TestSetRow`, `TestPlanDropTarget`, `CreatePlanDialog`, `DragGhost` |
-| `TestsPage.tsx` | `TestsPage` | `TestsPanel`, `TestSetsPanel`, `TestRow`, `TestSetDropTarget`, `CreateTestSetDialog`, `DragGhost` |
-| `CoveragePage.tsx` | `CoveragePage` | `OverallDashboard`, `PresetsBar`, `TestSetSection`, `StatusBadge` |
-| `VersionsPage.tsx` | `VersionsPage` | `VersionCard`, `VersionDashboard`, `VersionContent`, `BugsPanel`, `VersionIssuesPanel`, `FailedTestsAnalysis`, `ExecutionListPanel` |
-| `SettingsPage.tsx` | `SettingsPage` | `Field`, `ValidationIndicator` |
+| `TestExecutionsPage.tsx` | `TestExecutionsPage` | Inline: `ExecRow`, `CreateExecutionDialog`, `EditExecutionDialog`, `CloneExecutionDialog` |
+| `TestPlansPage.tsx` | `TestPlansPage` | Inline: `TestSetsSourcePanel`, `TestPlansDropPanel`, `TestSetRow`, `TestPlanDropTarget`, `CreatePlanDialog`, `DragGhost` |
+| `TestsPage.tsx` | `TestsPage` | Extracted → `src/components/tests/` (10 files: `TestRow`, `TestsPanel`, `TestSetDropTarget`, `TestSetsPanel`, `CreateTestSetDialog`, `TestHealthPanel`, `TestSetsHealthPanel`, `TransitionMenu`, `DragGhost`, `utils`) |
+| `CoveragePage.tsx` | `CoveragePage` | Extracted → `src/components/coverage/` (8 files: `OverallDashboard`, `TestSetSection`, `PresetsBar`, `AnalysisPanels`, `MetricTile`, `StatusBadge`, `htmlReportBuilder`, `utils`) |
+| `VersionsPage.tsx` | `VersionsPage` | Extracted → `src/components/versions/` (16 files: `VersionCard`, `VersionDashboard`, `VersionContent`, `BugsPanel`, `KpiStrip`, `VersionIssuesPanel`, `FailedTestsAnalysis`, `ExecutionListPanel`, `VersionGroups`, `ManageVersionsTab`, `ReleaseReadinessChecklist`, `IssueDetailModal`, `ConfirmModal`, `FetchProgress`, `utils`) |
+| `SettingsPage.tsx` | `SettingsPage` | Inline: `Field`, `ValidationIndicator` |
 | `CreateTestPage.tsx` | `CreateTestPage` | Inline step editor form |
 
 ### `src/components/common/`
@@ -351,6 +382,54 @@ Single `queryKeys` object defined within `queries.ts`. All query hooks must use 
 |---|---|---|
 | `TestExecutionDetail.tsx` | `TestExecutionDetail` | `StepsPanel`, `GherkinPanel`, `IterationsPanel` — renders the expanded view of a test execution with virtualised test run list |
 | `StepMarkdown.tsx` | `StepMarkdown` | Renders step text as Markdown |
+
+### `src/components/tests/`
+
+| File | Exports | Description |
+|---|---|---|
+| `utils.ts` | `ToastFn`, `DEPRECATING_KEYWORDS`, `isDeprecatingStatus`, `loadHiddenKeys`, `saveHiddenKeys`, `categoryColor` | Shared helpers and types for tests components |
+| `TransitionMenu.tsx` | `TransitionMenu` | Portal-based dropdown for Jira workflow transitions |
+| `DragGhost.tsx` | `DragGhost` | Floating drag tooltip for DnD operations |
+| `TestRow.tsx` | `TestRow` | Single test item with membership badges (memo) |
+| `TestsPanel.tsx` | `TestsPanel` | Virtualised test list with export, select-all, drag |
+| `TestSetDropTarget.tsx` | `TestSetDropTarget` | Collapsible test set with inline rename, member table, drop target (memo) |
+| `TestSetsPanel.tsx` | `TestSetsPanel` | List of drop targets with expand-all, search, hidden count |
+| `CreateTestSetDialog.tsx` | `CreateTestSetDialog` | Radix dialog with component picker |
+| `TestSetsHealthPanel.tsx` | `TestSetHealthRow`, `TestSetsHealthPanel` | Deprecated test cleanup UI |
+| `TestHealthPanel.tsx` | `TestHealthPanel` | Virtualised health table with bulk transitions |
+
+### `src/components/coverage/`
+
+| File | Exports | Description |
+|---|---|---|
+| `htmlReportBuilder.ts` | `buildCoverageHTML`, `buildSvgDonut`, `buildSvgMiniBar`, `buildSvgGauge` | Pure TS — generates printable HTML coverage report (no React) |
+| `utils.ts` | `SetQueryMap`, `passRate`, `hasFail` | Shared types and helpers for coverage components |
+| `StatusBadge.tsx` | `StatusBadge` | Colour-coded status pill using Xray status palette |
+| `MetricTile.tsx` | `MetricTile`, `CoverageTile`, `TileColor`, `tileColors` | Small metric cards used in OverallDashboard grid |
+| `AnalysisPanels.tsx` | `InsightsPanel`, `FailureConcentrationPanel`, `NeverRunPanel` | Analysis tab sub-panels |
+| `OverallDashboard.tsx` | `OverallDashboard` | Top-level coverage summary with charts and metrics grid |
+| `TestSetSection.tsx` | `TestSetSection` | Collapsible per-test-set section with status bars and sortable test list |
+| `PresetsBar.tsx` | `PresetsBar` | Preset management sidebar (save, load, rename, delete) |
+
+### `src/components/versions/`
+
+| File | Exports | Description |
+|---|---|---|
+| `utils.ts` | `priorityClass`, `statusCategoryClass`, attachment helpers | Shared pure helpers for versions components |
+| `FetchProgress.tsx` | `FetchProgress` | Loading progress bar |
+| `ConfirmModal.tsx` | `ConfirmModal` | Generic confirmation dialog |
+| `VersionCard.tsx` | `VersionCard` | Version sidebar card with health dot, star, badges |
+| `KpiStrip.tsx` | `KpiTile`, `VersionKpiStrip` | KPI metric strip |
+| `ReleaseReadinessChecklist.tsx` | `ReleaseReadinessChecklist` | 5-criteria release readiness checklist |
+| `FailedTestsAnalysis.tsx` | `StatusPip`, `FailedTestRow`, `FailedTestsAnalysis` | Failed test analysis panel |
+| `BugsPanel.tsx` | `FilterChip`, `BugsPanel` | Bug list with filters |
+| `IssueDetailModal.tsx` | `IssueDetailModal`, `StatusTransitionDropdown`, `CommentItem` | Full issue detail modal (attachments, transitions, comments) |
+| `VersionIssuesPanel.tsx` | `VersionIssueRow`, `VersionIssuesPanel` | Version issues list |
+| `VersionDashboard.tsx` | `VersionDashboard` | Charts + failed test analysis |
+| `VersionContent.tsx` | `VersionContent` | Composite assembling all version panels |
+| `ExecutionListPanel.tsx` | `ExecutionListPanel` | Wraps useTestExecutionsByVersion |
+| `VersionGroups.tsx` | `VersionGroupCard`, `GroupVersionContent`, `GroupReportPanel` | Version group management |
+| `ManageVersionsTab.tsx` | `VersionRow`, `ManageVersionsTab` | Version CRUD management |
 
 ### `src/components/ui/`
 Primitive design-system components: `Button`, `Badge`, `Input`, `Label`, `Spinner`,
@@ -411,11 +490,108 @@ the `jira` field in Xray responses is a JSON-encoded string, not a nested object
 
 ---
 
+## Feature Area → File Map
+
+Quick-reference: given a feature, which files do you touch? Each area lists the full stack
+from UI to Rust. Hooks import via `@/services/queries`; tauri wrappers via `@/services/tauri`.
+
+### Test Executions
+| Layer | File(s) | Key exports |
+|---|---|---|
+| Page | `src/pages/TestExecutionsPage.tsx` | `TestExecutionsPage` (1,327 lines — not yet split; inline: `ExecRow`, `CreateExecutionDialog`, `EditExecutionDialog`, `CloneExecutionDialog`) |
+| Components | `src/components/test-execution/TestExecutionDetail.tsx`, `StepMarkdown.tsx` | Virtualised test run table, step panels |
+| Queries | `src/services/queries/xray-queries.ts` | `useTestExecutions`, `useTestExecutionsByVersion`, `useTestRuns`, `useIterationStepResults` |
+| Mutations | `src/services/queries/xray-mutations.ts` | `useUpdateTestRunStatus` _(optimistic)_, `useUpdateTestRunComment`, `useUpdateTestRunStepStatus`, `useUpdateTestRunStep`, `useUpdateIterationStatus`, `useCreateTestExecution`, `useAddTestsToTestExecution` |
+| Tauri | `src/services/tauri.ts` | `getTestExecutions`, `getTestExecutionsByVersion`, `getTestRuns`, `getIterationStepResults`, `updateTestRunStatus`, `updateTestRunComment`, `updateTestRunStepStatus`, `updateTestRunStep`, `updateIterationStatus`, `createTestExecution`, `addTestsToTestExecution` |
+| Rust cmds | `src-tauri/src/commands/xray.rs` | Same names in snake_case |
+| Rust API | `src-tauri/src/api/xray_client.rs` | `XrayClient` methods |
+| Models | `src-tauri/src/models/xray.rs` | `TestExecution`, `TestRun`, `TestRunStep`, `TestRunIteration` |
+
+### Coverage
+| Layer | File(s) | Key exports |
+|---|---|---|
+| Page | `src/pages/CoveragePage.tsx` (545 lines) | `CoveragePage` |
+| Components | `src/components/coverage/` | `OverallDashboard`, `TestSetSection`, `PresetsBar`, `AnalysisPanels` (`InsightsPanel`, `FailureConcentrationPanel`, `NeverRunPanel`), `MetricTile`, `StatusBadge`, `htmlReportBuilder` (pure TS), `utils` |
+| Queries | `src/services/queries/xray-queries.ts` | `useGetTestSetTestsWithStatus`, `useTestSetMembership`, `useXrayStatuses`, `useStepStatuses` |
+| Store | `src/stores/coveragePresetsStore.ts` | `useCoveragePresetsStore` — saved presets |
+| Store | `src/stores/coverageHistoryStore.ts` | `useCoverageHistoryStore` — historical snapshots |
+| Tauri | `src/services/tauri.ts` | `getTestSetTestsWithStatus`, `getAllTestSetMemberships`, `getXrayStatuses`, `getStepStatuses` |
+| Rust cmds | `src-tauri/src/commands/xray.rs` | Same names in snake_case |
+| Charts | `src/components/charts/StatusCharts.tsx` | `StatusCharts` — pie/bar charts |
+
+### Tests & Test Sets
+| Layer | File(s) | Key exports |
+|---|---|---|
+| Page | `src/pages/TestsPage.tsx` (427 lines) | `TestsPage` |
+| Components | `src/components/tests/` | `TestRow`, `TestsPanel` (virtualised), `TestSetDropTarget`, `TestSetsPanel`, `CreateTestSetDialog`, `TestHealthPanel`, `TestSetsHealthPanel`, `TransitionMenu`, `DragGhost`, `utils` |
+| Queries | `src/services/queries/xray-queries.ts` | `useGetTests`, `useIsTestsStreaming`, `useReloadTests`, `useGetTestSets`, `useGetTestSetTests`, `useGetTestSetTestsWithStatus` |
+| Mutations | `src/services/queries/xray-mutations.ts` | `useCreateTest`, `useCreateTestSet`, `useAddTestsToTestSet`, `useRemoveTestsFromTestSet` |
+| Store | `src/stores/healthStore.ts` | `useHealthStore` — test health data cache |
+| Tauri | `src/services/tauri.ts` | `getTests`, `getTestSets`, `getTestSetTests`, `getTestSetTestsWithStatus`, `createTest`, `createTestSet`, `addTestsToTestSet`, `removeTestsFromTestSet` |
+| Rust cmds | `src-tauri/src/commands/xray.rs` | Same names in snake_case |
+| Models | `src-tauri/src/models/xray.rs` | `XrayTest`, `XrayTestSet` |
+
+### Test Plans
+| Layer | File(s) | Key exports |
+|---|---|---|
+| Page | `src/pages/TestPlansPage.tsx` (1,280 lines — not yet split; inline: `TestSetsSourcePanel`, `TestPlansDropPanel`, `CreatePlanDialog`, `DragGhost`) | `TestPlansPage` |
+| Queries | `src/services/queries/xray-queries.ts` | `useTestPlans`, `useGetTestPlanTests` |
+| Mutations | `src/services/queries/xray-mutations.ts` | `useCreateTestPlan`, `useAddTestsToTestPlan`, `useRemoveTestsFromTestPlan` |
+| Tauri | `src/services/tauri.ts` | `getTestPlans`, `getTestPlanTests`, `createTestPlan`, `addTestsToTestPlan`, `removeTestsFromTestPlan` |
+| Rust cmds | `src-tauri/src/commands/xray.rs` | Same names in snake_case |
+| Models | `src-tauri/src/models/xray.rs` | `TestPlan` |
+
+### Versions
+| Layer | File(s) | Key exports |
+|---|---|---|
+| Page | `src/pages/VersionsPage.tsx` (360 lines) | `VersionsPage` |
+| Components | `src/components/versions/` | `VersionCard`, `VersionDashboard`, `VersionContent`, `BugsPanel`, `KpiStrip`, `VersionIssuesPanel`, `FailedTestsAnalysis`, `ExecutionListPanel`, `VersionGroups`, `ManageVersionsTab`, `ReleaseReadinessChecklist`, `IssueDetailModal`, `ConfirmModal`, `FetchProgress`, `ExecutionRow`, `utils` |
+| Queries | `src/services/queries/jira.ts` | `useProjectVersions`, `useCreateVersion`, `useUpdateVersion`, `useBugsByVersion`, `useVersionIssues` |
+| Queries | `src/services/queries/xray-queries.ts` | `useTestExecutionsByVersion` |
+| Stats | `src/services/queries/version-stats.ts` | `useVersionRunStats` |
+| Store | `src/stores/versionsStore.ts` | `useVersionsStore` — favourites, health dots, version groups |
+| Tauri | `src/services/tauri.ts` | `getProjectVersions`, `createVersion`, `updateVersion`, `getBugsByVersion`, `getVersionIssues`, `getTestExecutionsByVersion`, `updateIssueFixVersion` |
+| Rust cmds | `src-tauri/src/commands/jira.rs` | `get_project_versions`, `create_version`, `update_version`, `get_bugs_by_version`, `get_version_issues`, `update_issue_fix_version` |
+| Rust cmds | `src-tauri/src/commands/xray.rs` | `get_test_executions_by_version` |
+| Rust API | `src-tauri/src/api/jira_client.rs` | `JiraClient` methods |
+| Models | `src-tauri/src/models/jira.rs` | `JiraVersion`, `JiraBug`, `VersionIssue` |
+
+### Settings
+| Layer | File(s) | Key exports |
+|---|---|---|
+| Page | `src/pages/SettingsPage.tsx` | `SettingsPage` (inline: `Field`, `ValidationIndicator`) |
+| Queries | `src/services/queries/config.ts` | `useConfig`, `useSaveConfig` |
+| Tauri | `src/services/tauri.ts` | `getConfig`, `saveConfig`, `clearConfig`, `validateJiraCredentials`, `authenticateXray` |
+| Rust cmds | `src-tauri/src/commands/config.rs` | `get_config`, `save_config`, `clear_config` |
+| Rust cmds | `src-tauri/src/commands/jira.rs` | `validate_jira_credentials` |
+| Rust cmds | `src-tauri/src/commands/xray.rs` | `authenticate_xray` |
+| Models | `src-tauri/src/models/config.rs` | `AppConfig` |
+
+### Create Test
+| Layer | File(s) | Key exports |
+|---|---|---|
+| Page | `src/pages/CreateTestPage.tsx` | `CreateTestPage` (inline step editor form) |
+| Mutations | `src/services/queries/xray-mutations.ts` | `useCreateTest` |
+| Tauri | `src/services/tauri.ts` | `createTest` |
+| Rust cmds | `src-tauri/src/commands/xray.rs` | `create_test` |
+| Models | `src-tauri/src/models/xray.rs` | `CreateTestInput` |
+
+### Cross-cutting (Jira utilities used by multiple features)
+| Layer | File(s) | Key exports |
+|---|---|---|
+| Queries | `src/services/queries/jira.ts` | `useJiraProjects`, `useSearchUsers`, `useIssueTransitions`, `useProjectComponents`, `useIssueLinkTypes` |
+| Mutations | `src/services/queries/jira.ts` | `useTransitionIssue`, `useUpdateAssignee`, `useRenameIssue`, `useLinkBugToTest`, `useUpdateExecutionFixVersion` |
+| Tauri | `src/services/tauri.ts` | `getJiraProjects`, `searchUsers`, `getIssueTransitions`, `transitionIssue`, `updateAssignee`, `updateIssueSummary`, `getIssueLinkTypes`, `createIssueLink` |
+| Rust cmds | `src-tauri/src/commands/jira.rs` | Same names in snake_case |
+| Constants | `src/constants/statuses.ts` | `TestRunStatusName`, `normalizeStatusKey()`, `CRITICAL_PRIORITIES` |
+
+---
+
 ## Architecture Notes
 
 ### Data flow
 All API calls go through the Rust backend:
-`UI component → TanStack Query hook (queries.ts) → tauri.ts invoke() → Rust command → HTTP`
+`UI component → TanStack Query hook (queries/) → tauri.ts invoke() → Rust command → HTTP`
 
 Never import `fetch` or call Jira/Xray URLs directly from TypeScript.
 
@@ -430,7 +606,7 @@ The plaintext `AppConfig` struct is only held in memory after decryption.
 `Arc<Mutex<Option<String>>>` and automatically refreshed on 401 responses (one retry).
 
 ### Optimistic mutations
-`useUpdateTestRunStatus` (queries.ts) applies the new status in the TanStack Query cache
+`useUpdateTestRunStatus` (`queries/xray-mutations.ts`) applies the new status in the TanStack Query cache
 instantly and rolls back on error. This keeps the UI snappy even on slow connections.
 
 ### Virtualised lists
@@ -445,14 +621,14 @@ are updated via direct DOM manipulation on `mousemove` (not React state) for per
 ### Rate limiting
 `uiStore.rateLimitUntil` (ms timestamp) is set by `parseRateLimitError()` when Xray returns 429.
 `RateLimitBanner` shows the countdown. Mutations debounce `invalidateQueries` calls via a 500 ms
-coalescing window (`pendingInvalidations` in `queries.ts`, `DEBOUNCE_MS = 500`).
+coalescing window (`pendingInvalidations` in `queries/xray-mutations.ts`, `DEBOUNCE_MS = 500`).
 
 ---
 
 ## Known Gotchas (read before editing)
 
-1. **`queries.ts` is the single source of truth** for all TanStack Query hooks. New hooks must go
-   into `src/services/queries.ts` directly.
+1. **`src/services/queries/` is the barrel** for all TanStack Query hooks. New hooks go
+   into the appropriate submodule: `jira.ts`, `xray-queries.ts`, `xray-mutations.ts`, etc.
 
 2. **Xray GraphQL query names** use a `get` prefix and do NOT accept `projectKey` — use `jql` filter
    e.g. `jql: "project = 'KEY'"`.
@@ -470,7 +646,7 @@ coalescing window (`pendingInvalidations` in `queries.ts`, `DEBOUNCE_MS = 500`).
    - Rust handler function in the appropriate `commands/*.rs` file
    - `invoke_handler!` macro in `src-tauri/src/lib.rs`
    - Typed wrapper in `src/services/tauri.ts`
-   - TanStack Query hook in `src/services/queries.ts`
+   - TanStack Query hook in `src/services/queries/` (appropriate submodule)
 
 7. **Rust error formatting** — use `format!("{e:#}")` (not `.to_string()`) in command handlers to
    get the full anyhow error chain in the frontend error message.
@@ -525,7 +701,7 @@ Group in this order, blank line between each group:
 | TS interfaces      | PascalCase       | `TestRun`                  |
 | TS constants       | UPPER_SNAKE_CASE | `MAX_RETRY_COUNT`          |
 | TS files (src)     | PascalCase       | `TestExecutionDetail.tsx`  |
-| TS files (service) | camelCase        | `queries.ts`               |
+| TS files (service) | camelCase        | `tauri.ts`, `queryKeys.ts`   |
 | Test files         | `*.test.ts`      | `queries.test.ts`          |
 | Rust modules       | snake_case       | `xray_client.rs`           |
 | Rust structs       | PascalCase       | `TestRunStatus`            |
@@ -578,6 +754,6 @@ Subject line: ≤ 72 characters.
 - **Ask before broad refactors** that touch more than 3 files.
 - **New Tauri commands** must be registered in `src-tauri/src/lib.rs` `invoke_handler!`.
 - **New frontend data calls** go in `src/services/tauri.ts` (invoke wrapper) +
-  `src/services/queries.ts` (TanStack Query hook).
+  `src/services/queries/` (appropriate submodule: `jira.ts`, `xray-queries.ts`, or `xray-mutations.ts`).
 - **`@/` path alias** maps to `src/` (configured in `tsconfig.json` and `vite.config.ts`).
 - **Check the Known Gotchas section** before touching Xray GraphQL, drag-and-drop, or queries.

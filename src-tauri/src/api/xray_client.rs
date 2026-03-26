@@ -6,6 +6,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::Emitter;
 use tokio::sync::Mutex;
 
+use super::common::{escape_jql_string, rate_limit_until_ms, truncate_body, validate_project_key};
 use crate::models::xray::{
     AddTestExecutionsToTestPlanInput, AddTestsToTestPlanInput, CreateTestExecutionInput,
     CreateTestExecutionResponse, CreateTestExecutionResult, CreateTestPlanInput,
@@ -22,83 +23,6 @@ use crate::models::xray::{
 
 const XRAY_AUTH_URL: &str = "https://xray.cloud.getxray.app/api/v2/authenticate";
 const XRAY_GRAPHQL_URL: &str = "https://xray.cloud.getxray.app/api/v2/graphql";
-
-/// Validate that a Jira project key contains only safe characters (`[A-Z0-9_]+`).
-///
-/// Jira enforces this format server-side, but we validate early to prevent JQL injection.
-fn validate_project_key(key: &str) -> Result<()> {
-    if key.is_empty() {
-        bail!("Project key must not be empty");
-    }
-    if !key
-        .chars()
-        .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_')
-    {
-        bail!(
-            "Invalid project key '{}': must contain only uppercase letters, digits, or underscores",
-            key
-        );
-    }
-    Ok(())
-}
-
-/// Escape a version name for safe use inside a double-quoted JQL string literal.
-///
-/// Doubles any `"` characters so they become `\"` within the JQL string.
-fn escape_jql_string(value: &str) -> String {
-    value.replace('"', "\\\"")
-}
-
-/// Truncate a response body string for safe inclusion in error messages.
-///
-/// Limits the snippet to 200 characters to avoid leaking large sensitive payloads
-/// into error strings that propagate to the frontend.
-fn truncate_body(body: &str) -> &str {
-    const MAX: usize = 200;
-    if body.len() <= MAX {
-        body
-    } else {
-        // Truncate at a char boundary.
-        &body[..body
-            .char_indices()
-            .take_while(|(i, _)| *i < MAX)
-            .last()
-            .map(|(i, c)| i + c.len_utf8())
-            .unwrap_or(MAX)]
-    }
-}
-
-/// Parse rate-limit headers from a 429 response and return the epoch-millisecond
-/// timestamp at which the block is expected to lift.
-///
-/// Precedence (both headers may be absent on some 429s):
-/// 1. `X-RateLimit-Reset` — Unix epoch **seconds** (absolute timestamp).
-/// 2. `Retry-After`       — delay in **seconds** from now.
-///
-/// Returns `None` if neither header is present or parseable.
-fn rate_limit_until_ms(headers: &reqwest::header::HeaderMap) -> Option<u64> {
-    // X-RateLimit-Reset: absolute Unix timestamp in seconds.
-    if let Some(val) = headers.get("x-ratelimit-reset") {
-        if let Ok(s) = val.to_str() {
-            if let Ok(secs) = s.trim().parse::<u64>() {
-                return Some(secs * 1_000);
-            }
-        }
-    }
-    // Retry-After: relative delay in seconds.
-    if let Some(val) = headers.get("retry-after") {
-        if let Ok(s) = val.to_str() {
-            if let Ok(delay_secs) = s.trim().parse::<u64>() {
-                let now_ms = SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_millis() as u64;
-                return Some(now_ms + delay_secs * 1_000);
-            }
-        }
-    }
-    None
-}
 
 /// Thread-safe Xray Cloud client with token caching.
 /// Cloning is cheap — the token cache is shared via `Arc`.
@@ -564,6 +488,7 @@ impl XrayClient {
     ///
     /// Used by the background task after [`get_tests_first_page`] has already
     /// returned the first page to the UI.
+    #[allow(dead_code)]
     pub async fn get_tests_from(
         &self,
         project_key: &str,
@@ -592,6 +517,7 @@ impl XrayClient {
     }
 
     /// Fetch **all** tests for a project, paginating automatically.
+    #[allow(dead_code)]
     pub async fn get_tests(&self, project_key: &str) -> Result<Vec<XrayTest>> {
         let first = self.get_tests_first_page(project_key).await?;
         if first.done {

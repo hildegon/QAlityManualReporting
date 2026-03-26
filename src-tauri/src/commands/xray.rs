@@ -362,7 +362,7 @@ pub async fn get_tests(
         let total = first.total;
         let key = project_key.clone();
         tokio::spawn(async move {
-            if let Err(_) = client.stream_tests_from(&app, &key, start, total).await {
+            if client.stream_tests_from(&app, &key, start, total).await.is_err() {
                 // Emit a done signal so the frontend doesn't wait forever.
                 let _ = app.emit(
                     "tests:page",

@@ -14,7 +14,11 @@
       "Bash(find /Users/sergio/IdeaProjects/QAlityManualReporting/src-tauri/src -type f -name \"*.rs\" -exec wc -l {} +)",
       "Bash(ls -1 /Users/sergio/IdeaProjects/QAlityManualReporting/src-tauri/src/*.rs)",
       "Bash(ls:*)",
-      "Bash(wc:*)"
+      "Bash(wc:*)",
+      "Bash(npm test:*)",
+      "Bash(cargo build:*)",
+      "Bash(cargo clippy:*)",
+      "Bash(npm run:*)"
     ]
   }
 }

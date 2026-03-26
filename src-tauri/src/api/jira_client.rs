@@ -1,64 +1,13 @@
 #![allow(dead_code)]
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result};
 use reqwest::Client;
-use std::time::{SystemTime, UNIX_EPOCH};
 
+use super::common::{check_rate_limit, escape_jql_string, validate_project_key};
 use crate::models::jira::{
     IssueLinkType, IssueLinkTypesResponse, JiraBug, JiraComponent, JiraCreatedIssue, JiraIssue,
     JiraProject, JiraProjectsResponse, JiraSearchResponse, JiraTransition, JiraTransitionsResponse,
     JiraUserSearchResult, JiraVersion,
 };
-
-/// Validate that a Jira project key contains only safe characters (`[A-Z0-9_]+`).
-fn validate_project_key(key: &str) -> Result<()> {
-    if key.is_empty() {
-        bail!("Project key must not be empty");
-    }
-    if !key
-        .chars()
-        .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_')
-    {
-        bail!(
-            "Invalid project key '{}': must contain only uppercase letters, digits, or underscores",
-            key
-        );
-    }
-    Ok(())
-}
-
-/// Escape a string for safe embedding inside a double-quoted JQL literal.
-fn escape_jql_string(value: &str) -> String {
-    value.replace('"', "\\\"")
-}
-
-/// Check a response for 429 (rate-limited) before consuming it with `error_for_status`.
-/// Returns `Ok(response)` unchanged if the status is not 429.
-fn check_rate_limit(resp: reqwest::Response) -> Result<reqwest::Response> {
-    if resp.status() == reqwest::StatusCode::TOO_MANY_REQUESTS {
-        // X-RateLimit-Reset: absolute Unix timestamp in seconds.
-        if let Some(val) = resp.headers().get("x-ratelimit-reset") {
-            if let Ok(s) = val.to_str() {
-                if let Ok(secs) = s.trim().parse::<u64>() {
-                    bail!("RATE_LIMITED:{}", secs * 1_000);
-                }
-            }
-        }
-        // Retry-After: relative delay in seconds.
-        if let Some(val) = resp.headers().get("retry-after") {
-            if let Ok(s) = val.to_str() {
-                if let Ok(delay_secs) = s.trim().parse::<u64>() {
-                    let now_ms = SystemTime::now()
-                        .duration_since(UNIX_EPOCH)
-                        .unwrap_or_default()
-                        .as_millis() as u64;
-                    bail!("RATE_LIMITED:{}", now_ms + delay_secs * 1_000);
-                }
-            }
-        }
-        bail!("RATE_LIMITED");
-    }
-    Ok(resp)
-}
 
 pub struct JiraClient {
     client: Client,
@@ -875,6 +824,7 @@ impl JiraClient {
     ///
     /// Uses `PUT /rest/api/3/version/{id}`. Only fields with `Some(...)` are included in the
     /// request body; `None` fields are left unchanged.
+    #[allow(clippy::too_many_arguments)]
     pub async fn update_version(
         &self,
         version_id: &str,
