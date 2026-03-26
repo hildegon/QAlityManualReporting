@@ -4,10 +4,107 @@ use crate::{
     api::jira_client::JiraClient,
     commands::config::load_config,
     models::jira::{
-        IssueLinkType, JiraBug, JiraComponent, JiraCreatedIssue, JiraProject, JiraTransition,
-        JiraUserSearchResult, JiraVersion,
+        DescriptionBlock, IssueLinkType, JiraBug, JiraComment, JiraCommentFlat, JiraComponent,
+        JiraCreatedIssue, JiraIssueDetail, JiraProject, JiraTransition, JiraUserSearchResult,
+        JiraVersion,
     },
 };
+
+/// Recursively extract plain text from an Atlassian Document Format (ADF) node.
+/// Handles text, mentions, hard breaks, and common block-level elements.
+fn adf_to_text(node: &serde_json::Value) -> String {
+    let mut text = String::new();
+    let Some(obj) = node.as_object() else {
+        return text;
+    };
+    let node_type = obj.get("type").and_then(|v| v.as_str()).unwrap_or("");
+    match node_type {
+        "text" => {
+            if let Some(t) = obj.get("text").and_then(|v| v.as_str()) {
+                text.push_str(t);
+            }
+        }
+        "mention" => {
+            // { "type": "mention", "attrs": { "text": "@Display Name", ... } }
+            if let Some(t) = obj.get("attrs").and_then(|a| a.get("text")).and_then(|v| v.as_str()) {
+                text.push_str(t);
+            }
+        }
+        "inlineCard" => {
+            // Linked Jira issue or URL card — show the URL as fallback text.
+            if let Some(url) = obj.get("attrs").and_then(|a| a.get("url")).and_then(|v| v.as_str()) {
+                text.push_str(url);
+            }
+        }
+        "hardBreak" | "rule" => text.push('\n'),
+        _ => {}
+    }
+    if let Some(content) = obj.get("content").and_then(|v| v.as_array()) {
+        for child in content {
+            text.push_str(&adf_to_text(child));
+        }
+        match node_type {
+            "paragraph" | "heading" | "bulletList" | "orderedList" | "listItem"
+            | "blockquote" | "codeBlock" => text.push('\n'),
+            _ => {}
+        }
+    }
+    text
+}
+
+/// Convert an ADF `doc` node into a sequence of `DescriptionBlock`s.
+///
+/// Top-level `mediaSingle` nodes (embedded images/files) become `Media` blocks so the
+/// frontend can render them inline. Everything else becomes `Text` blocks.
+fn adf_to_blocks(doc: &serde_json::Value) -> Vec<DescriptionBlock> {
+    let mut blocks: Vec<DescriptionBlock> = Vec::new();
+    let Some(content) = doc.get("content").and_then(|v| v.as_array()) else {
+        // Fallback: treat entire node as text.
+        let text = adf_to_text(doc).trim().to_string();
+        if !text.is_empty() {
+            blocks.push(DescriptionBlock::Text { content: text });
+        }
+        return blocks;
+    };
+
+    let mut pending_text = String::new();
+
+    let flush = |pending: &mut String, blocks: &mut Vec<DescriptionBlock>| {
+        let trimmed = pending.trim_end_matches('\n').to_string();
+        if !trimmed.is_empty() {
+            blocks.push(DescriptionBlock::Text { content: trimmed });
+        }
+        pending.clear();
+    };
+
+    for node in content {
+        let node_type = node.get("type").and_then(|v| v.as_str()).unwrap_or("");
+        if node_type == "mediaSingle" {
+            // Flush accumulated text before the image.
+            flush(&mut pending_text, &mut blocks);
+            // Extract filename from the nested media node's `alt` attribute.
+            if let Some(media_content) = node.get("content").and_then(|v| v.as_array()) {
+                for media_node in media_content {
+                    if media_node.get("type").and_then(|v| v.as_str()) == Some("media") {
+                        if let Some(alt) = media_node
+                            .get("attrs")
+                            .and_then(|a| a.get("alt"))
+                            .and_then(|v| v.as_str())
+                        {
+                            if !alt.is_empty() {
+                                blocks.push(DescriptionBlock::Media { filename: alt.to_string() });
+                            }
+                        }
+                    }
+                }
+            }
+        } else {
+            pending_text.push_str(&adf_to_text(node));
+        }
+    }
+    flush(&mut pending_text, &mut blocks);
+    blocks
+}
 
 /// Format an anyhow error with its full cause chain for debugging.
 fn format_err(e: anyhow::Error) -> String {
@@ -246,6 +343,114 @@ pub async fn get_version_issues(
     let client = make_jira_client(&app)?;
     client
         .get_version_issues(&project_key, &version_name)
+        .await
+        .map_err(format_err)
+}
+
+/// Fetch a single Jira issue with its description converted from ADF to plain text.
+#[tauri::command]
+pub async fn get_issue_detail(
+    app: AppHandle,
+    issue_key: String,
+) -> Result<JiraIssueDetail, String> {
+    let client = make_jira_client(&app)?;
+    let issue = client.get_issue(&issue_key).await.map_err(format_err)?;
+    Ok(JiraIssueDetail {
+        key: issue.key,
+        summary: issue.fields.summary,
+        description_blocks: issue.fields.description
+            .map(|d| adf_to_blocks(&d))
+            .unwrap_or_default(),
+        assignee: issue.fields.assignee.map(|a| a.display_name),
+        status: issue.fields.status.map(|s| s.name),
+        issue_type: issue.fields.issue_type.map(|t| t.name),
+        priority: issue.fields.priority.map(|p| p.name),
+        attachments: issue.fields.attachments,
+        comments: issue
+            .fields
+            .comment
+            .map(|c| c.comments.into_iter().map(flat_comment).collect())
+            .unwrap_or_default(),
+    })
+}
+
+fn flat_comment(c: JiraComment) -> JiraCommentFlat {
+    JiraCommentFlat {
+        id: c.id,
+        author: c.author.map(|a| a.display_name),
+        body: c.body.map(|b| {
+            let text = adf_to_text(&b);
+            let trimmed = text.trim().to_string();
+            if trimmed.is_empty() { None } else { Some(trimmed) }
+        }).flatten(),
+        created: c.created,
+        updated: c.updated,
+    }
+}
+
+/// Create a new project version in Jira.
+#[tauri::command]
+pub async fn create_version(
+    app: AppHandle,
+    project_id: String,
+    name: String,
+    description: Option<String>,
+    start_date: Option<String>,
+    release_date: Option<String>,
+) -> Result<JiraVersion, String> {
+    let client = make_jira_client(&app)?;
+    client
+        .create_version(
+            &project_id,
+            &name,
+            description.as_deref(),
+            start_date.as_deref(),
+            release_date.as_deref(),
+        )
+        .await
+        .map_err(format_err)
+}
+
+/// Update an existing Jira project version.
+#[tauri::command]
+pub async fn update_version(
+    app: AppHandle,
+    version_id: String,
+    name: Option<String>,
+    description: Option<String>,
+    released: Option<bool>,
+    archived: Option<bool>,
+    start_date: Option<String>,
+    release_date: Option<String>,
+) -> Result<JiraVersion, String> {
+    let client = make_jira_client(&app)?;
+    client
+        .update_version(
+            &version_id,
+            name.as_deref(),
+            description.as_deref(),
+            released,
+            archived,
+            start_date.as_deref(),
+            release_date.as_deref(),
+        )
+        .await
+        .map_err(format_err)
+}
+
+/// Fetch a Jira attachment by its authenticated URL and return it as a base64 data URI.
+///
+/// The returned string can be used directly as `<img src>` or `<video src>` without
+/// requiring any filesystem access permissions.
+#[tauri::command]
+pub async fn fetch_attachment_to_temp(
+    app: AppHandle,
+    content_url: String,
+    mime_type: String,
+) -> Result<String, String> {
+    let client = make_jira_client(&app)?;
+    client
+        .fetch_attachment_as_data_uri(&content_url, &mime_type)
         .await
         .map_err(format_err)
 }

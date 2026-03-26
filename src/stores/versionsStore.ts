@@ -7,6 +7,15 @@ import { persist } from "zustand/middleware";
  * Keys are project keys (e.g. "MYPROJ"); values are arrays of IDs or nested maps.
  * Stored as plain objects in localStorage.
  */
+
+/** A named group that combines multiple Jira versions into one aggregated report. */
+export interface VersionGroup {
+  id: string;
+  name: string;
+  /** IDs of the Jira versions included in this group. */
+  versionIds: string[];
+}
+
 interface VersionsState {
   /** projectKey → array of favourite version ids */
   favourites: Record<string, string[]>;
@@ -25,6 +34,12 @@ interface VersionsState {
   /** projectKey → versionId → health dot colour */
   healthDots: Record<string, Record<string, "green" | "amber" | "red">>;
   setHealthDot: (projectKey: string, versionId: string, dot: "green" | "amber" | "red") => void;
+
+  /** projectKey → version groups defined for that project */
+  versionGroups: Record<string, VersionGroup[]>;
+  addVersionGroup: (projectKey: string, group: VersionGroup) => void;
+  updateVersionGroup: (projectKey: string, group: VersionGroup) => void;
+  removeVersionGroup: (projectKey: string, groupId: string) => void;
 }
 
 export const useVersionsStore = create<VersionsState>()(
@@ -99,6 +114,37 @@ export const useVersionsStore = create<VersionsState>()(
             },
           };
         });
+      },
+
+      versionGroups: {},
+
+      addVersionGroup: (projectKey, group) => {
+        set((state) => ({
+          versionGroups: {
+            ...state.versionGroups,
+            [projectKey]: [...(state.versionGroups[projectKey] ?? []), group],
+          },
+        }));
+      },
+
+      updateVersionGroup: (projectKey, group) => {
+        set((state) => ({
+          versionGroups: {
+            ...state.versionGroups,
+            [projectKey]: (state.versionGroups[projectKey] ?? []).map((g) =>
+              g.id === group.id ? group : g,
+            ),
+          },
+        }));
+      },
+
+      removeVersionGroup: (projectKey, groupId) => {
+        set((state) => ({
+          versionGroups: {
+            ...state.versionGroups,
+            [projectKey]: (state.versionGroups[projectKey] ?? []).filter((g) => g.id !== groupId),
+          },
+        }));
       },
     }),
     {

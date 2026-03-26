@@ -28,6 +28,7 @@ import type {
   JiraProject,
   JiraTransition,
   JiraUser,
+  JiraIssueDetail,
   JiraVersion,
   TestExecution,
   TestPlan,
@@ -127,6 +128,8 @@ export const queryKeys = {
   versionIssues: (projectKey: string, versionName: string) =>
     ["jira", "version-issues", projectKey, versionName] as const,
   issueLinkTypes: ["jira", "issue-link-types"] as const,
+  issueDetail: (issueKey: string) => ["jira", "issue-detail", issueKey] as const,
+  attachment: (contentUrl: string) => ["jira", "attachment", contentUrl] as const,
   execSummary: (executionIssueId: string) => ["xray", "exec-summary", executionIssueId] as const,
 };
 
@@ -228,6 +231,10 @@ export function useTransitionIssue() {
       void queryClient.invalidateQueries({
         queryKey: queryKeys.issueTransitions(issueKey),
       });
+      // Refresh the issue detail modal if it's open
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.issueDetail(issueKey),
+      });
       // Refresh the executions list to show the updated status
       void queryClient.invalidateQueries({
         queryKey: queryKeys.testExecutions(executionProjectKey),
@@ -244,12 +251,17 @@ export function useTransitionIssue() {
 
 /** Post a plain-text comment to a Jira issue, then upload any attachments. */
 export function useAddJiraComment() {
+  const queryClient = useQueryClient();
   return useMutation<void, Error, { issueKey: string; body: string; attachmentPaths?: string[] }>({
     mutationFn: async ({ issueKey, body, attachmentPaths = [] }) => {
       await api.addJiraComment(issueKey, body);
       for (const path of attachmentPaths) {
         await api.addAttachment(issueKey, path);
       }
+    },
+    onSuccess: (_data, { issueKey }) => {
+      // Refresh the issue detail modal so the new comment appears immediately.
+      void queryClient.invalidateQueries({ queryKey: queryKeys.issueDetail(issueKey) });
     },
   });
 }
@@ -349,6 +361,46 @@ export function useProjectVersions(projectKey: string | null) {
   });
 }
 
+/** Create a new Jira project version and refresh the versions list. */
+export function useCreateVersion(projectKey: string) {
+  const queryClient = useQueryClient();
+  return useMutation<
+    JiraVersion,
+    Error,
+    { projectId: string; name: string; description?: string; startDate?: string; releaseDate?: string }
+  >({
+    mutationFn: ({ projectId, name, description, startDate, releaseDate }) =>
+      api.createVersion(projectId, name, description, startDate, releaseDate),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.projectVersions(projectKey) });
+    },
+  });
+}
+
+/** Update an existing Jira project version and refresh the versions list. */
+export function useUpdateVersion(projectKey: string) {
+  const queryClient = useQueryClient();
+  return useMutation<
+    JiraVersion,
+    Error,
+    {
+      versionId: string;
+      name?: string;
+      description?: string;
+      released?: boolean;
+      archived?: boolean;
+      startDate?: string;
+      releaseDate?: string;
+    }
+  >({
+    mutationFn: ({ versionId, name, description, released, archived, startDate, releaseDate }) =>
+      api.updateVersion(versionId, name, description, released, archived, startDate, releaseDate),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.projectVersions(projectKey) });
+    },
+  });
+}
+
 // ── Issue link types ──────────────────────────────────────────────────────────
 
 /** Fetch all issue link types configured in the Jira instance. */
@@ -372,6 +424,32 @@ export function useBugsByVersion(projectKey: string | null, versionName: string 
     queryFn: () => api.getBugsByVersion(projectKey!, versionName!),
     enabled: !!projectKey && !!versionName,
     staleTime: 2 * 60 * 1_000,
+    gcTime: Infinity,
+  });
+}
+
+// ── Issue Detail ───────────────────────────────────────────────────────────────
+
+/** Fetch a single Jira issue detail (with plain-text description). Only runs when issueKey is set. */
+export function useIssueDetail(issueKey: string | null) {
+  return useQuery<JiraIssueDetail>({
+    queryKey: queryKeys.issueDetail(issueKey ?? ""),
+    queryFn: () => api.getIssueDetail(issueKey!),
+    enabled: !!issueKey,
+    staleTime: 5 * 60 * 1_000,
+  });
+}
+
+/**
+ * Fetch a Jira attachment as a base64 data URI.
+ * Pass `null` for `contentUrl` to disable the query.
+ */
+export function useAttachmentFile(contentUrl: string | null, mimeType: string) {
+  return useQuery<string>({
+    queryKey: queryKeys.attachment(contentUrl ?? ""),
+    queryFn: () => api.fetchAttachmentToTemp(contentUrl!, mimeType),
+    enabled: !!contentUrl,
+    staleTime: Infinity,
     gcTime: Infinity,
   });
 }

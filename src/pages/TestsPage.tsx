@@ -52,9 +52,12 @@ import {
   MoreHorizontal,
   Activity,
   ShieldAlert,
+  Download,
 } from "lucide-react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { invoke } from "@tauri-apps/api/core";
+import { save as saveDialog } from "@tauri-apps/plugin-dialog";
+import * as api from "@/services/tauri";
 
 import { cn } from "@/components/ui/utils";
 import { useHealthStore } from "@/stores/healthStore";
@@ -417,6 +420,49 @@ function TestsPanel({
   const allFilteredSelected =
     filteredIds.length > 0 && filteredIds.every((id) => selectedIds.has(id));
 
+  const [isExporting, setIsExporting] = useState(false);
+
+  const handleExportJson = useCallback(async () => {
+    const path = await saveDialog({
+      title: "Export tests as JSON",
+      defaultPath: `tests-${projectKey}-${new Date().toISOString().slice(0, 10)}.json`,
+      filters: [{ name: "JSON", extensions: ["json"] }],
+    });
+    if (!path) return;
+    setIsExporting(true);
+    try {
+      const exportData = await api.getTestsExportData(filtered.map((t) => t.issue_id));
+      const exportMap = new Map(exportData.map((d) => [d.issue_id, d]));
+
+      const data = filtered.map((test) => {
+        const sets = membership.get(test.issue_id) ?? [];
+        const content = exportMap.get(test.issue_id);
+        return {
+          key: test.jira.key,
+          summary: test.jira.summary,
+          test_type: test.test_type?.name ?? null,
+          jira_status: test.jira.status?.name ?? null,
+          priority: test.jira.priority?.name ?? null,
+          components: (test.jira.components ?? []).map((c) => c.name),
+          labels: test.jira.labels ?? [],
+          assignee: test.jira.assignee?.display_name ?? null,
+          created: test.jira.created ?? null,
+          test_sets: sets.map((s) => ({ key: s.key, summary: s.summary })),
+          steps: (content?.steps ?? []).map((s) => ({
+            action: s.action ?? null,
+            data: s.data ?? null,
+            expected_result: s.result ?? null,
+          })),
+          gherkin: content?.gherkin ?? null,
+          unstructured: content?.unstructured ?? null,
+        };
+      });
+      await api.writeTextFile(path, JSON.stringify(data, null, 2));
+    } finally {
+      setIsExporting(false);
+    }
+  }, [filtered, membership, projectKey]);
+
   // ── Virtualized test list ──────────────────────────────────────────────────
   const parentRef = useRef<HTMLDivElement>(null);
   const virtualizer = useVirtualizer({
@@ -542,15 +588,25 @@ function TestsPanel({
             </button>
           )}
         </span>
-        {allFilteredSelected ? (
-          <button className="hover:text-slate-700" onClick={onClearAll}>
-            Deselect all
+        <span className="flex items-center gap-2">
+          {allFilteredSelected ? (
+            <button className="hover:text-slate-700" onClick={onClearAll}>
+              Deselect all
+            </button>
+          ) : (
+            <button className="hover:text-slate-700" onClick={() => onSelectAll(filteredIds)}>
+              Select all
+            </button>
+          )}
+          <button
+            onClick={() => void handleExportJson()}
+            disabled={isExporting || filtered.length === 0}
+            title="Export as JSON"
+            className="rounded p-0.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 disabled:opacity-40 dark:hover:bg-slate-700"
+          >
+            <Download className="h-3.5 w-3.5" />
           </button>
-        ) : (
-          <button className="hover:text-slate-700" onClick={() => onSelectAll(filteredIds)}>
-            Select all
-          </button>
-        )}
+        </span>
       </div>
 
       {/* List (virtualised) */}

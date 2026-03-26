@@ -47,6 +47,47 @@ pub struct JiraIssueFields {
     pub priority: Option<JiraPriority>,
     #[serde(rename(deserialize = "issuetype"))]
     pub issue_type: Option<JiraIssueType>,
+    /// Description in Atlassian Document Format (ADF). Present when fetched with `description` field.
+    pub description: Option<serde_json::Value>,
+    /// File attachments. Present when fetched with `attachment` field.
+    #[serde(default, rename(deserialize = "attachment"))]
+    pub attachments: Vec<JiraAttachment>,
+    /// Comments. Present when fetched with `comment` field.
+    pub comment: Option<JiraCommentField>,
+}
+
+/// A comment with its ADF body pre-converted to plain text.
+#[derive(Debug, Clone, Serialize)]
+pub struct JiraCommentFlat {
+    pub id: String,
+    pub author: Option<String>,
+    pub body: Option<String>,
+    pub created: Option<String>,
+    pub updated: Option<String>,
+}
+
+/// A single block in a rendered description.
+/// Text blocks carry plain text; Media blocks reference an attachment by filename.
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum DescriptionBlock {
+    Text { content: String },
+    Media { filename: String },
+}
+
+/// Flattened issue detail returned by the `get_issue_detail` command.
+#[derive(Debug, Clone, Serialize)]
+pub struct JiraIssueDetail {
+    pub key: String,
+    pub summary: String,
+    /// Structured description: interleaved text and media blocks.
+    pub description_blocks: Vec<DescriptionBlock>,
+    pub assignee: Option<String>,
+    pub status: Option<String>,
+    pub issue_type: Option<String>,
+    pub priority: Option<String>,
+    pub attachments: Vec<JiraAttachment>,
+    pub comments: Vec<JiraCommentFlat>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -132,6 +173,8 @@ pub struct JiraVersion {
     pub released: Option<bool>,
     #[serde(rename(deserialize = "releaseDate"))]
     pub release_date: Option<String>,
+    #[serde(rename(deserialize = "startDate"))]
+    pub start_date: Option<String>,
 }
 
 /// The "type" sub-object of an issue link (holds the link direction name).
@@ -173,6 +216,37 @@ pub struct JiraIssueLink {
     /// Present when this issue is the "inward" side of the link.
     #[serde(rename(deserialize = "inwardIssue"))]
     pub inward_issue: Option<JiraLinkedIssue>,
+}
+
+/// A single comment on a Jira issue.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct JiraComment {
+    pub id: String,
+    pub author: Option<JiraUser>,
+    /// Comment body in ADF format — converted to plain text before sending to the frontend.
+    pub body: Option<serde_json::Value>,
+    pub created: Option<String>,
+    pub updated: Option<String>,
+}
+
+/// The `comment` field wrapper returned by Jira's issue API.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct JiraCommentField {
+    pub comments: Vec<JiraComment>,
+}
+
+/// A file attachment returned inside issue fields.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct JiraAttachment {
+    pub id: String,
+    #[serde(rename(deserialize = "filename"))]
+    pub filename: String,
+    #[serde(rename(deserialize = "mimeType"))]
+    pub mime_type: String,
+    /// Authenticated download URL for the full attachment content.
+    pub content: String,
+    /// Thumbnail download URL (only present for image attachments).
+    pub thumbnail: Option<String>,
 }
 
 /// Fields returned for a bug issue from JQL search.
