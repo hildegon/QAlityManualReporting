@@ -18,7 +18,20 @@
       "Bash(npm test:*)",
       "Bash(cargo build:*)",
       "Bash(cargo clippy:*)",
-      "Bash(npm run:*)"
+      "Bash(npm run:*)",
+      "Bash(mkdir -p /Users/sergio/IdeaProjects/QAlityManualReporting/src-tauri/src/api/jira_client)",
+      "Bash(mkdir -p /Users/sergio/IdeaProjects/QAlityManualReporting/src-tauri/src/commands/xray)",
+      "Bash(sed -n '105,170p' src/components/charts/StatusCharts.tsx)",
+      "Bash(sed -n '1,15p' src/components/coverage/MetricTile.tsx)",
+      "Bash(sed -n '28,40p' src/components/ui/badge.tsx)",
+      "Bash(sed -n '97,110p' src/components/ui/toast.tsx)",
+      "Bash(sed -n '28,42p' src/components/ui/badge.tsx)",
+      "Bash(sed -n '97,115p' src/components/ui/toast.tsx)",
+      "Bash(sed -n '1,5p' src/components/versions/VersionDashboard.tsx)",
+      "Bash(sed -n '12,25p' src/components/coverage/TestSetSection.tsx)",
+      "Bash(rm:*)",
+      "Bash(git -C /Users/sergio/IdeaProjects/QAlityManualReporting status)",
+      "Bash(git -C /Users/sergio/IdeaProjects/QAlityManualReporting log --oneline -10)"
     ]
   }
 }
