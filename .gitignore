@@ -24,7 +24,7 @@ src-tauri/gen/android/
 src-tauri/gen/apple/
 
 # ── Test / coverage ───────────────────────────────────────────────────────────
-coverage/
+/coverage/
 
 # ── Environment files ─────────────────────────────────────────────────────────
 .env

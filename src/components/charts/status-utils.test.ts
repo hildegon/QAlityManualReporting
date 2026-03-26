@@ -98,7 +98,7 @@ describe("buildSlicesFromTests", () => {
   });
 
   it("treats missing latest_status as TODO", () => {
-    const slices = buildSlicesFromTests([{ latest_status: null }, { latest_status: undefined }]);
+    const slices = buildSlicesFromTests([{ latest_status: null }, {}]);
     expect(slices).toHaveLength(1);
     expect(slices[0]!.key).toBe("TODO");
     expect(slices[0]!.count).toBe(2);
