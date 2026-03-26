@@ -23,10 +23,12 @@ import {
 } from "@/services/queries";
 import * as api from "@/services/tauri";
 import { parseRateLimitError } from "@/stores/uiStore";
-import { MiniStackedBar, buildSlicesFromCounts } from "@/components/charts/StatusCharts";
+import { MiniStackedBar } from "@/components/charts/StatusCharts";
+import { buildSlicesFromCounts } from "@/components/charts/status-utils";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
-import { Badge, statusVariant } from "@/components/ui/badge";
+import { Badge } from "@/components/ui/badge";
+import { statusVariant } from "@/components/ui/badge-utils";
 import { cn } from "@/components/ui/utils";
 import {
   ArrowLeft,
@@ -43,8 +45,9 @@ import {
   Search,
   X,
 } from "lucide-react";
-import { Toast, showToast } from "@/components/ui/toast";
-import type { ToastMessage } from "@/components/ui/toast";
+import { Toast } from "@/components/ui/toast";
+import { showToast } from "@/components/ui/toast-utils";
+import type { ToastMessage } from "@/components/ui/toast-utils";
 import type {
   CucumberResult,
   JiraVersion,

@@ -1,11 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { cn } from "@/components/ui/utils";
-
-interface ToastMessage {
-  id: number;
-  text: string;
-  type: "success" | "error";
-}
+import type { ToastMessage } from "./toast-utils";
 
 interface ToastItemProps {
   message: ToastMessage;
@@ -97,13 +92,4 @@ export function Toast({ message }: ToastProps) {
   );
 }
 
-/** Helper to trigger a toast; pass the setState setter from the parent. */
-export function showToast(
-  setToast: React.Dispatch<React.SetStateAction<ToastMessage | null>>,
-  text: string,
-  type: "success" | "error" = "success",
-) {
-  setToast({ id: Date.now(), text, type });
-}
-
-export type { ToastMessage };
+export type { ToastMessage } from "./toast-utils";

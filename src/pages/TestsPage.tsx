@@ -10,8 +10,9 @@ import {
 } from "@/services/queries";
 import { useContentProjectKey } from "@/hooks/useProjectKey";
 import { useDragAndDrop } from "@/hooks/useDragAndDrop";
-import { Toast, showToast } from "@/components/ui/toast";
-import type { ToastMessage } from "@/components/ui/toast";
+import { Toast } from "@/components/ui/toast";
+import { showToast } from "@/components/ui/toast-utils";
+import type { ToastMessage } from "@/components/ui/toast-utils";
 import { EmptyState } from "@/components/common/EmptyState";
 import { Button } from "@/components/ui/button";
 import { AlertTriangle, FlaskConical, Layers, RefreshCw, Plus, Activity, ShieldAlert } from "lucide-react";
