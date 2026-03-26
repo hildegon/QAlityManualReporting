@@ -415,7 +415,7 @@ export interface XrayTestWithStatus {
     status?: { name: string };
   };
   /** undefined if the test has never been executed. */
-  latest_status?: LatestTestStatus;
+  latest_status?: LatestTestStatus | null;
 }
 
 /** A single Xray test set returned by `get_test_sets`. */
