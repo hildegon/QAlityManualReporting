@@ -20,6 +20,7 @@ import type {
   JiraUser,
   JiraVersion,
   TestExecution,
+  TestLastRunEntry,
   TestRunIteration,
   TestPlan,
   TestRunsPage,
@@ -323,3 +324,13 @@ export const addJiraComment = (issueKey: string, body: string): Promise<void> =>
  */
 export const writeTextFile = (path: string, content: string): Promise<void> =>
   invoke("write_text_file", { path, content });
+
+// ── Health Cache ─────────────────────────────────────────────────────────────
+
+export const loadHealthCache = (projectKey: string): Promise<TestLastRunEntry[]> =>
+  invoke("load_health_cache", { projectKey });
+
+export const saveHealthCache = (
+  projectKey: string,
+  entries: TestLastRunEntry[],
+): Promise<void> => invoke("save_health_cache", { projectKey, entries });

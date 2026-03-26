@@ -1,3 +1,4 @@
+import { memo } from "react";
 import { Badge, statusVariant } from "@/components/ui/badge";
 import type { TestExecution } from "@/types";
 
@@ -6,7 +7,7 @@ interface ExecutionRowProps {
   onClick: () => void;
 }
 
-export function ExecutionRow({ execution, onClick }: ExecutionRowProps) {
+export const ExecutionRow = memo(function ExecutionRow({ execution, onClick }: ExecutionRowProps) {
   const statusName = execution.jira.status?.name ?? "";
   return (
     <button
@@ -28,4 +29,4 @@ export function ExecutionRow({ execution, onClick }: ExecutionRowProps) {
       </div>
     </button>
   );
-}
+});

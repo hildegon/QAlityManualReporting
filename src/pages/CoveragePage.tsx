@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef } from "react";
+import { useState, useMemo, useRef, useDeferredValue } from "react";
 import { useQueries, useQueryClient } from "@tanstack/react-query";
 import { save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { openPath } from "@tauri-apps/plugin-opener";
@@ -44,6 +44,8 @@ export function CoveragePage() {
 
   const [setSearch, setSetSearch] = useState("");
   const [testSearch, setTestSearch] = useState("");
+  const deferredSetSearch = useDeferredValue(setSearch);
+  const deferredTestSearch = useDeferredValue(testSearch);
   const [selectedSetIds, setSelectedSetIds] = useState<Set<string>>(new Set());
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
@@ -62,12 +64,12 @@ export function CoveragePage() {
 
   // Filtered list of test sets for the selector panel.
   const filteredSets = useMemo(() => {
-    const q = setSearch.trim().toLowerCase();
+    const q = deferredSetSearch.trim().toLowerCase();
     return (testSets ?? []).filter(
       (ts) =>
         !q || ts.jira.key.toLowerCase().includes(q) || ts.jira.summary.toLowerCase().includes(q),
     );
-  }, [testSets, setSearch]);
+  }, [testSets, deferredSetSearch]);
 
   // The ordered list of selected test set objects (preserving display order).
   const selectedSets = useMemo(
@@ -511,7 +513,7 @@ export function CoveragePage() {
                         queryKey: queryKeys.testSetTestsWithStatus(ts.issue_id),
                       })
                     }
-                    testSearch={testSearch}
+                    testSearch={deferredTestSearch}
                     statusFilter={null}
                     expandSignal={expandSignal}
                     collapseSignal={collapseSignal}
@@ -543,3 +545,5 @@ export function CoveragePage() {
     </div>
   );
 }
+
+export default CoveragePage;

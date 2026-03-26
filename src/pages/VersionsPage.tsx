@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useDeferredValue } from "react";
 import {
   Tag,
   Loader2,
@@ -53,12 +53,15 @@ export function VersionsPage() {
     : null;
   const selectedVersion = (versions ?? []).find((v) => v.id === storedVersionId) ?? null;
 
-  const healthDotMap: Record<string, "green" | "amber" | "red"> =
-    (executionProjectKey && healthDots[executionProjectKey]) || {};
+  const healthDotMap: Record<string, "green" | "amber" | "red"> = useMemo(
+    () => (executionProjectKey && healthDots[executionProjectKey]) || {},
+    [executionProjectKey, healthDots],
+  );
 
   const [selectedExecution, setSelectedExecution] = useState<TestExecution | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [versionFilter, setVersionFilter] = useState("");
+  const deferredVersionFilter = useDeferredValue(versionFilter);
   const [showReleased, setShowReleased] = useState(false);
   const [activeTab, setActiveTab] = useState<"report" | "manage">("report");
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
@@ -129,7 +132,7 @@ export function VersionsPage() {
   }, [executionProjectKey, selectedVersion, selectedGroup, versions, queryClient]);
 
   const allVersions = useMemo(() => versions ?? [], [versions]);
-  const filterQ = versionFilter.trim().toLowerCase();
+  const filterQ = deferredVersionFilter.trim().toLowerCase();
   const favouriteVersions = useMemo(
     () =>
       allVersions.filter(
@@ -479,3 +482,5 @@ export function VersionsPage() {
     </div>
   );
 }
+
+export default VersionsPage;

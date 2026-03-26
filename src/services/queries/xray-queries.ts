@@ -61,7 +61,7 @@ export function useTestPlans(projectKey: string | null) {
     queryKey: queryKeys.testPlans(projectKey!),
     queryFn: () => api.getTestPlans(projectKey!),
     enabled: !!projectKey,
-    staleTime: 2 * 60 * 1000,
+    staleTime: 5 * 60 * 1_000,
     gcTime: Infinity,
     meta: { persist: true },
   });
@@ -88,8 +88,9 @@ export function useTestExecutionsByVersion(projectKey: string | null, versionNam
     queryKey: queryKeys.testExecutionsByVersion(projectKey!, versionName!),
     queryFn: () => api.getTestExecutionsByVersion(projectKey!, versionName!),
     enabled: !!projectKey && !!versionName,
-    staleTime: 2 * 60 * 1_000,
+    staleTime: 5 * 60 * 1_000,
     gcTime: Infinity,
+    meta: { persist: true },
   });
 }
 
@@ -133,8 +134,9 @@ export function useIterationStepResults(testRunId: string | null) {
     queryKey: queryKeys.iterationStepResults(testRunId ?? ""),
     queryFn: () => api.getIterationStepResults(testRunId!),
     enabled: !!testRunId,
-    staleTime: 5 * 60 * 1_000,
+    staleTime: Infinity, // step results are immutable once a test execution is done
     gcTime: Infinity,
+    meta: { persist: true },
   });
 }
 
@@ -267,8 +269,9 @@ export function useGetTestSetTests(issueId: string | null) {
     queryKey: queryKeys.testSetTests(issueId ?? ""),
     queryFn: () => api.getTestSetTests(issueId!),
     enabled: !!issueId,
-    staleTime: 5 * 60 * 1_000,
+    staleTime: Infinity, // membership only changes via add/remove mutations that invalidate this key
     gcTime: Infinity,
+    meta: { persist: true },
   });
 }
 
@@ -279,8 +282,9 @@ export function useGetTestSetTestsWithStatus(issueId: string | null) {
     queryKey: queryKeys.testSetTestsWithStatus(issueId ?? ""),
     queryFn: () => api.getTestSetTestsWithStatus(issueId!),
     enabled: !!issueId,
-    staleTime: 5 * 60 * 1_000,
+    staleTime: 5 * 60 * 1_000, // status can change via external test runs
     gcTime: Infinity,
+    meta: { persist: true },
   });
 }
 
@@ -291,8 +295,9 @@ export function useGetTestPlanTests(issueId: string | null) {
     queryKey: queryKeys.testPlanTests(issueId ?? ""),
     queryFn: () => api.getTestPlanTests(issueId!),
     enabled: !!issueId,
-    staleTime: 5 * 60 * 1_000,
+    staleTime: Infinity, // membership only changes via add/remove mutations that invalidate this key
     gcTime: Infinity,
+    meta: { persist: true },
   });
 }
 

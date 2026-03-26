@@ -1,7 +1,7 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Activity, RefreshCw, Search, X } from "lucide-react";
-import { invoke } from "@tauri-apps/api/core";
+import * as api from "@/services/tauri";
 
 import { useGetTests, useIssueTransitions, useIsTestsStreaming } from "@/services/queries";
 import type { XrayTest, JiraTransition, TestLastRunEntry } from "@/types";
@@ -123,10 +123,7 @@ export function TestHealthPanel({
       let failed = 0;
       for (const test of targets) {
         try {
-          await invoke("transition_issue", {
-            issueKey: test.jira.key,
-            transitionId: transition.id,
-          });
+          await api.transitionIssue(test.jira.key, transition.id);
           success++;
         } catch {
           failed++;

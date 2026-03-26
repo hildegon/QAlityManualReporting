@@ -1,4 +1,4 @@
-import { memo, useState, useMemo, useCallback, useRef } from "react";
+import { memo, useState, useMemo, useCallback, useRef, useDeferredValue, useEffect } from "react";
 import {
   useTestExecutions,
   useCreateTestExecution,
@@ -78,12 +78,21 @@ const ExecRow = memo(function ExecRow({
   onEdit,
   onClone,
 }: ExecRowProps) {
+  // Delay the summary query so all visible ExecRows don't fire simultaneously
+  // on mount. The 200ms grace period lets the page paint first; subsequent
+  // rows stagger naturally as React schedules their effects.
+  const [summaryEnabled, setSummaryEnabled] = useState(false);
+  useEffect(() => {
+    const t = setTimeout(() => setSummaryEnabled(true), 200);
+    return () => clearTimeout(t);
+  }, []);
+
   const {
     counts,
     total,
     hasMore,
     isLoading: summaryLoading,
-  } = useExecutionRunSummary(exec.issue_id);
+  } = useExecutionRunSummary(summaryEnabled ? exec.issue_id : null);
   return (
     <tr
       className={cn(
@@ -229,6 +238,7 @@ export function TestExecutionsPage() {
   const [editTarget, setEditTarget] = useState<TestExecution | null>(null);
   const [cloneTarget, setCloneTarget] = useState<TestExecution | null>(null);
   const [search, setSearch] = useState("");
+  const deferredSearch = useDeferredValue(search);
   const [showDone, setShowDone] = useState(false);
   /** The issue key currently being renamed inline, or null when not editing. */
   const [renameKey, setRenameKey] = useState<string | null>(null);
@@ -236,7 +246,7 @@ export function TestExecutionsPage() {
   /** How many pages of regular (non-favourite) executions are currently shown. */
   const [execPage, setExecPage] = useState(1);
 
-  const q = search.trim().toLowerCase();
+  const q = deferredSearch.trim().toLowerCase();
 
   // Reset to page 1 whenever the visible set changes so the user isn't stuck
   // on an empty page after toggling a filter or typing in the search box.
@@ -1325,3 +1335,5 @@ function EditExecutionDialog({
     </Dialog.Root>
   );
 }
+
+export default TestExecutionsPage;

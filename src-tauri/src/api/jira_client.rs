@@ -1,5 +1,5 @@
 #![allow(dead_code)]
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use reqwest::Client;
 
 use super::common::{check_rate_limit, escape_jql_string, validate_project_key};
@@ -623,19 +623,53 @@ impl JiraClient {
     ///
     /// Uses `POST /rest/api/3/issue/{key}/attachments` with `multipart/form-data`.
     /// Reads the file from `file_path` on disk.
+    /// Upload a file as an attachment to a Jira issue.
+    ///
+    /// # Security
+    /// The file path is canonicalized and checked against a blocklist of sensitive
+    /// directories (`.ssh`, `.gnupg`, `.config`) to prevent exfiltration of secrets.
     pub async fn add_attachment(&self, issue_key: &str, file_path: &str) -> Result<()> {
         let path = std::path::Path::new(file_path);
-        let file_name = path
+        let canonical = path
+            .canonicalize()
+            .with_context(|| format!("Cannot resolve attachment path: {file_path}"))?;
+
+        // Reject files inside sensitive directories.
+        let canonical_str = canonical.to_string_lossy();
+        const BLOCKED_DIRS: &[&str] = &[
+            "/.ssh/",
+            "/.gnupg/",
+            "/.config/",
+            "/.aws/",
+            "/.kube/",
+            "\\.ssh\\",
+            "\\.gnupg\\",
+            "\\.config\\",
+            "\\.aws\\",
+            "\\.kube\\",
+        ];
+        for blocked in BLOCKED_DIRS {
+            if canonical_str.contains(blocked) {
+                bail!("Cannot attach files from sensitive directory: {blocked}");
+            }
+        }
+
+        // Verify it's a regular file (not a directory, symlink target already resolved).
+        if !canonical.is_file() {
+            bail!("Attachment path does not point to a regular file: {file_path}");
+        }
+
+        let file_name = canonical
             .file_name()
             .and_then(|n| n.to_str())
             .unwrap_or("attachment")
             .to_string();
 
-        let bytes = tokio::fs::read(path)
+        let bytes = tokio::fs::read(&canonical)
             .await
             .with_context(|| format!("Failed to read attachment file: {}", file_path))?;
 
-        let ext = path
+        let ext = canonical
             .extension()
             .and_then(|e| e.to_str())
             .unwrap_or("")
@@ -730,12 +764,23 @@ impl JiraClient {
     ///
     /// The returned string is a `data:<mime_type>;base64,<encoded>` URI that can be used
     /// directly in `<img src>` or `<video src>` without requiring filesystem access.
+    ///
+    /// # Security
+    /// Validates that `content_url` belongs to the configured Jira instance to prevent
+    /// SSRF attacks that could leak the auth header to an attacker-controlled server.
     pub async fn fetch_attachment_as_data_uri(
         &self,
         content_url: &str,
         mime_type: &str,
     ) -> Result<String> {
         use base64::{engine::general_purpose::STANDARD, Engine};
+
+        if !content_url.starts_with(&self.base_url) {
+            bail!(
+                "Attachment URL must belong to the configured Jira instance (expected prefix '{}')",
+                self.base_url
+            );
+        }
 
         let bytes = self
             .client

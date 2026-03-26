@@ -279,3 +279,5 @@ function ValidationIndicator({
   }
   return null;
 }
+
+export default SettingsPage;
