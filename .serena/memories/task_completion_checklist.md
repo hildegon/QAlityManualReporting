@@ -14,4 +14,4 @@ Before committing:
 3. `cd src-tauri && cargo clippy -- -D warnings`
 
 New Tauri commands must be registered in `src-tauri/src/lib.rs` invoke_handler!
-New frontend data calls go in `src/services/tauri.ts` + `src/services/queries.ts`
+New frontend data calls go in `src/services/tauri.ts` + `src/services/queries/` (appropriate submodule)

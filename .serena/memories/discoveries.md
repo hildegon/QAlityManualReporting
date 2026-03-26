@@ -14,7 +14,7 @@
 
 7. **Xray `remove` mutations return a scalar `String`, NOT an object.** `removeTestsFromTestSet` and `removeTestsFromTestPlan` both return `String`. Selecting subfields (e.g. `{ removedTests warning }`) causes a 400 Bad Request: `"Field must not have a selection since type String has no subfields"`. By contrast, `addTestsToTestSet` and `addTestsToTestPlan` DO return objects with `addedTests`/`warning` subfields.
 
-8. **Two queries files must be kept in sync.** `src/services/queries.ts` (flat file) takes precedence over `src/services/queries/index.ts` (barrel) in TypeScript module resolution. Imports of `"@/services/queries"` resolve to the flat file, NOT the directory. New hooks must be added to `queries.ts` directly — AND also to `src/services/queries/xray.ts` (with re-export from `queries/index.ts`) to keep the modular tree consistent.
+8. **Queries barrel structure.** `src/services/queries/` is a barrel directory with `index.ts` re-exporting all submodules (`queryKeys.ts`, `config.ts`, `jira.ts`, `xray-queries.ts`, `xray-mutations.ts`, `version-stats.ts`). Import via `@/services/queries`. Add new hooks to the appropriate submodule and re-export from `index.ts`.
 
 9. **HTML5 DnD does not work in Tauri's macOS WKWebView.** Use the custom mouse-based drag via `useDragAndDrop` hook instead.
 

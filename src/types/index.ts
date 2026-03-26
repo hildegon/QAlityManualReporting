@@ -1,5 +1,52 @@
+/**
+ * @file src/types/index.ts — Single source of truth for all shared TypeScript interfaces.
+ *
+ * ## Table of contents
+ *
+ * ### Config
+ *   `AppConfig`                                         Jira + Xray credentials
+ *
+ * ### Jira
+ *   `JiraIssueLinkType`                                 Issue link type catalog entry
+ *   `JiraProject`                                       Project metadata
+ *   `JiraComponent`, `JiraTransition`, `JiraUser`       Project sub-entities
+ *   `JiraVersion`                                       Fix / affected version
+ *   `JiraIssueLink`, `JiraBug`, `JiraIssueDetail`       Issue data
+ *   `JiraAttachment`, `JiraCommentFlat`, `DescriptionBlock`  Attachment & comment helpers
+ *   `CreateBugResult`                                   Bug creation result
+ *
+ * ### Xray — Core Entities
+ *   `TestPlan`, `TestExecution`                         Plan / execution issues
+ *   `TestType`                                          Manual | Cucumber | Generic
+ *   `TestRun`, `TestRunStatus`, `TestRunStep`           Run + step shapes
+ *   `StepStatus`                                        Step-level status
+ *   `CucumberResult`, `CucumberResultsStep`             Cucumber scenario results
+ *
+ * ### Xray — Dataset / Iterations (parametrized manual tests)
+ *   `TestRunParameter`                                  Name/value parameter pair
+ *   `TestRunIteration`, `TestRunIterationStepResult`    Dataset row results
+ *
+ * ### Xray — Status Enums
+ *   `XrayTestRunStatus`                                 Xray run status enum entry
+ *   `XrayStepStatus`                                    Xray step status enum entry
+ *   `CreateTestExecutionResult`                         Execution creation result
+ *
+ * ### Xray — Test Entities
+ *   `XrayTest`, `XrayTestStep`, `XrayTestExportData`    Test + step definitions
+ *   `XrayTestWithStatus`                                Test enriched with latest status
+ *   `LatestTestStatus`, `TestLastRunEntry`              Latest status shapes
+ *   `XrayTestSet`, `TestSetMemberInfo`, `TestSetMembershipsResponse`  Test set membership
+ *   `TestRunsPage`                                      Paginated test-runs response
+ *
+ * ### Create Result Types
+ *   `CreateTestSetResult`                               Test set creation result
+ *   `CreateTestStepInput`, `CreatedTestStep`, `CreatedTest`, `CreateTestResult`  Test creation
+ *   `CreatedTestPlan`, `CreateTestPlanResult`           Test plan creation result
+ */
+
 // ── Config ────────────────────────────────────────────────────────────────────
 
+/** Credentials for Jira and Xray Cloud, stored encrypted on disk. */
 export interface AppConfig {
   jira_url: string;
   jira_email: string;
@@ -18,6 +65,7 @@ export interface JiraIssueLinkType {
 
 // ── Jira ──────────────────────────────────────────────────────────────────────
 
+/** A Jira project as returned by `get_jira_projects`. */
 export interface JiraProject {
   id: string;
   key: string;
@@ -151,6 +199,7 @@ export interface JiraIssueDetail {
 
 // ── Xray ──────────────────────────────────────────────────────────────────────
 
+/** An Xray test plan issue. */
 export interface TestPlan {
   issue_id: string;
   project_id: string;
@@ -162,6 +211,7 @@ export interface TestPlan {
   };
 }
 
+/** An Xray test execution issue. */
 export interface TestExecution {
   issue_id: string;
   project_id: string;
@@ -197,6 +247,7 @@ export interface CucumberResult {
   steps?: CucumberResultsStep[];
 }
 
+/** A single test run within a test execution. */
 export interface TestRun {
   id: string;
   status: TestRunStatus;
@@ -227,6 +278,7 @@ export interface TestRun {
   };
 }
 
+/** The overall status of a test run (e.g. PASS, FAIL, TODO). */
 export interface TestRunStatus {
   name: string;
   color?: string;
@@ -234,6 +286,7 @@ export interface TestRunStatus {
   is_final?: boolean;
 }
 
+/** A manual test step with its execution result (actual result, comment, defects). */
 export interface TestRunStep {
   id: string;
   status?: StepStatus;
@@ -245,6 +298,7 @@ export interface TestRunStep {
   defects?: string[];
 }
 
+/** The status of a manual test step (PASS, FAIL, TODO, etc.). */
 export interface StepStatus {
   name: string;
   description?: string;
@@ -295,6 +349,7 @@ export interface XrayStepStatus {
   color?: string;
 }
 
+/** Result returned by the `create_test_execution` Tauri command. */
 export interface CreateTestExecutionResult {
   test_execution: {
     issue_id: string;
@@ -448,9 +503,3 @@ export interface CreateTestPlanResult {
   test_plan?: CreatedTestPlan;
   warnings?: string[];
 }
-
-/**
- * Returned by `get_tests` / `get_test_sets` Tauri commands.
- * Contains the first page so the UI can render immediately.
- * When `done` is `false`, remaining items arrive via background Tauri events.
- */

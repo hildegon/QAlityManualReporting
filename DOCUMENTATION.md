@@ -459,9 +459,10 @@ confusion).
 > **Important:** `invoke()` rejects with a plain `string` (not an `Error` object). Use
 > `String(error)` instead of `error.message` when catching errors from Tauri commands.
 
-### `src/services/queries.ts`
+### `src/services/queries/` (barrel)
 
-All TanStack Query hooks. Organised by domain:
+TanStack Query hooks, split by domain into submodules. Import via `@/services/queries`.
+Submodules: `queryKeys.ts`, `config.ts`, `jira.ts`, `xray-queries.ts`, `xray-mutations.ts`, `version-stats.ts`.
 
 **Query hooks (read):**
 
@@ -967,7 +968,8 @@ cd src-tauri && cargo fmt                    # Rust formatter
      invoke("get_something", { param });
    ```
 
-7. **Add the TanStack Query hook** to `src/services/queries.ts`:
+7. **Add the TanStack Query hook** to the appropriate submodule in `src/services/queries/`
+   (`xray-queries.ts` for reads, `xray-mutations.ts` for writes, `jira.ts` for Jira):
    ```typescript
    export function useGetSomething(param: string | null) {
      return useQuery<SomeType[]>({
