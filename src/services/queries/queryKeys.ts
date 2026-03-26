@@ -8,11 +8,18 @@
 export const TEST_RUNS_PAGE_SIZE = 100;
 
 /**
- * Smaller page size used for background stats aggregation (version dashboard)
- * and the execution-list summary bar.  Kept at 10 so the first response arrives
- * quickly; the stats aggregator auto-paginates for the remainder.
+ * Smaller page size used for background stats aggregation (version dashboard).
+ * Kept at 10 so the first response arrives quickly; the stats aggregator
+ * auto-paginates for the remainder.
  */
 export const STATS_PAGE_SIZE = 10;
+
+/**
+ * Page size for the execution-list summary bar. Uses the lightweight
+ * `get_test_run_statuses` command (status only, no steps/iterations), so a
+ * single page of 100 covers the vast majority of test executions in one call.
+ */
+export const EXEC_SUMMARY_PAGE_SIZE = 100;
 
 // ── Query keys ────────────────────────────────────────────────────────────────
 
@@ -46,5 +53,7 @@ export const queryKeys = {
   issueLinkTypes: ["jira", "issue-link-types"] as const,
   issueDetail: (issueKey: string) => ["jira", "issue-detail", issueKey] as const,
   attachment: (contentUrl: string) => ["jira", "attachment", contentUrl] as const,
-  execSummary: (executionIssueId: string) => ["xray", "exec-summary", executionIssueId] as const,
+  execSummary: (executionIssueId: string, start: number) =>
+    ["xray", "exec-summary", executionIssueId, start] as const,
+  testDetail: (testKey: string) => ["xray", "test-detail", testKey] as const,
 };

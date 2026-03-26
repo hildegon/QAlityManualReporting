@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { Activity, RefreshCw, Search, X } from "lucide-react";
+import { Activity, Eye, RefreshCw, Search, X } from "lucide-react";
 import * as api from "@/services/tauri";
 
 import { useGetTests, useIssueTransitions, useIsTestsStreaming } from "@/services/queries";
@@ -13,6 +13,7 @@ import { EmptyState } from "@/components/common/EmptyState";
 import { cn } from "@/components/ui/utils";
 import { categoryColor, isDeprecatingStatus, type ToastFn } from "./utils";
 import { TransitionMenu } from "./TransitionMenu";
+import { TestDetailModal } from "@/components/versions/TestDetailModal";
 
 // ── Date helpers ──────────────────────────────────────────────────────────────
 
@@ -68,6 +69,7 @@ export function TestHealthPanel({
   const [bulkApplying, setBulkApplying] = useState(false);
   const headerCheckRef = useRef<HTMLInputElement>(null);
 
+  const [previewKey, setPreviewKey] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const parentRef = useRef<HTMLDivElement>(null);
 
@@ -274,7 +276,7 @@ export function TestHealthPanel({
       {/* Virtualised list */}
       <div className="flex-1 overflow-hidden rounded-md border border-slate-200 dark:border-slate-700">
         {/* Sticky header */}
-        <div className="grid grid-cols-[2.5rem_2rem_7rem_1fr_9rem_7rem_2.5rem] border-b border-slate-200 bg-slate-50 text-xs font-semibold uppercase tracking-wider text-slate-400 dark:border-slate-700 dark:bg-slate-800">
+        <div className="grid grid-cols-[2.5rem_2rem_7rem_1fr_9rem_7rem_5rem] border-b border-slate-200 bg-slate-50 text-xs font-semibold uppercase tracking-wider text-slate-400 dark:border-slate-700 dark:bg-slate-800">
           <div className="flex items-center py-2 pl-3">
             <input
               ref={headerCheckRef}
@@ -321,15 +323,39 @@ export function TestHealthPanel({
                       height: `${ROW_HEIGHT}px`,
                       transform: `translateY(${vRow.start}px)`,
                     }}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() =>
+                      setSelectedIds((prev) => {
+                        const next = new Set(prev);
+                        if (next.has(test.issue_id)) next.delete(test.issue_id);
+                        else next.add(test.issue_id);
+                        return next;
+                      })
+                    }
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        setSelectedIds((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(test.issue_id)) next.delete(test.issue_id);
+                          else next.add(test.issue_id);
+                          return next;
+                        });
+                      }
+                    }}
                     className={cn(
-                      "group grid grid-cols-[2.5rem_2rem_7rem_1fr_9rem_7rem_2.5rem] items-center border-b border-slate-100 dark:border-slate-800",
+                      "group grid cursor-pointer grid-cols-[2.5rem_2rem_7rem_1fr_9rem_7rem_5rem] items-center border-b border-slate-100 transition-colors dark:border-slate-800",
                       isSelected
                         ? "bg-teal-50 dark:bg-teal-900/20"
                         : "hover:bg-slate-50 dark:hover:bg-slate-800/50",
                     )}
                   >
                     {/* Checkbox */}
-                    <div className="flex items-center py-2 pl-3">
+                    <div
+                      className="flex items-center py-2 pl-3"
+                      onClick={(e) => e.stopPropagation()}
+                    >
                       <input
                         type="checkbox"
                         checked={isSelected}
@@ -398,8 +424,19 @@ export function TestHealthPanel({
                         <span className="text-xs text-slate-400">—</span>
                       )}
                     </div>
-                    {/* Transition menu */}
-                    <div className="py-2 pr-2">
+                    {/* Actions: preview + transition */}
+                    <div
+                      className="flex items-center justify-end gap-1 py-2 pr-2"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <button
+                        type="button"
+                        title="Preview test"
+                        onClick={() => setPreviewKey(test.jira.key)}
+                        className="rounded p-1 text-slate-400 opacity-0 transition-opacity hover:bg-slate-100 hover:text-slate-600 group-hover:opacity-100 dark:hover:bg-slate-700 dark:hover:text-slate-300"
+                      >
+                        <Eye className="h-3.5 w-3.5" />
+                      </button>
                       <TransitionMenu
                         issueKey={test.jira.key}
                         onToast={onToast}
@@ -417,6 +454,15 @@ export function TestHealthPanel({
           </div>
         )}
       </div>
+
+      {previewKey && (
+        <TestDetailModal
+          testKey={previewKey}
+          projectKey={projectKey}
+          versionName=""
+          onClose={() => setPreviewKey(null)}
+        />
+      )}
     </div>
   );
 }

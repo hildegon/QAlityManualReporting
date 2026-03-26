@@ -84,6 +84,7 @@ const queryClient = makeQueryClient();
 
 export default function App() {
   const setRateLimit = useUiStore((s) => s.setRateLimit);
+  const addToast = useUiStore((s) => s.addToast);
 
   // Register global error observers once on mount so they are never re-assigned
   // on re-renders. Assigning directly in the render body would replace the
@@ -97,7 +98,12 @@ export default function App() {
     queryClient.getQueryCache().config.onError = (error) => {
       const until = parseRateLimitError(error);
       if (until !== null) {
+        const alreadyLimited = useUiStore.getState().rateLimitUntil !== null;
         setRateLimit(until);
+        if (!alreadyLimited) {
+          const secs = Math.max(1, Math.ceil((until - Date.now()) / 1_000));
+          addToast(`API rate limit reached — requests paused for ${secs}s`, "warning");
+        }
         const delay = Math.max(0, until - Date.now()) + 500;
         setTimeout(() => {
           // Stagger recovery: invalidate errored queries in small batches so we
@@ -124,9 +130,16 @@ export default function App() {
     };
     queryClient.getMutationCache().config.onError = (error) => {
       const until = parseRateLimitError(error);
-      if (until !== null) setRateLimit(until);
+      if (until !== null) {
+        const alreadyLimited = useUiStore.getState().rateLimitUntil !== null;
+        setRateLimit(until);
+        if (!alreadyLimited) {
+          const secs = Math.max(1, Math.ceil((until - Date.now()) / 1_000));
+          addToast(`API rate limit reached — requests paused for ${secs}s`, "warning");
+        }
+      }
     };
-  }, [setRateLimit]);
+  }, [setRateLimit, addToast]);
 
   return (
     <PersistQueryClientProvider

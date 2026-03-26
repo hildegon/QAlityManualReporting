@@ -9,6 +9,7 @@ import type {
   TestSetMemberInfo,
   XrayStepStatus,
   XrayTest,
+  XrayTestDetail,
   XrayTestRunStatus,
   XrayTestSet,
   XrayTestWithStatus,
@@ -342,4 +343,15 @@ export function useTestSetMembership(projectKey: string | null) {
     membership,
     isLoading,
   };
+}
+
+
+/** Fetch Xray test detail (testType, steps, gherkin) for a single test by its Jira key. */
+export function useTestDetail(testKey: string | null) {
+  return useQuery<XrayTestDetail | null>({
+    queryKey: queryKeys.testDetail(testKey ?? ""),
+    queryFn: () => api.getTestDetail(testKey!),
+    enabled: !!testKey,
+    staleTime: 5 * 60_000,
+  });
 }

@@ -449,6 +449,35 @@ export interface TestRunsPage {
   results: TestRun[];
 }
 
+/** Minimal test-run page returned by `get_test_run_statuses` — status only. */
+export interface TestRunStatusEntry {
+  status: TestRunStatus;
+}
+
+export interface TestRunStatusesPage {
+  total: number;
+  start?: number;
+  limit?: number;
+  results: TestRunStatusEntry[];
+}
+
+// ── Xray Test Detail ──────────────────────────────────────────────────────────
+
+export interface XrayTestStepDefinition {
+  id?: string;
+  action?: string;
+  data?: string;
+  result?: string;
+}
+
+export interface XrayTestDetail {
+  issue_id: string;
+  test_type?: { name: string; kind?: string };
+  steps?: XrayTestStepDefinition[];
+  gherkin?: string;
+  unstructured?: string;
+}
+
 // ── Create Test Set ───────────────────────────────────────────────────────────
 
 /** Full response from the `create_test_set` Tauri command. */

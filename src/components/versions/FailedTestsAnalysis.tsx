@@ -15,6 +15,7 @@ import { useLinkBugToTest } from "@/services/queries";
 import type { TestRunHistory } from "@/services/queries";
 import { cn } from "@/components/ui/utils";
 import { priorityClass } from "./utils";
+import { TestDetailModal } from "./TestDetailModal";
 import type { JiraBug } from "@/types";
 
 // ── Classification metadata ────────────────────────────────────────────────────
@@ -88,6 +89,7 @@ function FailedTestRow({
   const meta = CLASSIFICATION_META[test.classification];
   const Icon = meta.icon;
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(false);
   const pickerRef = useRef<HTMLDivElement>(null);
   const linkBug = useLinkBugToTest();
 
@@ -110,121 +112,143 @@ function FailedTestRow({
   }
 
   return (
-    <div className="rounded-lg border border-slate-200 bg-white px-4 py-3 dark:border-slate-700 dark:bg-slate-800">
-      <div className="flex flex-wrap items-start justify-between gap-2">
-        <div className="min-w-0">
-          <p className="truncate font-medium text-sm text-slate-900 dark:text-slate-200">
-            {test.testSummary}
-          </p>
-          <p className="mt-0.5 font-mono text-xs text-slate-400">{test.testKey}</p>
-        </div>
-        <div className="flex shrink-0 items-center gap-2">
-          <span
-            className={cn(
-              "inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-semibold",
-              meta.chipClass,
-            )}
-          >
-            <Icon className="h-3 w-3" />
-            {meta.label}
-          </span>
-
-          {linkableBugs.length > 0 && (
-            <div className="relative" ref={pickerRef}>
-              <button
-                onClick={() => setPickerOpen((o) => !o)}
-                disabled={linkBug.isPending}
-                title={linkBug.isPending ? "Linking…" : "Link to a bug"}
-                className={cn(
-                  "inline-flex items-center gap-1 rounded border px-2 py-0.5 text-xs font-medium transition-colors",
-                  linkBug.isPending
-                    ? "cursor-not-allowed border-slate-200 bg-slate-50 text-slate-400 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-500"
-                    : pickerOpen
-                      ? "border-slate-400 bg-slate-100 text-slate-700 dark:border-slate-500 dark:bg-slate-700 dark:text-slate-200"
-                      : "border-slate-200 bg-white text-slate-500 hover:border-slate-300 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-400 dark:hover:border-slate-500",
-                )}
-              >
-                {linkBug.isPending ? (
-                  <Loader2 className="h-3 w-3 animate-spin" />
-                ) : (
-                  <Link className="h-3 w-3" />
-                )}
-                {linkBug.isPending ? "Linking…" : "Link bug"}
-              </button>
-
-              {pickerOpen && (
-                <div className="absolute right-0 top-full z-20 mt-1 w-64 rounded-lg border border-slate-200 bg-white shadow-lg dark:border-slate-600 dark:bg-slate-800">
-                  {unlinkedBugs.length === 0 ? (
-                    <p className="px-3 py-2 text-xs text-slate-400">
-                      All bugs for this version are already linked.
-                    </p>
-                  ) : (
-                    <ul className="max-h-52 overflow-y-auto py-1">
-                      {unlinkedBugs.map((bug) => (
-                        <li key={bug.key}>
-                          <button
-                            onClick={() => handleLinkBug(bug.key)}
-                            className="flex w-full items-start gap-2 px-3 py-2 text-left hover:bg-slate-50 dark:hover:bg-slate-700"
-                          >
-                            <span
-                              className={cn(
-                                "mt-0.5 shrink-0 font-bold leading-none",
-                                priorityClass(bug.fields.priority?.name),
-                              )}
-                            >
-                              ●
-                            </span>
-                            <div className="min-w-0">
-                              <p className="truncate text-xs font-medium text-slate-800 dark:text-slate-200">
-                                {bug.fields.summary}
-                              </p>
-                              <p className="font-mono text-[10px] text-slate-400">{bug.key}</p>
-                            </div>
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </div>
+    <>
+      <div
+        role="button"
+        tabIndex={0}
+        onClick={() => setPreviewOpen(true)}
+        onKeyDown={(e) => e.key === "Enter" && setPreviewOpen(true)}
+        className="cursor-pointer rounded-lg border border-slate-200 bg-white px-4 py-3 transition-colors hover:border-amber-400 hover:bg-amber-50 dark:border-slate-700 dark:bg-slate-800 dark:hover:border-amber-600 dark:hover:bg-amber-950/40"
+      >
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <div className="min-w-0">
+            <p className="truncate font-medium text-sm text-slate-900 dark:text-slate-200">
+              {test.testSummary}
+            </p>
+            <p className="mt-0.5 font-mono text-xs text-slate-400">{test.testKey}</p>
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            <span
+              className={cn(
+                "inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-semibold",
+                meta.chipClass,
               )}
-            </div>
-          )}
+            >
+              <Icon className="h-3 w-3" />
+              {meta.label}
+            </span>
+
+            {linkableBugs.length > 0 && (
+              <div
+                className="relative"
+                ref={pickerRef}
+                onClick={(e) => e.stopPropagation()}
+                onKeyDown={(e) => e.stopPropagation()}
+              >
+                <button
+                  onClick={() => setPickerOpen((o) => !o)}
+                  disabled={linkBug.isPending}
+                  title={linkBug.isPending ? "Linking…" : "Link to a bug"}
+                  className={cn(
+                    "inline-flex items-center gap-1 rounded border px-2 py-0.5 text-xs font-medium transition-colors",
+                    linkBug.isPending
+                      ? "cursor-not-allowed border-slate-200 bg-slate-50 text-slate-400 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-500"
+                      : pickerOpen
+                        ? "border-slate-400 bg-slate-100 text-slate-700 dark:border-slate-500 dark:bg-slate-700 dark:text-slate-200"
+                        : "border-slate-200 bg-white text-slate-500 hover:border-slate-300 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-400 dark:hover:border-slate-500",
+                  )}
+                >
+                  {linkBug.isPending ? (
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  ) : (
+                    <Link className="h-3 w-3" />
+                  )}
+                  {linkBug.isPending ? "Linking…" : "Link bug"}
+                </button>
+
+                {pickerOpen && (
+                  <div className="absolute right-0 top-full z-20 mt-1 w-64 rounded-lg border border-slate-200 bg-white shadow-lg dark:border-slate-600 dark:bg-slate-800">
+                    {unlinkedBugs.length === 0 ? (
+                      <p className="px-3 py-2 text-xs text-slate-400">
+                        All bugs for this version are already linked.
+                      </p>
+                    ) : (
+                      <ul className="max-h-52 overflow-y-auto py-1">
+                        {unlinkedBugs.map((bug) => (
+                          <li key={bug.key}>
+                            <button
+                              onClick={() => handleLinkBug(bug.key)}
+                              className="flex w-full items-start gap-2 px-3 py-2 text-left hover:bg-slate-50 dark:hover:bg-slate-700"
+                            >
+                              <span
+                                className={cn(
+                                  "mt-0.5 shrink-0 font-bold leading-none",
+                                  priorityClass(bug.fields.priority?.name),
+                                )}
+                              >
+                                ●
+                              </span>
+                              <div className="min-w-0">
+                                <p className="truncate text-xs font-medium text-slate-800 dark:text-slate-200">
+                                  {bug.fields.summary}
+                                </p>
+                                <p className="font-mono text-[10px] text-slate-400">{bug.key}</p>
+                              </div>
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         </div>
+
+        {test.history.length > 0 && (
+          <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
+            <span className="text-xs text-slate-400">History:</span>
+            {test.history.map((entry, idx) => (
+              <span key={entry.executionKey} className="flex items-center gap-1">
+                <span className="font-mono text-xs text-slate-400">{entry.executionKey}</span>
+                <StatusPip statusName={entry.statusName} />
+                {idx < test.history.length - 1 && <span className="text-slate-300">→</span>}
+              </span>
+            ))}
+          </div>
+        )}
+
+        {test.linkedBugKeys.length > 0 && (
+          <div className="mt-2 flex flex-wrap items-center gap-1.5">
+            <Bug className="h-3 w-3 shrink-0 text-slate-400" />
+            {test.linkedBugKeys.map((bugKey) => (
+              <span
+                key={bugKey}
+                className="inline-flex items-center rounded border border-red-200 bg-red-50 px-1.5 py-0.5 font-mono text-[10px] font-medium text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300"
+              >
+                {bugKey}
+              </span>
+            ))}
+          </div>
+        )}
+
+        {linkBug.isError && (
+          <p className="mt-1.5 text-xs text-red-600 dark:text-red-400">
+            Failed to link bug: {linkBug.error ?? "Unknown error"}
+          </p>
+        )}
       </div>
 
-      {test.history.length > 0 && (
-        <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
-          <span className="text-xs text-slate-400">History:</span>
-          {test.history.map((entry, idx) => (
-            <span key={entry.executionKey} className="flex items-center gap-1">
-              <span className="font-mono text-xs text-slate-400">{entry.executionKey}</span>
-              <StatusPip statusName={entry.statusName} />
-              {idx < test.history.length - 1 && <span className="text-slate-300">→</span>}
-            </span>
-          ))}
-        </div>
+      {previewOpen && (
+        <TestDetailModal
+          testKey={test.testKey}
+          projectKey={projectKey}
+          versionName={versionName}
+          onClose={() => setPreviewOpen(false)}
+        />
       )}
-
-      {test.linkedBugKeys.length > 0 && (
-        <div className="mt-2 flex flex-wrap items-center gap-1.5">
-          <Bug className="h-3 w-3 shrink-0 text-slate-400" />
-          {test.linkedBugKeys.map((bugKey) => (
-            <span
-              key={bugKey}
-              className="inline-flex items-center rounded border border-red-200 bg-red-50 px-1.5 py-0.5 font-mono text-[10px] font-medium text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300"
-            >
-              {bugKey}
-            </span>
-          ))}
-        </div>
-      )}
-
-      {linkBug.isError && (
-        <p className="mt-1.5 text-xs text-red-600 dark:text-red-400">
-          Failed to link bug: {linkBug.error ?? "Unknown error"}
-        </p>
-      )}
-    </div>
+    </>
   );
 }
 

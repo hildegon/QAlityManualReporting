@@ -24,9 +24,11 @@ import type {
   TestRunIteration,
   TestPlan,
   TestRunsPage,
+  TestRunStatusesPage,
   TestSetMembershipsResponse,
   XrayStepStatus,
   XrayTest,
+  XrayTestDetail,
   XrayTestExportData,
   XrayTestRunStatus,
   XrayTestSet,
@@ -155,6 +157,14 @@ export const getTestRuns = (
   limit?: number,
   start?: number,
 ): Promise<TestRunsPage> => invoke("get_test_runs", { testExecutionIssueId, limit, start });
+
+/** Lightweight alternative to getTestRuns — fetches only status names for the summary bar. */
+export const getTestRunStatuses = (
+  testExecutionIssueId: string,
+  limit?: number,
+  start?: number,
+): Promise<TestRunStatusesPage> =>
+  invoke("get_test_run_statuses", { testExecutionIssueId, limit, start });
 
 export const getIterationStepResults = (testRunId: string): Promise<TestRunIteration[]> =>
   invoke("get_iteration_step_results", { testRunId });
@@ -291,6 +301,10 @@ export const getTestSetTestsWithStatus = (issueId: string): Promise<XrayTestWith
  */
 export const addDefectsToTestRun = (runId: string, issueKeys: string[]): Promise<string[]> =>
   invoke("add_defects_to_test_run", { runId, issueKeys });
+
+/** Fetch full Xray test detail (testType, manual steps, gherkin) for a single test by its Jira key. */
+export const getTestDetail = (testKey: string): Promise<XrayTestDetail | null> =>
+  invoke("get_test_detail", { testKey });
 
 /** Create a new Bug issue in a Jira project with an affected version pre-set. */
 export const createBug = (

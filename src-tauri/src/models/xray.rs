@@ -311,6 +311,29 @@ pub struct XrayTestExportData {
     pub unstructured: Option<String>,
 }
 
+/// Full test detail including type, steps/gherkin — returned by `get_test_detail`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct XrayTestDetail {
+    #[serde(rename(deserialize = "issueId"))]
+    pub issue_id: String,
+    #[serde(rename(deserialize = "testType"))]
+    pub test_type: Option<TestType>,
+    pub steps: Option<Vec<XrayTestStep>>,
+    pub gherkin: Option<String>,
+    pub unstructured: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct XrayTestDetailPage {
+    pub results: Vec<XrayTestDetail>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct XrayTestDetailResult {
+    #[serde(rename(deserialize = "getTests"))]
+    pub get_tests: XrayTestDetailPage,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TestsExportResult {
     #[serde(rename(deserialize = "getTests"))]
@@ -888,7 +911,27 @@ pub struct GetTestRunResult {
     pub get_test_run: Option<TestRunIterationsResponse>,
 }
 
-/// Minimal test-run projection returned by the lazy iteration step-results query.
+/// Minimal test-run projection for the execution summary bar (status only).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TestRunStatusEntry {
+    pub status: TestRunStatus,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TestRunStatusesPage {
+    pub total: u32,
+    pub start: Option<u32>,
+    pub limit: Option<u32>,
+    pub results: Vec<TestRunStatusEntry>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TestRunStatusesResult {
+    #[serde(rename(deserialize = "getTestRuns"))]
+    pub test_runs: TestRunStatusesPage,
+}
+
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TestRunIterationsResponse {
     pub iterations: Option<TestRunIterationsPage>,

@@ -3,6 +3,7 @@ import { Bug, Search, Filter, X, Loader2, User } from "lucide-react";
 import { cn } from "@/components/ui/utils";
 import { priorityClass, statusCategoryClass } from "./utils";
 import { CreateBugModal } from "@/components/bugs/CreateBugModal";
+import { IssueDetailModal } from "./IssueDetailModal";
 import type { TestRunHistory } from "@/services/queries";
 import type { JiraBug, JiraVersion } from "@/types";
 
@@ -46,6 +47,7 @@ interface BugsPanelProps {
 
 export function BugsPanel({ bugs, isLoading, isError, error, failedTests, version, projectKey }: BugsPanelProps) {
   const [createBugOpen, setCreateBugOpen] = useState(false);
+  const [selectedBugKey, setSelectedBugKey] = useState<string | null>(null);
 
   const prioritySummary = useMemo(() => {
     const list = bugs ?? [];
@@ -272,7 +274,11 @@ export function BugsPanel({ bugs, isLoading, isError, error, failedTests, versio
             {filtered.map((bug: JiraBug) => (
               <div
                 key={bug.id}
-                className="flex items-start gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2.5 dark:border-slate-700 dark:bg-slate-800"
+                role="button"
+                tabIndex={0}
+                onClick={() => setSelectedBugKey(bug.key)}
+                onKeyDown={(e) => e.key === "Enter" && setSelectedBugKey(bug.key)}
+                className="flex cursor-pointer items-start gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2.5 transition-colors hover:border-red-400 hover:bg-red-50 dark:border-slate-700 dark:bg-slate-800 dark:hover:border-red-600 dark:hover:bg-red-950/40"
               >
                 <span
                   className={cn(
@@ -334,6 +340,15 @@ export function BugsPanel({ bugs, isLoading, isError, error, failedTests, versio
           onClose={() => setCreateBugOpen(false)}
           projectKey={projectKey}
           version={version}
+        />
+      )}
+
+      {selectedBugKey && (
+        <IssueDetailModal
+          issueKey={selectedBugKey}
+          projectKey={projectKey}
+          versionName={version?.name ?? ""}
+          onClose={() => setSelectedBugKey(null)}
         />
       )}
     </div>
