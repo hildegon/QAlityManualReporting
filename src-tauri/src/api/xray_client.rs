@@ -629,12 +629,14 @@ impl XrayClient {
         let total = test_issue_ids.len() as u32;
         let mut processed: u32 = 0;
 
+        #[cfg(debug_assertions)]
         eprintln!("[health] starting: {} tests, batch size {}", total, BATCH_SIZE);
 
         for chunk in test_issue_ids.chunks(BATCH_SIZE) {
             let ids_jql = chunk.join(", ");
             let jql = format!("id in ({ids_jql})");
 
+            #[cfg(debug_assertions)]
             eprintln!("[health] batch {}/{}: querying {} tests", processed + chunk.len() as u32, total, chunk.len());
 
             let result: TestsForHealthResult = match self
@@ -646,6 +648,7 @@ impl XrayClient {
             {
                 Ok(r) => r,
                 Err(e) => {
+                    #[cfg(debug_assertions)]
                     eprintln!("[health] primary query error at batch {}/{}: {:#}", processed, total, e);
                     return Err(e);
                 }
@@ -680,6 +683,7 @@ impl XrayClient {
 
             // Secondary pass: retrieve finishedOn for version-mismatched tests.
             if !fallback_ids.is_empty() {
+                #[cfg(debug_assertions)]
                 eprintln!("[health] fallback query for {} tests with latestStatus but no testRuns", fallback_ids.len());
                 let fallback_limit = (fallback_ids.len() as u32).saturating_mul(5).max(50);
                 match self
@@ -689,7 +693,10 @@ impl XrayClient {
                     )
                     .await
                 {
-                  Err(e) => eprintln!("[health] fallback query error (non-fatal): {:#}", e),
+                  Err(e) => {
+                    #[cfg(debug_assertions)]
+                    eprintln!("[health] fallback query error (non-fatal): {:#}", e);
+                  },
                   Ok(fb) => {
                     // Pick the most-recent run per test by comparing finishedOn strings
                     // (ISO-8601 sorts lexicographically).
@@ -701,6 +708,7 @@ impl XrayClient {
                             *entry = (run.finished_on, run.status);
                         }
                     }
+                    #[cfg(debug_assertions)]
                     eprintln!("[health] fallback resolved dates for {}/{} tests", best.len(), fallback_ids.len());
                     for entry in &mut entries {
                         if entry.finished_on.is_none() {
@@ -719,6 +727,7 @@ impl XrayClient {
             processed += chunk.len() as u32;
             let done = processed >= total;
 
+            #[cfg(debug_assertions)]
             eprintln!("[health] emitting batch: {} entries, {}/{} processed, done={}", entries.len(), processed, total, done);
             let _ = app.emit(
                 "tests:health:batch",

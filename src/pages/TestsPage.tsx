@@ -425,3 +425,5 @@ export function TestsPage() {
     </>
   );
 }
+
+export default TestsPage;

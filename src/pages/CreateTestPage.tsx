@@ -1403,3 +1403,5 @@ function StepRow({
     </div>
   );
 }
+
+export default CreateTestPage;

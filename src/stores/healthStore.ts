@@ -1,8 +1,8 @@
 import { create } from "zustand";
-import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 
 import type { TestLastRunEntry } from "@/types";
+import * as api from "@/services/tauri";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -92,7 +92,7 @@ export const useHealthStore = create<HealthState>()((set, get) => {
 
     // 1) Seed from backend cache
     try {
-      const cached = await invoke<TestLastRunEntry[]>("load_health_cache", { projectKey });
+      const cached = await api.loadHealthCache(projectKey);
       if (cached.length > 0) {
         for (const e of cached) acc.set(e.test_issue_id, e);
         updateProject(projectKey, () => ({ healthMap: new Map(acc) }));
@@ -103,7 +103,7 @@ export const useHealthStore = create<HealthState>()((set, get) => {
 
     // 2) Listen for batch events
     const unlistenError = await listen<string>("tests:health:error", (event) => {
-      console.error("[health] error from backend:", event.payload);
+      if (import.meta.env.DEV) console.error("[health] error from backend:", event.payload);
       toastFn?.(`Health check failed: ${event.payload}`, "error");
       updateProject(projectKey, () => ({ loading: false }));
       set((state) => {
@@ -121,13 +121,18 @@ export const useHealthStore = create<HealthState>()((set, get) => {
       processed: number;
     }>("tests:health:batch", (event) => {
       const { entries, done, total, processed } = event.payload;
+      // Merge healthMap + progress + done state in a single set() call to avoid
+      // triggering two separate React re-renders per batch event.
       if (entries.length > 0) {
         for (const e of entries) acc.set(e.test_issue_id, e);
-        updateProject(projectKey, () => ({ healthMap: new Map(acc) }));
       }
-      updateProject(projectKey, () => ({ progress: { processed, total } }));
       if (done) {
-        updateProject(projectKey, () => ({ loading: false, fetched: true }));
+        updateProject(projectKey, () => ({
+          healthMap: new Map(acc),
+          progress: { processed, total },
+          loading: false,
+          fetched: true,
+        }));
         unlisten();
         unlistenError();
         set((state) => {
@@ -136,18 +141,20 @@ export const useHealthStore = create<HealthState>()((set, get) => {
           return { activeFetches: next };
         });
         // Persist to backend cache
-        void invoke("save_health_cache", {
-          projectKey,
-          entries: [...acc.values()],
-        });
+        void api.saveHealthCache(projectKey, [...acc.values()]);
+      } else {
+        updateProject(projectKey, () => ({
+          ...(entries.length > 0 ? { healthMap: new Map(acc) } : {}),
+          progress: { processed, total },
+        }));
       }
     });
 
     // 3) Invoke the Rust command
     try {
-      await invoke<void>("get_tests_health_data", { testIssueIds });
+      await api.getTestsHealthData(testIssueIds);
     } catch (e) {
-      console.error("[health] invoke error:", e);
+      if (import.meta.env.DEV) console.error("[health] invoke error:", e);
       updateProject(projectKey, () => ({ loading: false }));
       unlisten();
       unlistenError();

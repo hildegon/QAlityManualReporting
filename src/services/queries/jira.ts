@@ -257,8 +257,9 @@ export function useBugsByVersion(projectKey: string | null, versionName: string 
     queryKey: queryKeys.bugsByVersion(projectKey!, versionName!),
     queryFn: () => api.getBugsByVersion(projectKey!, versionName!),
     enabled: !!projectKey && !!versionName,
-    staleTime: 2 * 60 * 1_000,
+    staleTime: 5 * 60 * 1_000,
     gcTime: Infinity,
+    meta: { persist: true },
   });
 }
 
@@ -271,6 +272,7 @@ export function useIssueDetail(issueKey: string | null) {
     queryFn: () => api.getIssueDetail(issueKey!),
     enabled: !!issueKey,
     staleTime: 5 * 60 * 1_000,
+    gcTime: Infinity, // re-opening the same issue modal reuses in-memory cache for the session
   });
 }
 
@@ -296,8 +298,9 @@ export function useVersionIssues(projectKey: string | null, versionName: string 
     queryKey: queryKeys.versionIssues(projectKey!, versionName!),
     queryFn: () => api.getVersionIssues(projectKey!, versionName!),
     enabled: !!projectKey && !!versionName,
-    staleTime: 2 * 60 * 1_000,
+    staleTime: 5 * 60 * 1_000,
     gcTime: Infinity,
+    meta: { persist: true },
   });
 }
 

@@ -1,18 +1,21 @@
-import { useEffect } from "react";
+import { lazy, Suspense, useEffect } from "react";
 import { HashRouter, Routes, Route, Navigate } from "react-router-dom";
 import { QueryClient } from "@tanstack/react-query";
 import { PersistQueryClientProvider } from "@tanstack/react-query-persist-client";
 import { createSyncStoragePersister } from "@tanstack/query-sync-storage-persister";
 import { AppShell } from "@/components/common/AppShell";
 import { ErrorBoundary } from "@/components/common/ErrorBoundary";
-import { SettingsPage } from "@/pages/SettingsPage";
-import { TestExecutionsPage } from "@/pages/TestExecutionsPage";
-import { CoveragePage } from "@/pages/CoveragePage";
-import { TestPlansPage } from "@/pages/TestPlansPage";
-import { TestsPage } from "@/pages/TestsPage";
-import { CreateTestPage } from "@/pages/CreateTestPage";
-import { VersionsPage } from "@/pages/VersionsPage";
+import { Spinner } from "@/components/ui/spinner";
 import { useUiStore, parseRateLimitError } from "@/stores/uiStore";
+
+// Lazy-load page routes so each page's JS is only parsed when first navigated to.
+const SettingsPage = lazy(() => import("@/pages/SettingsPage"));
+const TestExecutionsPage = lazy(() => import("@/pages/TestExecutionsPage"));
+const CoveragePage = lazy(() => import("@/pages/CoveragePage"));
+const TestPlansPage = lazy(() => import("@/pages/TestPlansPage"));
+const TestsPage = lazy(() => import("@/pages/TestsPage"));
+const CreateTestPage = lazy(() => import("@/pages/CreateTestPage"));
+const VersionsPage = lazy(() => import("@/pages/VersionsPage"));
 
 /**
  * How many times a query or mutation is allowed to retry on non-rate-limit errors.
@@ -65,7 +68,9 @@ const localStoragePersister = createSyncStoragePersister({
   // Without a retry handler the persister silently fails and the cache is never saved.
   retry: ({ error, errorCount }) => {
     if (errorCount > 1) return undefined; // give up after one attempt
-    console.warn("[QAlity] localStorage write failed, clearing cache and retrying:", error);
+    if (import.meta.env.DEV) {
+      console.warn("[QAlity] localStorage write failed, clearing cache and retrying:", error);
+    }
     try {
       window.localStorage.removeItem("qality-query-cache");
     } catch {
@@ -143,23 +148,33 @@ export default function App() {
         // Use onError below to warn about failures.
       }}
       onError={() => {
-        console.warn("[QAlity] Failed to restore query cache from localStorage");
+        if (import.meta.env.DEV) {
+          console.warn("[QAlity] Failed to restore query cache from localStorage");
+        }
       }}
     >
       <ErrorBoundary>
         <HashRouter>
-          <Routes>
-            <Route element={<AppShell />}>
-              <Route index element={<Navigate to="/executions" replace />} />
-              <Route path="/executions" element={<TestExecutionsPage />} />
-              <Route path="/coverage" element={<CoveragePage />} />
-              <Route path="/test-plans" element={<TestPlansPage />} />
-              <Route path="/tests" element={<TestsPage />} />
-              <Route path="/versions" element={<VersionsPage />} />
-              <Route path="/create-test" element={<CreateTestPage />} />
-              <Route path="/settings" element={<SettingsPage />} />
-            </Route>
-          </Routes>
+          <Suspense
+            fallback={
+              <div className="flex h-full items-center justify-center">
+                <Spinner className="h-6 w-6 text-slate-400" />
+              </div>
+            }
+          >
+            <Routes>
+              <Route element={<AppShell />}>
+                <Route index element={<Navigate to="/executions" replace />} />
+                <Route path="/executions" element={<TestExecutionsPage />} />
+                <Route path="/coverage" element={<CoveragePage />} />
+                <Route path="/test-plans" element={<TestPlansPage />} />
+                <Route path="/tests" element={<TestsPage />} />
+                <Route path="/versions" element={<VersionsPage />} />
+                <Route path="/create-test" element={<CreateTestPage />} />
+                <Route path="/settings" element={<SettingsPage />} />
+              </Route>
+            </Routes>
+          </Suspense>
         </HashRouter>
       </ErrorBoundary>
     </PersistQueryClientProvider>

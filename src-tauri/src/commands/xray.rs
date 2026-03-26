@@ -1,7 +1,7 @@
 use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::{
-    api::xray_client::XrayClient,
+    api::{common::validate_project_key, xray_client::XrayClient},
     commands::config::load_config,
     models::xray::{
         AddTestsToTestPlanInput, CreateTestExecutionInput, CreateTestExecutionResult,
@@ -420,6 +420,7 @@ pub async fn save_health_cache(
     project_key: String,
     entries: Vec<TestLastRunEntry>,
 ) -> Result<(), String> {
+    validate_project_key(&project_key).map_err(|e| format!("{e:#}"))?;
     let cache_dir = app
         .path()
         .app_config_dir()
@@ -442,6 +443,7 @@ pub async fn load_health_cache(
     app: AppHandle,
     project_key: String,
 ) -> Result<Vec<TestLastRunEntry>, String> {
+    validate_project_key(&project_key).map_err(|e| format!("{e:#}"))?;
     let path = app
         .path()
         .app_config_dir()

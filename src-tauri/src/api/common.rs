@@ -6,7 +6,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 ///
 /// Jira enforces this format server-side, but we validate early to prevent
 /// JQL injection attacks.
-pub(super) fn validate_project_key(key: &str) -> Result<()> {
+pub(crate) fn validate_project_key(key: &str) -> Result<()> {
     if key.is_empty() {
         bail!("Project key must not be empty");
     }

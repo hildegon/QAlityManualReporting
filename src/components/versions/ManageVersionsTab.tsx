@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from "react";
+import { memo, useState, useMemo, useEffect } from "react";
 import {
   Plus,
   Loader2,
@@ -21,7 +21,7 @@ import type { JiraVersion } from "@/types";
 
 // ── VersionRow ─────────────────────────────────────────────────────────────────
 
-function VersionRow({
+const VersionRow = memo(function VersionRow({
   version,
   onUpdate,
 }: {
@@ -266,9 +266,7 @@ function VersionRow({
     </tr>
     </>
   );
-}
-
-// ── ManageVersionsTab ──────────────────────────────────────────────────────────
+});
 
 interface ManageVersionsTabProps {
   projectKey: string;

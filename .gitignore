@@ -41,6 +41,10 @@ coverage/
 *.sln
 *.sw?
 
+# ── AI tool local state ──────────────────────────────────────────────────────
+.claude/settings.local.json
+.serena/memories/
+
 # ── macOS ─────────────────────────────────────────────────────────────────────
 .DS_Store
 .AppleDouble

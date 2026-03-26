@@ -1,4 +1,4 @@
-import { memo, useState, useRef, useCallback, useEffect, useMemo } from "react";
+import { memo, useState, useRef, useCallback, useEffect, useMemo, useDeferredValue } from "react";
 import {
   useTestPlans,
   useGetTestPlanTests,
@@ -135,7 +135,7 @@ function TestSetsSourcePanel({
   }, [onRegisterReload, refetch]);
 
   const [search, setSearch] = useState("");
-  const q = search.trim().toLowerCase();
+  const q = useDeferredValue(search).trim().toLowerCase();
   const filtered = useMemo(
     () =>
       (testSets ?? []).filter(
@@ -552,7 +552,7 @@ function TestPlansDropPanel({
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [statusFilter, setStatusFilter] = useState<string | null>(null);
 
-  const q = search.trim().toLowerCase();
+  const q = useDeferredValue(search).trim().toLowerCase();
 
   // Collect unique statuses from loaded plans for filter chips.
   const availableStatuses = useMemo(() => {
@@ -1278,3 +1278,5 @@ export function TestPlansPage() {
     </>
   );
 }
+
+export default TestPlansPage;

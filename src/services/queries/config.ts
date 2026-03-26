@@ -10,6 +10,7 @@ export function useConfig() {
     queryKey: queryKeys.config,
     queryFn: api.getConfig,
     staleTime: Infinity, // config only changes when the user saves it
+    gcTime: Infinity, // keep in memory for the session; NOT persisted (contains credentials)
   });
 }
 

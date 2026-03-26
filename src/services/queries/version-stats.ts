@@ -108,6 +108,7 @@ export function useVersionRunStats(executions: TestExecution[], bugs?: JiraBug[]
       staleTime: 5 * 60 * 1_000,
       gcTime: Infinity,
       enabled: executions.length > 0,
+      meta: { persist: true },
     })),
   });
 
@@ -141,6 +142,7 @@ export function useVersionRunStats(executions: TestExecution[], bugs?: JiraBug[]
       staleTime: 5 * 60 * 1_000,
       gcTime: Infinity,
       enabled: extraPageQueries.length > 0 && i < phase2SettledRef.current + MAX_CONCURRENT,
+      meta: { persist: true },
     })),
   });
 
@@ -296,6 +298,7 @@ export function useExecutionRunSummary(executionIssueId: string | null): ExecSum
     enabled: !!executionIssueId,
     staleTime: 5 * 60 * 1_000,
     gcTime: Infinity,
+    meta: { persist: true },
   });
 
   return useMemo(() => {
