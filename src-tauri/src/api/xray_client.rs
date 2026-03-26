@@ -17,7 +17,8 @@ use crate::models::xray::{
     TestRunIteration, TestRunsResult, TestSetMemberInfo,
     TestSetMembershipsResponse, TestSetResult, TestSetWithStatusResult, TestSetsResult,
     TestsExportResult, TestsForHealthResult, TestRunsForHealthResult, TestsResult, TestsStreamPage,
-    UpdateTestRunStatusInput, XrayAuthRequest, XrayStepStatus, XrayTest, XrayTestExportData,
+    UpdateTestRunStatusInput, XrayAuthRequest, XrayStepStatus, XrayTest, XrayTestDetail,
+    XrayTestDetailResult, XrayTestExportData,
     XrayTestRunStatus, XrayTestSet, XrayTestWithStatus,
 };
 
@@ -336,6 +337,35 @@ impl XrayClient {
         .await
     }
 
+    /// Fetches only the status name for each test run in an execution.
+    ///
+    /// Much lighter than `get_test_runs` — no steps, iterations, Gherkin, or
+    /// comments — so a single page of 100 covers most executions in one call.
+    pub async fn get_test_run_statuses(
+        &self,
+        test_execution_issue_id: &str,
+        limit: u32,
+        start: u32,
+    ) -> Result<crate::models::xray::TestRunStatusesResult> {
+        let query = r#"
+            query GetTestRunStatuses($issueId: String!, $limit: Int!, $start: Int) {
+                getTestRuns(testExecIssueIds: [$issueId], limit: $limit, start: $start) {
+                    total
+                    start
+                    limit
+                    results {
+                        status { name color description final }
+                    }
+                }
+            }
+        "#;
+        self.graphql(
+            query,
+            serde_json::json!({ "issueId": test_execution_issue_id, "limit": limit, "start": start }),
+        )
+        .await
+    }
+
     // ── Get Iteration Step Results (lazy, per test run) ───────────────────────
 
     /// Fetch step results for all iterations of a single test run.
@@ -574,9 +604,10 @@ impl XrayClient {
     /// Fetches the most-recent run for each test by querying `getTests` in
     /// small batches using `jql: "id in (...)"` with `testRuns(limit: 1)`.
     ///
-    /// This avoids the pagination-inflation bug that occurs when `testRuns` is
-    /// included in the project-wide `getTests` query (Xray's `total` reflects
-    /// run count rather than test count, causing every test to be fetched twice).
+    /// Batches are processed with bounded concurrency (`MAX_CONCURRENT` in
+    /// flight at a time) so multiple API calls overlap without triggering
+    /// rate limits. Each batch emits a `tests:health:batch` event as soon as
+    /// it resolves, so the frontend sees incremental progress.
     pub async fn stream_health_batched(
         &self,
         app: &tauri::AppHandle,
@@ -591,8 +622,6 @@ impl XrayClient {
         }
 
         // Primary query: get the most recent test run AND the cross-version latestStatus.
-        // `latestStatus` is set even when `testRuns` is empty (which happens when the test
-        // was edited after its last run — Xray scopes `testRuns` to the current version).
         let query = r#"
             query GetTestsHealth($jql: String!, $limit: Int!) {
                 getTests(jql: $jql, limit: $limit, start: 0) {
@@ -626,82 +655,163 @@ impl XrayClient {
         "#;
 
         const BATCH_SIZE: usize = 50;
+        /// Max parallel API calls to avoid 429 rate-limit errors.
+        const MAX_CONCURRENT: usize = 3;
+
         let total = test_issue_ids.len() as u32;
-        let mut processed: u32 = 0;
+        let chunks: Vec<&[String]> = test_issue_ids.chunks(BATCH_SIZE).collect();
+        let num_chunks = chunks.len();
 
         #[cfg(debug_assertions)]
-        eprintln!("[health] starting: {} tests, batch size {}", total, BATCH_SIZE);
+        eprintln!(
+            "[health] starting: {} tests, batch size {}, {} chunks, concurrency {}",
+            total, BATCH_SIZE, num_chunks, MAX_CONCURRENT
+        );
 
-        for chunk in test_issue_ids.chunks(BATCH_SIZE) {
-            let ids_jql = chunk.join(", ");
-            let jql = format!("id in ({ids_jql})");
+        // Semaphore-gated concurrency: up to MAX_CONCURRENT in-flight requests.
+        let semaphore = std::sync::Arc::new(tokio::sync::Semaphore::new(MAX_CONCURRENT));
+        let mut join_set = tokio::task::JoinSet::new();
 
+        // Spawn all batch tasks — each acquires a semaphore permit before
+        // hitting the API, so at most MAX_CONCURRENT are in flight.
+        for (idx, chunk) in chunks.into_iter().enumerate() {
+            let sem = semaphore.clone();
+            let client = self.clone();
+            let app_handle = app.clone();
+            let chunk_ids: Vec<String> = chunk.to_vec();
+            let query = query.to_owned();
+            let fallback_query = fallback_query.to_owned();
+
+            join_set.spawn(async move {
+                let _permit = sem
+                    .acquire()
+                    .await
+                    .expect("semaphore should not be closed");
+
+                #[cfg(debug_assertions)]
+                eprintln!("[health] batch {}/{}: querying {} tests", idx + 1, num_chunks, chunk_ids.len());
+
+                let result = Self::process_health_batch(
+                    &client,
+                    &query,
+                    &fallback_query,
+                    &chunk_ids,
+                )
+                .await;
+
+                (idx, chunk_ids.len() as u32, result, app_handle)
+            });
+        }
+
+        // Collect results as they complete and emit progress events.
+        let mut processed: u32 = 0;
+        let mut first_error: Option<anyhow::Error> = None;
+
+        while let Some(join_result) = join_set.join_next().await {
+            let (idx, chunk_len, batch_result, app_handle) = join_result
+                .expect("health batch task should not panic");
+
+            processed += chunk_len;
+            let done = processed >= total;
+
+            match batch_result {
+                Ok(entries) => {
+                    #[cfg(debug_assertions)]
+                    eprintln!(
+                        "[health] batch {} done: {} entries, {}/{} processed, done={}",
+                        idx + 1, entries.len(), processed, total, done
+                    );
+                    let _ = app_handle.emit(
+                        "tests:health:batch",
+                        HealthBatch { entries, done, total, processed },
+                    );
+                }
+                Err(e) => {
+                    #[cfg(debug_assertions)]
+                    eprintln!("[health] batch {} error: {:#}", idx + 1, e);
+                    // Emit an empty batch so the frontend still tracks progress.
+                    let _ = app_handle.emit(
+                        "tests:health:batch",
+                        HealthBatch { entries: vec![], done, total, processed },
+                    );
+                    if first_error.is_none() {
+                        first_error = Some(e);
+                    }
+                }
+            }
+        }
+
+        if let Some(e) = first_error {
+            return Err(e);
+        }
+        Ok(())
+    }
+
+    /// Process a single health batch: run the primary query, then the fallback
+    /// query for tests with `latestStatus` but no `testRuns`.
+    async fn process_health_batch(
+        client: &XrayClient,
+        query: &str,
+        fallback_query: &str,
+        chunk_ids: &[String],
+    ) -> Result<Vec<TestLastRunEntry>> {
+        let ids_jql = chunk_ids.join(", ");
+        let jql = format!("id in ({ids_jql})");
+
+        let result: TestsForHealthResult = client
+            .graphql(
+                query,
+                serde_json::json!({ "jql": jql, "limit": chunk_ids.len() as u32 }),
+            )
+            .await?;
+
+        let mut entries: Vec<TestLastRunEntry> = Vec::new();
+        let mut fallback_ids: Vec<String> = Vec::new();
+
+        for t in result.get_tests.results {
+            let run = t.test_runs.and_then(|tr| tr.results.into_iter().next());
+            if let Some(run) = run {
+                entries.push(TestLastRunEntry {
+                    test_issue_id: t.issue_id,
+                    finished_on: run.finished_on,
+                    started_on: None,
+                    status: run.status.or(t.latest_status),
+                });
+            } else if t.latest_status.is_some() {
+                fallback_ids.push(t.issue_id.clone());
+                entries.push(TestLastRunEntry {
+                    test_issue_id: t.issue_id,
+                    finished_on: None,
+                    started_on: None,
+                    status: t.latest_status,
+                });
+            }
+        }
+
+        // Secondary pass: retrieve finishedOn for version-mismatched tests.
+        if !fallback_ids.is_empty() {
             #[cfg(debug_assertions)]
-            eprintln!("[health] batch {}/{}: querying {} tests", processed + chunk.len() as u32, total, chunk.len());
-
-            let result: TestsForHealthResult = match self
-                .graphql(
-                    query,
-                    serde_json::json!({ "jql": jql, "limit": chunk.len() as u32 }),
+            eprintln!(
+                "[health] fallback query for {} tests with latestStatus but no testRuns",
+                fallback_ids.len()
+            );
+            let fallback_limit = (fallback_ids.len() as u32).saturating_mul(5).max(50);
+            match client
+                .graphql::<TestRunsForHealthResult>(
+                    fallback_query,
+                    serde_json::json!({ "testIssueIds": fallback_ids, "limit": fallback_limit }),
                 )
                 .await
             {
-                Ok(r) => r,
                 Err(e) => {
                     #[cfg(debug_assertions)]
-                    eprintln!("[health] primary query error at batch {}/{}: {:#}", processed, total, e);
-                    return Err(e);
-                }
-            };
-
-            let mut entries: Vec<TestLastRunEntry> = Vec::new();
-            // Tests that have latestStatus but no testRuns — need a secondary lookup.
-            let mut fallback_ids: Vec<String> = Vec::new();
-
-            for t in result.get_tests.results {
-                let run = t.test_runs.and_then(|tr| tr.results.into_iter().next());
-                if let Some(run) = run {
-                    entries.push(TestLastRunEntry {
-                        test_issue_id: t.issue_id,
-                        finished_on: run.finished_on,
-                        started_on: None,
-                        status: run.status.or(t.latest_status),
-                    });
-                } else if t.latest_status.is_some() {
-                    // Has been executed (latestStatus set) but testRuns is empty — version mismatch.
-                    // Add a placeholder entry with status but no date; date filled in below.
-                    fallback_ids.push(t.issue_id.clone());
-                    entries.push(TestLastRunEntry {
-                        test_issue_id: t.issue_id,
-                        finished_on: None,
-                        started_on: None,
-                        status: t.latest_status,
-                    });
-                }
-                // No latestStatus and no testRuns → never executed; omit from entries.
-            }
-
-            // Secondary pass: retrieve finishedOn for version-mismatched tests.
-            if !fallback_ids.is_empty() {
-                #[cfg(debug_assertions)]
-                eprintln!("[health] fallback query for {} tests with latestStatus but no testRuns", fallback_ids.len());
-                let fallback_limit = (fallback_ids.len() as u32).saturating_mul(5).max(50);
-                match self
-                    .graphql::<TestRunsForHealthResult>(
-                        fallback_query,
-                        serde_json::json!({ "testIssueIds": fallback_ids, "limit": fallback_limit }),
-                    )
-                    .await
-                {
-                  Err(e) => {
-                    #[cfg(debug_assertions)]
                     eprintln!("[health] fallback query error (non-fatal): {:#}", e);
-                  },
-                  Ok(fb) => {
-                    // Pick the most-recent run per test by comparing finishedOn strings
-                    // (ISO-8601 sorts lexicographically).
-                    let mut best: std::collections::HashMap<String, (Option<String>, Option<crate::models::xray::LatestTestStatus>)> =
-                        std::collections::HashMap::new();
+                }
+                Ok(fb) => {
+                    let mut best: std::collections::HashMap<
+                        String,
+                        (Option<String>, Option<crate::models::xray::LatestTestStatus>),
+                    > = std::collections::HashMap::new();
                     for run in fb.get_test_runs.results {
                         let entry = best.entry(run.test.issue_id).or_insert((None, None));
                         if run.finished_on > entry.0 {
@@ -709,7 +819,11 @@ impl XrayClient {
                         }
                     }
                     #[cfg(debug_assertions)]
-                    eprintln!("[health] fallback resolved dates for {}/{} tests", best.len(), fallback_ids.len());
+                    eprintln!(
+                        "[health] fallback resolved dates for {}/{} tests",
+                        best.len(),
+                        fallback_ids.len()
+                    );
                     for entry in &mut entries {
                         if entry.finished_on.is_none() {
                             if let Some((finished_on, status)) = best.get(&entry.test_issue_id) {
@@ -720,28 +834,41 @@ impl XrayClient {
                             }
                         }
                     }
-                  }
-                } // end match fallback
-            } // end if !fallback_ids.is_empty()
-
-            processed += chunk.len() as u32;
-            let done = processed >= total;
-
-            #[cfg(debug_assertions)]
-            eprintln!("[health] emitting batch: {} entries, {}/{} processed, done={}", entries.len(), processed, total, done);
-            let _ = app.emit(
-                "tests:health:batch",
-                HealthBatch { entries, done, total, processed },
-            );
-
-            if done {
-                break;
+                }
             }
         }
-        Ok(())
+
+        Ok(entries)
     }
 
     // ── Export (tests with steps) ─────────────────────────────────────────────
+
+    /// Fetch full detail (testType, steps, gherkin) for a single test by its Jira key.
+    pub async fn get_test_detail(&self, test_key: &str) -> Result<Option<XrayTestDetail>> {
+        let query = r#"
+            query GetTestDetail($jql: String!, $limit: Int!) {
+                getTests(jql: $jql, limit: $limit, start: 0) {
+                    results {
+                        issueId
+                        testType { name kind }
+                        steps {
+                            id
+                            action
+                            data
+                            result
+                        }
+                        gherkin
+                        unstructured
+                    }
+                }
+            }
+        "#;
+        let jql = format!("key = \"{test_key}\"");
+        let result: XrayTestDetailResult = self
+            .graphql(query, serde_json::json!({ "jql": jql, "limit": 1 }))
+            .await?;
+        Ok(result.get_tests.results.into_iter().next())
+    }
 
     /// Fetch steps, gherkin, and unstructured content for the given test issue IDs.
     ///

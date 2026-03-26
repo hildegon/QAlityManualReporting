@@ -7,9 +7,9 @@ use crate::{
         AddTestsToTestPlanInput, CreateTestExecutionInput, CreateTestExecutionResult,
         CreateTestPlanInput, CreateTestPlanResult, CreateTestResult, CreateTestSetResult,
         CreateTestStepInput, CreateXrayTestInput, TestExecution, TestLastRunEntry, TestPlan,
-        TestRunIteration, TestRunsPage, TestSetMembershipsResponse, TestsStreamPage,
-        UpdateTestRunStatusInput, UpdateTestRunStepData, XrayStepStatus, XrayTest,
-        XrayTestExportData, XrayTestRunStatus, XrayTestSet, XrayTestWithStatus,
+        TestRunIteration, TestRunStatusesPage, TestRunsPage, TestSetMembershipsResponse,
+        TestsStreamPage, UpdateTestRunStatusInput, UpdateTestRunStepData, XrayStepStatus, XrayTest,
+        XrayTestExportData, XrayTestRunStatus, XrayTestSet, XrayTestWithStatus, XrayTestDetail,
     },
     state::XrayClientState,
 };
@@ -86,6 +86,29 @@ pub async fn get_test_runs(
         .get_test_runs(
             &test_execution_issue_id,
             limit.unwrap_or(50),
+            start.unwrap_or(0),
+        )
+        .await
+        .map_err(format_err)?;
+    Ok(result.test_runs)
+}
+
+#[tauri::command]
+/// Fetch only the status of each test run in an execution (lightweight summary).
+/// Used to render the mini progress bar on the ExecRow card without the overhead
+/// of fetching steps, iterations, and Gherkin content.
+pub async fn get_test_run_statuses(
+    app: AppHandle,
+    state: State<'_, XrayClientState>,
+    test_execution_issue_id: String,
+    limit: Option<u32>,
+    start: Option<u32>,
+) -> Result<TestRunStatusesPage, String> {
+    let client = get_xray_client(&app, &state).await?;
+    let result = client
+        .get_test_run_statuses(
+            &test_execution_issue_id,
+            limit.unwrap_or(100),
             start.unwrap_or(0),
         )
         .await
@@ -633,4 +656,15 @@ pub async fn add_defects_to_test_run(
         .add_defects_to_test_run(&run_id, &issue_keys)
         .await
         .map_err(format_err)
+}
+
+/// Fetch full Xray test detail (testType, manual steps, gherkin) for a single test by its Jira key.
+#[tauri::command]
+pub async fn get_test_detail(
+    app: AppHandle,
+    state: State<'_, XrayClientState>,
+    test_key: String,
+) -> Result<Option<XrayTestDetail>, String> {
+    let client = get_xray_client(&app, &state).await?;
+    client.get_test_detail(&test_key).await.map_err(format_err)
 }

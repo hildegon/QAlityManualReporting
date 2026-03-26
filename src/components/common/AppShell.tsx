@@ -11,6 +11,7 @@ import {
 import { ProjectSelector } from "./ProjectSelector";
 import { RateLimitBanner } from "./RateLimitBanner";
 import { ThemeToggle } from "./ThemeToggle";
+import { GlobalToastList } from "./GlobalToastList";
 import { cn } from "@/components/ui/utils";
 
 const navItems = [
@@ -80,6 +81,9 @@ export function AppShell() {
       <main className="min-h-0 flex-1 overflow-auto p-6">
         <Outlet />
       </main>
+
+      {/* Global toast notifications (anchored bottom-right) */}
+      <GlobalToastList />
     </div>
   );
 }

@@ -1,9 +1,9 @@
 import { useMemo, useRef } from "react";
 import { useQueries, useQuery } from "@tanstack/react-query";
-import type { JiraBug, TestExecution, TestRunsPage } from "@/types";
+import type { JiraBug, TestExecution, TestRunsPage, TestRunStatusesPage } from "@/types";
 import * as api from "../tauri";
 import { FAIL_STATUSES, PASS_STATUSES } from "@/constants/statuses";
-import { queryKeys, STATS_PAGE_SIZE } from "./queryKeys";
+import { queryKeys, STATS_PAGE_SIZE, EXEC_SUMMARY_PAGE_SIZE } from "./queryKeys";
 
 // ── Version run statistics ────────────────────────────────────────────────────
 
@@ -288,26 +288,76 @@ export interface ExecSummary {
 }
 
 /**
- * Fetches the first page of test runs for a single execution and aggregates
- * status counts. Used to render a mini progress bar on the ExecRow card.
+ * Fetches status counts for all test runs in a single execution.
+ *
+ * Uses the lightweight `get_test_run_statuses` command (status name only —
+ * no steps, iterations, or Gherkin) with a page size of 100. A single call
+ * covers most test executions in full. For executions with > 100 runs, the
+ * remaining pages are fetched in parallel (capped at 3 concurrent requests).
+ *
+ * Results are used to render the mini progress bar on each ExecRow card.
  */
 export function useExecutionRunSummary(executionIssueId: string | null): ExecSummary {
-  const { data, isLoading } = useQuery<TestRunsPage>({
-    queryKey: queryKeys.execSummary(executionIssueId ?? ""),
-    queryFn: () => api.getTestRuns(executionIssueId!, STATS_PAGE_SIZE, 0),
-    enabled: !!executionIssueId,
+  const enabled = !!executionIssueId;
+  const MAX_CONCURRENT = 3;
+
+  // ── Phase 1: first page ────────────────────────────────────────────────────
+  const phase1 = useQuery<TestRunStatusesPage>({
+    queryKey: queryKeys.execSummary(executionIssueId ?? "", 0),
+    queryFn: () => api.getTestRunStatuses(executionIssueId!, EXEC_SUMMARY_PAGE_SIZE, 0),
+    enabled,
     staleTime: 5 * 60 * 1_000,
     gcTime: Infinity,
     meta: { persist: true },
   });
 
-  return useMemo(() => {
-    if (!data) return { counts: {}, total: 0, hasMore: false, isLoading };
-    const c: Record<string, number> = {};
-    for (const run of data.results) {
-      const k = run.status.name.toUpperCase();
-      c[k] = (c[k] ?? 0) + 1;
+  // ── Phase 2: remaining pages (only if total > page size) ───────────────────
+  const extraStarts = useMemo<number[]>(() => {
+    const total = phase1.data?.total ?? 0;
+    if (!phase1.data || total <= EXEC_SUMMARY_PAGE_SIZE) return [];
+    const starts: number[] = [];
+    for (let s = EXEC_SUMMARY_PAGE_SIZE; s < total; s += EXEC_SUMMARY_PAGE_SIZE) {
+      starts.push(s);
     }
-    return { counts: c, total: data.total, hasMore: data.results.length < data.total, isLoading };
-  }, [data, isLoading]);
+    return starts;
+  }, [phase1.data]);
+
+  const phase2SettledRef = useRef(0);
+
+  const phase2 = useQueries({
+    queries: extraStarts.map((start, i) => ({
+      queryKey: queryKeys.execSummary(executionIssueId ?? "", start),
+      queryFn: () => api.getTestRunStatuses(executionIssueId!, EXEC_SUMMARY_PAGE_SIZE, start),
+      enabled: enabled && extraStarts.length > 0 && i < phase2SettledRef.current + MAX_CONCURRENT,
+      staleTime: 5 * 60 * 1_000,
+      gcTime: Infinity,
+      meta: { persist: true },
+    })),
+  });
+
+  phase2SettledRef.current = phase2.filter((q) => q.isSuccess || q.isError).length;
+
+  // ── Aggregate counts ───────────────────────────────────────────────────────
+  return useMemo(() => {
+    const total = phase1.data?.total ?? 0;
+    const isLoading = phase1.isLoading || phase2.some((q) => q.isLoading);
+    if (!phase1.data) return { counts: {}, total: 0, hasMore: false, isLoading };
+
+    const allPages: TestRunStatusesPage[] = [
+      phase1.data,
+      ...phase2.map((q) => q.data).filter(Boolean),
+    ] as TestRunStatusesPage[];
+
+    const counts: Record<string, number> = {};
+    let loaded = 0;
+    for (const page of allPages) {
+      for (const run of page.results) {
+        const k = run.status.name.toUpperCase();
+        counts[k] = (counts[k] ?? 0) + 1;
+        loaded++;
+      }
+    }
+
+    return { counts, total, hasMore: loaded < total, isLoading };
+  }, [phase1.data, phase1.isLoading, phase2]);
 }

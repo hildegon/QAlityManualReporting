@@ -6,6 +6,9 @@ Cross-platform desktop app (Tauri 2) for reading Jira/Xray Cloud test data and w
 
 ---
 
+## Build Verification 
+When generating code changes, always verify compilation/build succeeds before presenting the solution. For TypeScript, run `npx tsc --noEmit`. For Rust, run `cargo check`. For Java/Kotlin Android, run `./gradlew assembleDebug` or the relevant build task.
+
 ## Architecture
 
 ```
@@ -21,7 +24,12 @@ React 19 + TanStack Query
 - UI state: Zustand stores in `src/stores/`
 - Credentials: AES-256-GCM encrypted, stored at OS app-config dir
 
+This project uses a Tauri stack: Rust backend + TypeScript/React frontend. When making changes, check both sides compile. GraphQL schema changes must be validated against both backend resolvers and frontend queries.
+
 ---
+
+## Behavioral Rules 
+When the user asks to fix something, do NOT refactor or make new changes — apply the minimal targeted fix first. Ask before taking a different approach than what was requested.
 
 ## Key Files
 

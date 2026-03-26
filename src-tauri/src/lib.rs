@@ -19,9 +19,9 @@ use commands::{
         add_defects_to_test_run, add_tests_to_test_execution, add_tests_to_test_plan,
         add_tests_to_test_set, authenticate_xray, create_test, create_test_execution,
         create_test_plan, create_test_set, get_all_test_set_memberships,
-        get_iteration_step_results, get_step_statuses, get_test_executions,
+        get_iteration_step_results, get_step_statuses, get_test_detail, get_test_executions,
         get_test_executions_by_version, get_test_plan_tests, get_test_plans, get_test_runs,
-        get_test_set_tests, get_test_set_tests_with_status, get_test_sets, get_tests,
+        get_test_run_statuses, get_test_set_tests, get_test_set_tests_with_status, get_test_sets, get_tests,
         get_tests_export_data, get_tests_health_data, load_health_cache, save_health_cache,
         get_xray_statuses, remove_tests_from_test_plan, remove_tests_from_test_set,
         update_iteration_status, update_test_run_comment, update_test_run_status,
@@ -70,6 +70,7 @@ pub fn run() {
             get_test_executions,
             get_test_executions_by_version,
             get_test_runs,
+            get_test_run_statuses,
             get_iteration_step_results,
             update_test_run_status,
             update_test_run_comment,
@@ -98,6 +99,7 @@ pub fn run() {
             add_tests_to_test_plan,
             remove_tests_from_test_plan,
             add_defects_to_test_run,
+            get_test_detail,
             // Utils
             write_text_file,
         ])
