@@ -28,30 +28,4 @@ export function Badge({ className, variant, ...props }: BadgeProps) {
   return <div className={cn(badgeVariants({ variant }), className)} {...props} />;
 }
 
-/** Maps an Xray test status name to a Badge variant. */
-export function statusVariant(status: string): VariantProps<typeof badgeVariants>["variant"] {
-  switch (status.toUpperCase()) {
-    case "PASS":
-    case "PASSED":
-      return "pass";
-    case "FAIL":
-    case "FAILED":
-      return "fail";
-    case "EXECUTING":
-    case "IN PROGRESS":
-      return "executing";
-    case "BLOCKED":
-      return "blocked";
-    case "N/A":
-    case "NA":
-      return "na";
-    case "TODO":
-    case "TO DO":
-    case "NOT RUN":
-      return "todo";
-    default:
-      // Unknown custom statuses: fall back to the neutral "default" variant
-      // rather than "todo" so they are visually distinguishable.
-      return "default";
-  }
-}
+

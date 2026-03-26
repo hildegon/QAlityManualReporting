@@ -1,5 +1,6 @@
 import { memo } from "react";
-import { Badge, statusVariant } from "@/components/ui/badge";
+import { Badge } from "@/components/ui/badge";
+import { statusVariant } from "@/components/ui/badge-utils";
 import type { TestExecution } from "@/types";
 
 interface ExecutionRowProps {

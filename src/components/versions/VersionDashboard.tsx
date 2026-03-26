@@ -1,10 +1,6 @@
 import { useMemo } from "react";
-import {
-  DonutChart,
-  StatCard,
-  StackedBar,
-  buildSlicesFromCounts,
-} from "@/components/charts/StatusCharts";
+import { DonutChart, StatCard, StackedBar } from "@/components/charts/StatusCharts";
+import { buildSlicesFromCounts } from "@/components/charts/status-utils";
 import { useIssueLinkTypes } from "@/services/queries";
 import type { useVersionRunStats } from "@/services/queries";
 import { cn } from "@/components/ui/utils";

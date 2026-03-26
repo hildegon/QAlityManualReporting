@@ -10,7 +10,7 @@ import {
   Link,
   Bug,
 } from "lucide-react";
-import { findSlice } from "@/components/charts/StatusCharts";
+import { findSlice } from "@/components/charts/status-utils";
 import { useLinkBugToTest } from "@/services/queries";
 import type { TestRunHistory } from "@/services/queries";
 import { cn } from "@/components/ui/utils";
