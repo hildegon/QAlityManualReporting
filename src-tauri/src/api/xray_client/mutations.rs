@@ -3,7 +3,7 @@ use anyhow::Result;
 use crate::models::xray::{
     AddTestsToTestPlanInput, CreateTestPlanInput, CreateTestPlanResponse, CreateTestPlanResult,
     CreateTestResponse, CreateTestResult, CreateTestSetResponse, CreateTestSetResult,
-    CreateXrayTestInput,
+    CreateXrayTestInput, UpdateTestStepInput, XrayTestStep,
 };
 
 use super::XrayClient;
@@ -271,6 +271,108 @@ impl XrayClient {
                 serde_json::json!({
                     "issueId": input.test_plan_issue_id,
                     "testIssueIds": input.test_issue_ids,
+                }),
+            )
+            .await?;
+        Ok(())
+    }
+
+    // ── Update / Add / Remove Test Step (definition) ──────────────────────────
+
+    /// Update the content of an existing manual step on a test definition.
+    pub async fn update_test_step(
+        &self,
+        issue_id: &str,
+        step_id: &str,
+        step: UpdateTestStepInput,
+    ) -> Result<XrayTestStep> {
+        let query = r#"
+            mutation UpdateTestStep($issueId: String!, $id: String!, $step: UpdateStepInput!) {
+                updateTestStep(issueId: $issueId, id: $id, step: $step) {
+                    id
+                    action
+                    data
+                    result
+                }
+            }
+        "#;
+        let mut step_input = serde_json::Map::new();
+        if let Some(ref v) = step.action {
+            step_input.insert("action".to_owned(), serde_json::json!(v));
+        }
+        if let Some(ref v) = step.data {
+            step_input.insert("data".to_owned(), serde_json::json!(v));
+        }
+        if let Some(ref v) = step.result {
+            step_input.insert("result".to_owned(), serde_json::json!(v));
+        }
+        let resp: serde_json::Value = self
+            .graphql(
+                query,
+                serde_json::json!({
+                    "issueId": issue_id,
+                    "id": step_id,
+                    "step": serde_json::Value::Object(step_input),
+                }),
+            )
+            .await?;
+        serde_json::from_value(resp["updateTestStep"].clone())
+            .map_err(|e| anyhow::anyhow!("Failed to parse updateTestStep response: {e}"))
+    }
+
+    /// Add a new step to an existing manual test (appended at the end).
+    pub async fn add_test_step(
+        &self,
+        issue_id: &str,
+        step: UpdateTestStepInput,
+    ) -> Result<XrayTestStep> {
+        let query = r#"
+            mutation AddTestStep($issueId: String!, $step: CreateStepInput!) {
+                addTestStep(issueId: $issueId, step: $step) {
+                    id
+                    action
+                    data
+                    result
+                }
+            }
+        "#;
+        let mut step_input = serde_json::Map::new();
+        step_input.insert(
+            "action".to_owned(),
+            serde_json::json!(step.action.unwrap_or_default()),
+        );
+        if let Some(ref v) = step.data {
+            step_input.insert("data".to_owned(), serde_json::json!(v));
+        }
+        if let Some(ref v) = step.result {
+            step_input.insert("result".to_owned(), serde_json::json!(v));
+        }
+        let resp: serde_json::Value = self
+            .graphql(
+                query,
+                serde_json::json!({
+                    "issueId": issue_id,
+                    "step": serde_json::Value::Object(step_input),
+                }),
+            )
+            .await?;
+        serde_json::from_value(resp["addTestStep"].clone())
+            .map_err(|e| anyhow::anyhow!("Failed to parse addTestStep response: {e}"))
+    }
+
+    /// Remove a step from a manual test definition.
+    pub async fn remove_test_step(&self, issue_id: &str, step_id: &str) -> Result<()> {
+        let query = r#"
+            mutation RemoveTestStep($issueId: String!, $id: String!) {
+                removeTestStep(issueId: $issueId, id: $id)
+            }
+        "#;
+        let _: serde_json::Value = self
+            .graphql(
+                query,
+                serde_json::json!({
+                    "issueId": issue_id,
+                    "id": step_id,
                 }),
             )
             .await?;

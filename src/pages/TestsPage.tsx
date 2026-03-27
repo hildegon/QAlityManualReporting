@@ -19,6 +19,7 @@ import { AlertTriangle, FlaskConical, Layers, RefreshCw, Plus, Activity, ShieldA
 import * as Dialog from "@radix-ui/react-dialog";
 import { cn } from "@/components/ui/utils";
 import { useHealthStore } from "@/stores/healthStore";
+import { useUiStore } from "@/stores/uiStore";
 
 import { loadHiddenKeys, saveHiddenKeys } from "@/components/tests/utils";
 import { DragGhost } from "@/components/tests/DragGhost";
@@ -34,11 +35,21 @@ export function TestsPage() {
   const addTestsToTestSet = useAddTestsToTestSet();
   const { membership } = useTestSetMembership(projectKey);
 
-  /* Skip the warning dialog when tests are already cached. */
+  /* Shared load-confirmation state — kept in Zustand so confirming in the
+     Update tab (or any other view) automatically suppresses this modal too. */
+  const { confirmedLoadProjects, confirmLoadProject } = useUiStore();
   const hasCachedTests = !!queryClient.getQueryData(queryKeys.tests(projectKey ?? ""));
+  const isConfirmed = hasCachedTests || confirmedLoadProjects.has(projectKey ?? "");
 
-  // true = user confirmed | null = dismissed | false = dialog not yet answered
-  const [loadConfirmed, setLoadConfirmed] = useState<boolean | null>(hasCachedTests ? true : false);
+  // true = load active | null = user dismissed without confirming | false = awaiting answer
+  const [loadConfirmed, setLoadConfirmed] = useState<boolean | null>(isConfirmed ? true : false);
+
+  // Sync with store: if another view confirms for the same project, update local state.
+  useEffect(() => {
+    if (projectKey && confirmedLoadProjects.has(projectKey) && loadConfirmed === false) {
+      setLoadConfirmed(true);
+    }
+  }, [confirmedLoadProjects, projectKey, loadConfirmed]);
   const [activeTab, setActiveTab] = useState<"tests" | "health" | "sets-health">("tests");
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -240,7 +251,13 @@ export function TestsPage() {
                       Cancel
                     </Button>
                   </Dialog.Close>
-                  <Button size="sm" onClick={() => setLoadConfirmed(true)}>
+                  <Button
+                    size="sm"
+                    onClick={() => {
+                      setLoadConfirmed(true);
+                      if (projectKey) confirmLoadProject(projectKey);
+                    }}
+                  >
                     Load Tests
                   </Button>
                 </div>

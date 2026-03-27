@@ -3,7 +3,7 @@ use tauri::{AppHandle, Emitter, State};
 use crate::{
     models::xray::{
         CreateTestResult, CreateTestStepInput, CreateXrayTestInput, TestsStreamPage,
-        XrayTest, XrayTestDetail, XrayTestExportData,
+        UpdateTestStepInput, XrayTest, XrayTestDetail, XrayTestExportData, XrayTestStep,
     },
     state::XrayClientState,
 };
@@ -119,6 +119,53 @@ pub async fn get_tests_health_data(
         }
     });
     Ok(())
+}
+
+/// Update the content (action / data / result) of an existing step on a manual test definition.
+#[tauri::command]
+pub async fn update_test_step(
+    app: AppHandle,
+    state: State<'_, XrayClientState>,
+    issue_id: String,
+    step_id: String,
+    action: Option<String>,
+    data: Option<String>,
+    result: Option<String>,
+) -> Result<XrayTestStep, String> {
+    let client = get_xray_client(&app, &state).await?;
+    client
+        .update_test_step(&issue_id, &step_id, UpdateTestStepInput { action, data, result })
+        .await
+        .map_err(format_err)
+}
+
+/// Append a new step to an existing manual test definition.
+#[tauri::command]
+pub async fn add_test_step(
+    app: AppHandle,
+    state: State<'_, XrayClientState>,
+    issue_id: String,
+    action: Option<String>,
+    data: Option<String>,
+    result: Option<String>,
+) -> Result<XrayTestStep, String> {
+    let client = get_xray_client(&app, &state).await?;
+    client
+        .add_test_step(&issue_id, UpdateTestStepInput { action, data, result })
+        .await
+        .map_err(format_err)
+}
+
+/// Remove a step from a manual test definition by its step ID.
+#[tauri::command]
+pub async fn remove_test_step(
+    app: AppHandle,
+    state: State<'_, XrayClientState>,
+    issue_id: String,
+    step_id: String,
+) -> Result<(), String> {
+    let client = get_xray_client(&app, &state).await?;
+    client.remove_test_step(&issue_id, &step_id).await.map_err(format_err)
 }
 
 #[tauri::command]

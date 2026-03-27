@@ -30,6 +30,7 @@ import type {
   XrayTest,
   XrayTestDetail,
   XrayTestExportData,
+  XrayTestStep,
   XrayTestRunStatus,
   XrayTestSet,
   XrayTestWithStatus,
@@ -305,6 +306,27 @@ export const addDefectsToTestRun = (runId: string, issueKeys: string[]): Promise
 /** Fetch full Xray test detail (testType, manual steps, gherkin) for a single test by its Jira key. */
 export const getTestDetail = (testKey: string): Promise<XrayTestDetail | null> =>
   invoke("get_test_detail", { testKey });
+
+/** Update the content of an existing step on a manual test definition. */
+export const updateTestStep = (
+  issueId: string,
+  stepId: string,
+  action?: string,
+  data?: string,
+  result?: string,
+): Promise<XrayTestStep> => invoke("update_test_step", { issueId, stepId, action, data, result });
+
+/** Append a new step to an existing manual test definition. */
+export const addTestStep = (
+  issueId: string,
+  action?: string,
+  data?: string,
+  result?: string,
+): Promise<XrayTestStep> => invoke("add_test_step", { issueId, action, data, result });
+
+/** Remove a step from a manual test definition. */
+export const removeTestStep = (issueId: string, stepId: string): Promise<void> =>
+  invoke("remove_test_step", { issueId, stepId });
 
 /** Create a new Bug issue in a Jira project with an affected version pre-set. */
 export const createBug = (

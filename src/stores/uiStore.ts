@@ -33,6 +33,13 @@ interface UiState {
   theme: Theme;
   /** Toggle between light and dark, persisting the choice to localStorage. */
   toggleTheme: () => void;
+  /**
+   * Project keys for which the user has confirmed loading all tests this session.
+   * Shared so that confirming in one view (Tests page or Update tab) automatically
+   * suppresses the modal in the other.
+   */
+  confirmedLoadProjects: Set<string>;
+  confirmLoadProject: (projectKey: string) => void;
 }
 
 export const useUiStore = create<UiState>((set) => ({
@@ -64,6 +71,11 @@ export const useUiStore = create<UiState>((set) => ({
       }
       return { theme: next };
     }),
+  confirmedLoadProjects: new Set(),
+  confirmLoadProject: (projectKey) =>
+    set((state) => ({
+      confirmedLoadProjects: new Set([...state.confirmedLoadProjects, projectKey]),
+    })),
 }));
 
 /**
