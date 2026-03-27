@@ -4,6 +4,11 @@ Output a structured summary of the QAlity Manual Reporting project for the curre
 
 Run `wc -l src/pages/*.tsx src/services/queries/*.ts src/types/index.ts` and list the results so I know which files are large.
 
+Also list the xray-mutations submodules:
+```
+wc -l src/services/queries/xray-mutations/*.ts
+```
+
 Also run the following for the Rust side (modules are now split into subdirectories):
 ```
 find src-tauri/src -name "*.rs" | xargs wc -l | sort -rn | head -30
@@ -33,7 +38,29 @@ API client (src-tauri/src/api/xray_client/<submodule>.rs or jira_client/<submodu
 Jira REST API v3 / Xray Cloud GraphQL
 ```
 
-## 3. Module Structure (Rust)
+## 3. Queries Layer Structure (TypeScript)
+
+`src/services/queries/` is a barrel-export directory. Key submodules:
+
+```
+src/services/queries/
+  index.ts           — barrel re-export of everything below
+  queryKeys.ts       — all TanStack Query cache keys
+  config.ts          — query client configuration
+  jira.ts            — Jira query hooks
+  xray-queries.ts    — Xray query hooks (tests, test sets, executions, plans, etc.)
+  version-stats.ts   — version statistics hooks
+  xray-mutations/    — Xray mutation hooks (split by domain)
+    index.ts         — barrel re-export
+    helpers.ts       — shared helpers (TestRunsInfiniteData, mapRunsAcrossPages, debounced invalidators)
+    test-runs.ts     — useUpdateTestRunStatus, useUpdateTestRunComment, useUpdateTestRunStepStatus, useUpdateTestRunStep, useUpdateIterationStatus, useAddDefectsToTestRun
+    executions.ts    — useCreateTestExecution, useAddTestsToTestExecution
+    test-sets.ts     — useCreateTestSet, useAddTestsToTestSet, useRemoveTestsFromTestSet
+    test-plans.ts    — useCreateTestPlan, useAddTestsToTestPlan, useRemoveTestsFromTestPlan
+    tests.ts         — useCreateTest, useUpdateTestStep, useAddTestStep, useRemoveTestStep
+```
+
+## 4. Module Structure (Rust)
 
 The Rust side is now fully modularized. Describe the layout:
 
@@ -92,7 +119,7 @@ src-tauri/src/
   state.rs            — AppState
 ```
 
-## 4. Frontend Component Structure
+## 5. Frontend Component Structure
 
 Pages are thin shells; logic lives in focused component subdirectories:
 
@@ -109,7 +136,7 @@ src/
   components/
     test-executions/         — ExecRow, CreateExecutionDialog, CloneExecutionDialog, EditExecutionDialog
     test-plans/              — TestPlanDropTarget, TestPlansDropPanel, TestSetsSourcePanel, TestSetSourceRow, TestPlanDragGhost, CreatePlanDialog
-    create-test/             — types.ts, StepRow, TestSetSelect, TestSetRow, ComponentRow, CopyKeyButton, ManualTestCreationForm, BulkTestCreationPanel
+    create-test/             — types.ts, StepRow, TestSetSelect, TestSetRow, ComponentRow, CopyKeyButton, ManualTestCreationForm, BulkTestCreationPanel, UpdateManualTestPanel
     test-execution/          — TestExecutionDetail (single-execution detail view, ~2621 lines — largest file)
     tests/                   — TestHealthPanel, TestSetsHealthPanel, TestsPanel, TestSetDropTarget, CreateTestSetDialog
     versions/                — VersionIssuesPanel, ManageVersionsTab, BugsPanel, FailedTestsAnalysis, IssueDetailModal, TestDetailModal, VersionContent, VersionGroups
@@ -119,24 +146,24 @@ src/
     charts/                  — StatusCharts, MiniStackedBar
 ```
 
-## 5. Query Key Namespace
+## 6. Query Key Namespace
 
 Read the `queryKeys` object from `src/services/queries/queryKeys.ts` and list all keys grouped by domain (jira vs xray).
 
-## 6. Store Inventory
+## 7. Store Inventory
 
 List all Zustand stores in `src/stores/` with their responsibilities:
 - `projectStore.ts` — active project keys (executionProjectKey, contentProjectKey)
-- `uiStore.ts` — toast, rate limit, reload state
+- `uiStore.ts` — toast, rate limit, reload state, confirmedLoadProjects (shared load-confirmation across views)
 - `healthStore.ts` — test health data cache
 - `versionsStore.ts` — version favourites, health dots, version groups
 - `coverageHistoryStore.ts` — historical coverage snapshots
 - `coveragePresetsStore.ts` — saved coverage preset configurations
 
-## 7. Current Modified Files
+## 8. Current Modified Files
 
 Run `git status` to show what's currently changed.
 
-## 8. Recent Commits
+## 9. Recent Commits
 
 Run `git log --oneline -10` to show recent commit history for context.
