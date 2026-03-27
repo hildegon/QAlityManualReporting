@@ -9,5 +9,5 @@ export * from "./queryKeys";
 export * from "./config";
 export * from "./jira";
 export * from "./xray-queries";
-export * from "./xray-mutations";
+export * from "./xray-mutations/index";
 export * from "./version-stats";

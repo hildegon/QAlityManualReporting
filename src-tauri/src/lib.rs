@@ -26,6 +26,7 @@ use commands::{
         get_xray_statuses, remove_tests_from_test_plan, remove_tests_from_test_set,
         update_iteration_status, update_test_run_comment, update_test_run_status,
         update_test_run_step, update_test_run_step_status,
+        update_test_step, add_test_step, remove_test_step,
     },
 };
 use state::XrayClientState;
@@ -100,6 +101,9 @@ pub fn run() {
             remove_tests_from_test_plan,
             add_defects_to_test_run,
             get_test_detail,
+            update_test_step,
+            add_test_step,
+            remove_test_step,
             // Utils
             write_text_file,
         ])

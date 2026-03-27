@@ -123,6 +123,19 @@ pub struct TestsExportPage {
     pub results: Vec<XrayTestExportData>,
 }
 
+// ── Update Test Step ──────────────────────────────────────────────────────────
+
+/// Input for `updateTestStep` / `addTestStep` Tauri commands.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateTestStepInput {
+    /// Updated action text (pass `None` to leave unchanged).
+    pub action: Option<String>,
+    /// Updated test-data text (pass `None` to leave unchanged).
+    pub data: Option<String>,
+    /// Updated expected-result text (pass `None` to leave unchanged).
+    pub result: Option<String>,
+}
+
 // ── Create Test ───────────────────────────────────────────────────────────────
 
 /// A single manual step passed to `createTest`.
