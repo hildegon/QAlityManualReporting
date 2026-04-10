@@ -284,7 +284,7 @@ export function useGetTestSetTestsWithStatus(issueId: string | null) {
     queryKey: queryKeys.testSetTestsWithStatus(issueId ?? ""),
     queryFn: () => api.getTestSetTestsWithStatus(issueId!),
     enabled: !!issueId,
-    staleTime: 10 * 60 * 1_000, // status can change via external test runs
+    staleTime: Infinity, // only refresh on manual user action
     gcTime: Infinity,
     meta: { persist: true },
   });
@@ -353,7 +353,7 @@ export function useTestDetail(testKey: string | null) {
     queryKey: queryKeys.testDetail(testKey ?? ""),
     queryFn: () => api.getTestDetail(testKey!),
     enabled: !!testKey,
-    staleTime: 10 * 60_000,
+    staleTime: Infinity,
     gcTime: Infinity,
     meta: { persist: true },
   });
@@ -369,7 +369,7 @@ export function useTestRunsByTestId(testIssueId: string | null) {
     queryKey: queryKeys.testRunsByTestId(testIssueId ?? ""),
     queryFn: () => api.getTestRunsByTestId(testIssueId!),
     enabled: !!testIssueId,
-    staleTime: 10 * 60_000,
+    staleTime: Infinity,
     gcTime: Infinity,
     meta: { persist: true },
   });

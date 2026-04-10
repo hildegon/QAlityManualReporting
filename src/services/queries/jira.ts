@@ -284,7 +284,7 @@ export function useIssueDetail(issueKey: string | null) {
     queryKey: queryKeys.issueDetail(issueKey ?? ""),
     queryFn: () => api.getIssueDetail(issueKey!),
     enabled: !!issueKey,
-    staleTime: 10 * 60 * 1_000,
+    staleTime: Infinity,
     gcTime: Infinity,
     meta: { persist: true },
   });

@@ -92,7 +92,7 @@ export function CoveragePage() {
       queryKey: queryKeys.testSetTestsWithStatus(ts.issue_id),
       queryFn: () => api.getTestSetTestsWithStatus(ts.issue_id),
       enabled: i < coverageSettledRef.current + MAX_CONCURRENT_COVERAGE,
-      staleTime: 10 * 60 * 1_000,
+      staleTime: Infinity,
       gcTime: Infinity,
       meta: { persist: true },
     })),
