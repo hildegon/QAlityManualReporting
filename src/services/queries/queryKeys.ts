@@ -59,4 +59,6 @@ export const queryKeys = {
   testDetail: (testKey: string) => ["xray", "test-detail", testKey] as const,
   testRunsByTestId: (testIssueId: string) =>
     ["xray", "test-runs-by-test-id", testIssueId] as const,
+  xrayEvidence: (downloadUrl: string) =>
+    ["xray", "evidence", downloadUrl] as const,
 };

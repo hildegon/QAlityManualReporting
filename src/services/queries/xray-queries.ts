@@ -374,3 +374,17 @@ export function useTestRunsByTestId(testIssueId: string | null) {
     meta: { persist: true },
   });
 }
+
+/**
+ * Fetch an Xray evidence file as a base64 data URI (proxied through Tauri).
+ * Pass `null` for `downloadUrl` to disable the query.
+ */
+export function useXrayEvidence(downloadUrl: string | null, mimeType: string) {
+  return useQuery<string>({
+    queryKey: queryKeys.xrayEvidence(downloadUrl ?? ""),
+    queryFn: () => api.fetchXrayEvidence(downloadUrl!, mimeType),
+    enabled: !!downloadUrl,
+    staleTime: Infinity,
+    gcTime: Infinity,
+  });
+}

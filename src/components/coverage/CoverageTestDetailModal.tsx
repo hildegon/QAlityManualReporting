@@ -35,6 +35,7 @@ import {
   useAddDefectsToTestRun,
   useUserDisplayName,
   useConfig,
+  useXrayEvidence,
 } from "@/services/queries";
 import { StatusBadge } from "./StatusBadge";
 import { CreateBugModal } from "@/components/bugs/CreateBugModal";
@@ -537,6 +538,71 @@ function formatDuration(seconds?: number): string {
   return `${Math.floor(seconds / 60)}m ${Math.round(seconds % 60)}s`;
 }
 
+// ── Proxied Xray image (fetched through Tauri with auth) ─────────────────────
+
+function ProxiedXrayImage({
+  downloadUrl,
+  mimeType,
+  alt,
+  className,
+  onClick,
+}: {
+  downloadUrl: string;
+  mimeType: string;
+  alt: string;
+  className?: string | undefined;
+  onClick?: () => void;
+}) {
+  const { data: dataUri, isLoading, isError } = useXrayEvidence(downloadUrl, mimeType);
+
+  if (isLoading) {
+    return (
+      <div className={cn("flex items-center justify-center bg-slate-50 dark:bg-slate-800", className)}>
+        <Loader2 className="h-5 w-5 animate-spin text-slate-400" />
+      </div>
+    );
+  }
+  if (isError || !dataUri) {
+    return (
+      <div className={cn("flex items-center justify-center bg-slate-50 dark:bg-slate-800", className)}>
+        <FileText className="h-5 w-5 text-slate-400" />
+      </div>
+    );
+  }
+  return <img src={dataUri} alt={alt} className={className} onClick={onClick} />;
+}
+
+// ── Proxied evidence image (routes through Xray auth proxy) ──────────────────
+
+function ProxiedEvidenceImage({
+  evidence,
+  className,
+}: {
+  evidence: Evidence;
+  className?: string;
+}) {
+  const mimeType = evidence.filename?.match(/\.(png|gif|svg|webp|bmp)$/i)
+    ? `image/${(evidence.filename.match(/\.(\w+)$/)?.[1] ?? "png").toLowerCase()}`
+    : "image/jpeg";
+
+  if (evidence.download_link) {
+    return (
+      <ProxiedXrayImage
+        downloadUrl={evidence.download_link}
+        mimeType={mimeType}
+        alt={evidence.filename ?? "Evidence"}
+        className={className}
+      />
+    );
+  }
+
+  return (
+    <div className="flex items-center gap-1 rounded border border-slate-200 bg-slate-50 px-2 py-1 text-[10px] text-slate-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400">
+      <Image className="h-3 w-3" /> {evidence.filename}
+    </div>
+  );
+}
+
 // ── Inline embedding renderer (screenshots from Cucumber results) ────────────
 
 function EmbeddingGallery({ embeddings }: { embeddings: CucumberResultsStep["embeddings"] }) {
@@ -548,13 +614,27 @@ function EmbeddingGallery({ embeddings }: { embeddings: CucumberResultsStep["emb
   return (
     <div className="mt-2 flex flex-wrap gap-2">
       {imgs.map((emb, i) => {
-        const src = emb.data
-          ? `data:${emb.mime_type};base64,${emb.data}`
-          : emb.download_link;
+        if (emb.data) {
+          return (
+            <div key={i} className="group relative">
+              <img
+                src={`data:${emb.mime_type};base64,${emb.data}`}
+                alt={emb.filename ?? `Screenshot ${i + 1}`}
+                className="max-h-48 max-w-xs rounded-lg border border-slate-200 object-contain shadow-sm dark:border-slate-700"
+              />
+              {emb.filename && (
+                <span className="mt-0.5 block text-center text-[9px] text-slate-400 truncate max-w-xs">
+                  {emb.filename}
+                </span>
+              )}
+            </div>
+          );
+        }
         return (
           <div key={i} className="group relative">
-            <img
-              src={src}
+            <ProxiedXrayImage
+              downloadUrl={emb.download_link!}
+              mimeType={emb.mime_type ?? "image/png"}
               alt={emb.filename ?? `Screenshot ${i + 1}`}
               className="max-h-48 max-w-xs rounded-lg border border-slate-200 object-contain shadow-sm dark:border-slate-700"
             />
@@ -600,17 +680,10 @@ function EvidenceGallery({
         <div className="flex flex-wrap gap-2">
           {images.map((ev) => (
             <div key={ev.id ?? ev.filename} className="group relative">
-              {ev.download_link ? (
-                <img
-                  src={ev.download_link}
-                  alt={ev.filename ?? "Evidence"}
-                  className="max-h-48 max-w-xs rounded-lg border border-slate-200 object-contain shadow-sm dark:border-slate-700"
-                />
-              ) : (
-                <div className="flex items-center gap-1 rounded border border-slate-200 bg-slate-50 px-2 py-1 text-[10px] text-slate-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400">
-                  <Image className="h-3 w-3" /> {ev.filename}
-                </div>
-              )}
+              <ProxiedEvidenceImage
+                evidence={ev}
+                className="max-h-48 max-w-xs rounded-lg border border-slate-200 object-contain shadow-sm dark:border-slate-700"
+              />
               {ev.filename && (
                 <span className="mt-0.5 block text-center text-[9px] text-slate-400 truncate max-w-xs">
                   {ev.filename}
@@ -712,7 +785,7 @@ function CucumberStepRow({
                 <AlertTriangle className="h-3 w-3" />
                 Error
               </div>
-              <pre className="whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed text-red-700 dark:text-red-300">
+              <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed text-red-700 dark:text-red-300">
                 {step.error}
               </pre>
             </div>
@@ -731,6 +804,64 @@ function CucumberStepRow({
   );
 }
 
+// ── Cucumber failed steps summary banner ─────────────────────────────────────
+
+function CucumberFailedStepsSummary({ results }: { results: CucumberResult[] }) {
+  const failedScenarios = results
+    .map((r, si) => {
+      const allSteps = [
+        ...(r.backgrounds ?? []),
+        ...(r.steps ?? []),
+        ...(r.hooks ?? []),
+      ];
+      const failedSteps = allSteps
+        .map((s, i) => ({ ...s, stepIndex: i + 1 }))
+        .filter((s) => isFail(s.status?.name));
+      return { scenario: r, scenarioIndex: si + 1, failedSteps };
+    })
+    .filter((s) => s.failedSteps.length > 0);
+
+  if (failedScenarios.length === 0) return null;
+
+  const totalFailed = failedScenarios.reduce((n, s) => n + s.failedSteps.length, 0);
+
+  return (
+    <div className="rounded-lg border border-red-200 bg-red-50/70 px-4 py-3 dark:border-red-800 dark:bg-red-950/20">
+      <p className="mb-2 text-xs font-bold text-red-700 dark:text-red-300">
+        {totalFailed} step{totalFailed > 1 ? "s" : ""} failed across{" "}
+        {failedScenarios.length} scenario{failedScenarios.length > 1 ? "s" : ""}
+      </p>
+      <div className="space-y-2">
+        {failedScenarios.map(({ scenario, scenarioIndex, failedSteps }) => (
+          <div key={scenarioIndex}>
+            <p className="mb-1 text-[11px] font-semibold text-red-600 dark:text-red-400">
+              {scenario.name ?? `Scenario #${scenarioIndex}`}
+            </p>
+            <div className="space-y-1.5 pl-2">
+              {failedSteps.map((s) => (
+                <div key={s.stepIndex} className="text-xs">
+                  <span className="font-mono font-bold text-red-600 dark:text-red-400">
+                    {s.keyword ? `${s.keyword.trim()} ` : `Step ${s.stepIndex}: `}
+                  </span>
+                  <span className="text-red-700 dark:text-red-300">
+                    {s.name ?? "(no description)"}
+                  </span>
+                  {s.error && (
+                    <p className="mt-0.5 pl-4 text-[11px] text-red-600 dark:text-red-400">
+                      <span className="font-semibold">Error: </span>
+                      <span className="whitespace-pre-wrap break-words">{s.error.split("\n")[0]}</span>
+                    </p>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ── Full Cucumber scenario panel ─────────────────────────────────────────────
 
 function CucumberScenarioPanel({
@@ -742,8 +873,8 @@ function CucumberScenarioPanel({
   index: number;
   scenarioType?: string;
 }) {
-  const [open, setOpen] = useState(true);
   const failed = isFail(result.status?.name);
+  const [open, setOpen] = useState(failed);
   const allSteps = [
     ...(result.backgrounds ?? []).map((s) => ({
       ...s,
@@ -1003,6 +1134,11 @@ function LastRunSection({ run, jiraUrl }: { run: TestRun; jiraUrl?: string }) {
           </p>
           <IterationsSection iterations={run.iterations!.results} />
         </div>
+      )}
+
+      {/* Cucumber failed steps summary banner */}
+      {runFailed && run.results && run.results.length > 0 && (
+        <CucumberFailedStepsSummary results={run.results} />
       )}
 
       {/* Cucumber / Gherkin results — rich step-by-step view */}

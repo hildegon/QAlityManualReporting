@@ -18,6 +18,7 @@ use commands::{
     utils::write_text_file,
     xray::{
         add_defects_to_test_run, add_tests_to_test_execution, add_tests_to_test_plan,
+        fetch_xray_evidence,
         add_tests_to_test_set, authenticate_xray, create_test, create_test_execution,
         create_test_plan, create_test_set, get_all_test_set_memberships,
         get_iteration_step_results, get_step_statuses, get_test_detail, get_test_executions,
@@ -104,6 +105,7 @@ pub fn run() {
             add_tests_to_test_plan,
             remove_tests_from_test_plan,
             add_defects_to_test_run,
+            fetch_xray_evidence,
             get_test_detail,
             update_test_step,
             add_test_step,

@@ -190,3 +190,20 @@ pub async fn add_defects_to_test_run(
         .await
         .map_err(format_err)
 }
+
+/// Fetch an Xray evidence/attachment file and return it as a base64 data URI.
+///
+/// Used to proxy authenticated downloads for images/files attached to test runs.
+#[tauri::command]
+pub async fn fetch_xray_evidence(
+    app: AppHandle,
+    state: State<'_, XrayClientState>,
+    download_url: String,
+    mime_type: String,
+) -> Result<String, String> {
+    let client = get_xray_client(&app, &state).await?;
+    client
+        .fetch_evidence_as_data_uri(&download_url, &mime_type)
+        .await
+        .map_err(format_err)
+}
