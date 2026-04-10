@@ -757,3 +757,4 @@ Subject line: ≤ 72 characters.
   `src/services/queries/` (appropriate submodule: `jira.ts`, `xray-queries.ts`, or `xray-mutations.ts`).
 - **`@/` path alias** maps to `src/` (configured in `tsconfig.json` and `vite.config.ts`).
 - **Check the Known Gotchas section** before touching Xray GraphQL, drag-and-drop, or queries.
+- **Do not commit** changes unless the user explicitly tells you to commit.

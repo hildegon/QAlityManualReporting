@@ -22,6 +22,9 @@ import {
   MessageSquare,
   User,
   Clock,
+  Image,
+  Play,
+  AlertTriangle,
 } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { cn } from "@/components/ui/utils";
@@ -42,6 +45,9 @@ import type {
   TestRunIteration,
   XrayTestStepDefinition,
   DescriptionBlock,
+  CucumberResult,
+  CucumberResultsStep,
+  Evidence,
 } from "@/types";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -137,7 +143,7 @@ function StepResultsTable({
     <div className="divide-y divide-slate-100 dark:divide-slate-800">
       {steps.map((step, i) => {
         const failed = isFail(step.status?.name);
-        const hasDetail = step.actual_result || step.comment || (step.defects && step.defects.length > 0);
+        const hasDetail = step.actual_result || step.comment || (step.defects && step.defects.length > 0) || (step.evidence && step.evidence.length > 0);
 
         return (
           <div
@@ -211,6 +217,9 @@ function StepResultsTable({
                           <DefectChip key={key} issueKey={key} {...(jiraUrl ? { jiraUrl } : {})} />
                         ))}
                       </div>
+                    )}
+                    {step.evidence && step.evidence.length > 0 && (
+                      <EvidenceGallery evidence={step.evidence} />
                     )}
                   </div>
                 )}
@@ -506,6 +515,417 @@ function IterationsSection({ iterations }: { iterations: TestRunIteration[] }) {
   );
 }
 
+// ── Gherkin / Cucumber helpers ────────────────────────────────────────────────
+
+const GHERKIN_KEYWORDS = /^(Given|When|Then|And|But|\*)\s+/i;
+
+function gherkinKeywordStyle(keyword: string): string {
+  const k = keyword.trim().toLowerCase();
+  if (k === "given")
+    return "bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300";
+  if (k === "when")
+    return "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300";
+  if (k === "then")
+    return "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300";
+  return "bg-slate-100 text-slate-500 dark:bg-slate-700 dark:text-slate-400";
+}
+
+function formatDuration(seconds?: number): string {
+  if (seconds == null) return "";
+  if (seconds < 1) return `${Math.round(seconds * 1000)}ms`;
+  if (seconds < 60) return `${seconds.toFixed(1)}s`;
+  return `${Math.floor(seconds / 60)}m ${Math.round(seconds % 60)}s`;
+}
+
+// ── Inline embedding renderer (screenshots from Cucumber results) ────────────
+
+function EmbeddingGallery({ embeddings }: { embeddings: CucumberResultsStep["embeddings"] }) {
+  const imgs = (embeddings ?? []).filter(
+    (e) => e.mime_type?.startsWith("image/") && (e.data || e.download_link),
+  );
+  if (imgs.length === 0) return null;
+
+  return (
+    <div className="mt-2 flex flex-wrap gap-2">
+      {imgs.map((emb, i) => {
+        const src = emb.data
+          ? `data:${emb.mime_type};base64,${emb.data}`
+          : emb.download_link;
+        return (
+          <div key={i} className="group relative">
+            <img
+              src={src}
+              alt={emb.filename ?? `Screenshot ${i + 1}`}
+              className="max-h-48 max-w-xs rounded-lg border border-slate-200 object-contain shadow-sm dark:border-slate-700"
+            />
+            {emb.filename && (
+              <span className="mt-0.5 block text-center text-[9px] text-slate-400 truncate max-w-xs">
+                {emb.filename}
+              </span>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ── Evidence gallery (attached files on runs/steps) ──────────────────────────
+
+function EvidenceGallery({
+  evidence,
+  label,
+}: {
+  evidence: Evidence[];
+  label?: string;
+}) {
+  if (evidence.length === 0) return null;
+
+  const images = evidence.filter((e) =>
+    /\.(png|jpe?g|gif|svg|webp|bmp)$/i.test(e.filename ?? ""),
+  );
+  const others = evidence.filter(
+    (e) => !/\.(png|jpe?g|gif|svg|webp|bmp)$/i.test(e.filename ?? ""),
+  );
+
+  return (
+    <div className="mt-2">
+      {label && (
+        <p className="mb-1.5 flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+          <Image className="h-3 w-3" />
+          {label}
+        </p>
+      )}
+      {images.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {images.map((ev) => (
+            <div key={ev.id ?? ev.filename} className="group relative">
+              {ev.download_link ? (
+                <img
+                  src={ev.download_link}
+                  alt={ev.filename ?? "Evidence"}
+                  className="max-h-48 max-w-xs rounded-lg border border-slate-200 object-contain shadow-sm dark:border-slate-700"
+                />
+              ) : (
+                <div className="flex items-center gap-1 rounded border border-slate-200 bg-slate-50 px-2 py-1 text-[10px] text-slate-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400">
+                  <Image className="h-3 w-3" /> {ev.filename}
+                </div>
+              )}
+              {ev.filename && (
+                <span className="mt-0.5 block text-center text-[9px] text-slate-400 truncate max-w-xs">
+                  {ev.filename}
+                </span>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+      {others.length > 0 && (
+        <div className="flex flex-wrap gap-1.5 mt-1.5">
+          {others.map((ev) => (
+            <span
+              key={ev.id ?? ev.filename}
+              className="inline-flex items-center gap-1 rounded border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] text-slate-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400"
+            >
+              <FileText className="h-2.5 w-2.5" />
+              {ev.filename ?? "file"}
+              {ev.size != null && (
+                <span className="text-slate-400">
+                  ({ev.size < 1024 ? `${ev.size}B` : `${Math.round(ev.size / 1024)}KB`})
+                </span>
+              )}
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Cucumber step row ────────────────────────────────────────────────────────
+
+function CucumberStepRow({
+  step,
+  index,
+}: {
+  step: CucumberResultsStep;
+  index: number;
+}) {
+  const failed = isFail(step.status?.name);
+  const passed = isPass(step.status?.name);
+  const hasEmbeddings = (step.embeddings?.length ?? 0) > 0;
+
+  return (
+    <div
+      className={cn(
+        "px-3 py-2 transition-colors",
+        failed
+          ? "border-l-3 border-l-red-400 bg-red-50/40 dark:border-l-red-500 dark:bg-red-950/10"
+          : passed
+            ? "border-l-3 border-l-emerald-300 dark:border-l-emerald-600"
+            : "border-l-3 border-l-transparent",
+      )}
+    >
+      <div className="flex items-start gap-2">
+        <span className="mt-1 w-4 shrink-0 text-right font-mono text-[10px] text-slate-400">
+          {index + 1}
+        </span>
+
+        {step.keyword && (
+          <span
+            className={cn(
+              "mt-0.5 shrink-0 rounded px-1.5 py-0.5 font-mono text-[10px] font-semibold",
+              gherkinKeywordStyle(step.keyword),
+            )}
+          >
+            {step.keyword}
+          </span>
+        )}
+
+        <div className="min-w-0 flex-1">
+          <div className="flex items-start justify-between gap-2">
+            <p className="text-xs text-slate-700 dark:text-slate-200">
+              {step.name ?? <span className="italic text-slate-400">—</span>}
+            </p>
+            <div className="flex shrink-0 items-center gap-1.5">
+              {step.duration != null && (
+                <span className="text-[9px] text-slate-400">
+                  {formatDuration(step.duration)}
+                </span>
+              )}
+              {step.status?.name && (
+                <span
+                  className={cn(
+                    "rounded px-1.5 py-0.5 text-[10px] font-bold",
+                    stepStatusColor(step.status.name),
+                  )}
+                >
+                  {step.status.name}
+                </span>
+              )}
+            </div>
+          </div>
+
+          {step.error && (
+            <div className="mt-1.5 rounded border border-red-200 bg-red-50 px-2.5 py-1.5 dark:border-red-800 dark:bg-red-950/40">
+              <div className="mb-0.5 flex items-center gap-1 text-[10px] font-bold text-red-600 dark:text-red-400">
+                <AlertTriangle className="h-3 w-3" />
+                Error
+              </div>
+              <pre className="whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed text-red-700 dark:text-red-300">
+                {step.error}
+              </pre>
+            </div>
+          )}
+
+          {step.log && (
+            <pre className="mt-1 rounded bg-slate-100 px-2 py-1 font-mono text-[10px] text-slate-600 whitespace-pre-wrap break-words dark:bg-slate-800 dark:text-slate-400">
+              {step.log}
+            </pre>
+          )}
+
+          {hasEmbeddings && <EmbeddingGallery embeddings={step.embeddings} />}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Full Cucumber scenario panel ─────────────────────────────────────────────
+
+function CucumberScenarioPanel({
+  result,
+  index,
+  scenarioType,
+}: {
+  result: CucumberResult;
+  index: number;
+  scenarioType?: string;
+}) {
+  const [open, setOpen] = useState(true);
+  const failed = isFail(result.status?.name);
+  const allSteps = [
+    ...(result.backgrounds ?? []).map((s) => ({
+      ...s,
+      keyword: s.keyword ?? "Background",
+    })),
+    ...(result.steps ?? []),
+    ...(result.hooks ?? []).map((s) => ({
+      ...s,
+      keyword: s.keyword ?? "Hook",
+    })),
+  ];
+
+  return (
+    <div
+      className={cn(
+        "overflow-hidden rounded-lg border",
+        failed
+          ? "border-red-200 dark:border-red-800"
+          : "border-slate-200 dark:border-slate-700",
+      )}
+    >
+      <button
+        className={cn(
+          "flex w-full items-center gap-2 px-3 py-2 text-left text-xs",
+          failed
+            ? "bg-red-50/60 dark:bg-red-950/20"
+            : "bg-slate-50/80 dark:bg-slate-800/80",
+        )}
+        onClick={() => setOpen((o) => !o)}
+      >
+        {open ? (
+          <ChevronDown className="h-3 w-3 shrink-0 text-slate-400" />
+        ) : (
+          <ChevronRight className="h-3 w-3 shrink-0 text-slate-400" />
+        )}
+        <Play className="h-3 w-3 shrink-0 text-slate-400" />
+        <span className="font-semibold text-slate-600 dark:text-slate-300">
+          {result.name ?? `${scenarioType ?? "Scenario"} #${index + 1}`}
+        </span>
+        {result.status?.name && (
+          <span
+            className={cn(
+              "rounded px-1.5 py-0.5 text-[10px] font-bold",
+              stepStatusColor(result.status.name),
+            )}
+          >
+            {result.status.name}
+          </span>
+        )}
+        {result.duration != null && (
+          <span className="ml-auto text-[10px] text-slate-400">
+            {formatDuration(result.duration)}
+          </span>
+        )}
+      </button>
+
+      {open && (
+        <div className="divide-y divide-slate-100 dark:divide-slate-800">
+          {allSteps.map((step, i) => (
+            <CucumberStepRow
+              key={`${i}:${step.keyword}:${(step.name ?? "").slice(0, 30)}`}
+              step={step}
+              index={i}
+            />
+          ))}
+
+          {result.log && (
+            <div className="px-3 py-2">
+              <p className="mb-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                Log Output
+              </p>
+              <pre className="whitespace-pre-wrap break-words rounded bg-slate-100 px-2.5 py-1.5 font-mono text-[10px] text-slate-600 dark:bg-slate-800 dark:text-slate-400">
+                {result.log}
+              </pre>
+            </div>
+          )}
+
+          {allSteps.length === 0 && (
+            <p className="px-3 py-2 text-xs italic text-slate-400">
+              No step details available.
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Cucumber results section (replaces raw <pre>) ────────────────────────────
+
+function CucumberResultsSection({
+  run,
+}: {
+  run: TestRun;
+}) {
+  const results = run.results ?? [];
+  const hasResults = results.length > 0 && results.some((r) => (r.steps?.length ?? 0) > 0);
+
+  if (!hasResults && !run.gherkin) return null;
+
+  // When we have rich step-level results, show them
+  if (hasResults) {
+    return (
+      <div className="space-y-2">
+        <p className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+          <FileText className="h-3 w-3" />
+          Cucumber Scenarios ({results.length})
+        </p>
+        {results.map((result, i) => (
+          <CucumberScenarioPanel
+            key={i}
+            result={result}
+            index={i}
+            {...(run.scenario_type ? { scenarioType: run.scenario_type } : {})}
+          />
+        ))}
+      </div>
+    );
+  }
+
+  // Fallback: parse raw Gherkin definition with keyword coloring
+  return <GherkinDefinitionPanel gherkin={run.gherkin!} />;
+}
+
+// ── Gherkin definition panel (keyword-colored read-only view) ────────────────
+
+function GherkinDefinitionPanel({ gherkin }: { gherkin: string }) {
+  const lines = gherkin.split("\n");
+
+  return (
+    <div>
+      <p className="mb-1.5 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+        <FileText className="h-3 w-3" />
+        Gherkin Scenario
+      </p>
+      <div className="overflow-hidden rounded-lg border border-slate-200 dark:border-slate-700">
+        <div className="divide-y divide-slate-100 dark:divide-slate-800">
+          {lines.map((line, i) => {
+            const trimmed = line.trim();
+            if (!trimmed) return null;
+
+            const match = GHERKIN_KEYWORDS.exec(trimmed);
+            if (match) {
+              const keyword = match[1] ?? "";
+              const rest = trimmed.slice(match[0].length);
+              return (
+                <div key={i} className="flex items-start gap-2 px-3 py-1.5">
+                  <span
+                    className={cn(
+                      "mt-0.5 shrink-0 rounded px-1.5 py-0.5 font-mono text-[10px] font-semibold",
+                      gherkinKeywordStyle(keyword),
+                    )}
+                  >
+                    {keyword}
+                  </span>
+                  <p className="text-xs text-slate-700 dark:text-slate-200">{rest}</p>
+                </div>
+              );
+            }
+
+            // Non-step lines (Feature:, Scenario:, comments, tags)
+            const isHeader = /^(Feature|Scenario|Background|Examples|@)/.test(trimmed);
+            return (
+              <div
+                key={i}
+                className={cn(
+                  "px-3 py-1.5 text-xs",
+                  isHeader
+                    ? "font-semibold text-slate-600 dark:text-slate-300"
+                    : "font-mono text-slate-500 dark:text-slate-400",
+                )}
+              >
+                {trimmed}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Last run section ─────────────────────────────────────────────────────────
 
 function LastRunSection({ run, jiraUrl }: { run: TestRun; jiraUrl?: string }) {
@@ -585,17 +1005,14 @@ function LastRunSection({ run, jiraUrl }: { run: TestRun; jiraUrl?: string }) {
         </div>
       )}
 
-      {/* Gherkin results */}
-      {run.gherkin && (
-        <div>
-          <p className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-slate-400">
-            <FileText className="h-3 w-3" />
-            Gherkin Scenario
-          </p>
-          <pre className="overflow-x-auto rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 font-mono text-xs text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200">
-            {run.gherkin}
-          </pre>
-        </div>
+      {/* Cucumber / Gherkin results — rich step-by-step view */}
+      {(run.gherkin || (run.results && run.results.length > 0)) && (
+        <CucumberResultsSection run={run} />
+      )}
+
+      {/* Run-level evidence gallery */}
+      {run.evidence && run.evidence.length > 0 && (
+        <EvidenceGallery evidence={run.evidence} label={`Evidence (${run.evidence.length})`} />
       )}
 
       {/* Linked defects */}
@@ -893,10 +1310,8 @@ export function CoverageTestDetailModal({
                   )}
 
                 {isCucumber && xrayDetail?.gherkin && (
-                  <Section title="Gherkin Scenario" defaultOpen={!latestRun}>
-                    <pre className="overflow-x-auto rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 font-mono text-xs text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200">
-                      {xrayDetail.gherkin}
-                    </pre>
+                  <Section title="Gherkin Definition" defaultOpen={!latestRun}>
+                    <GherkinDefinitionPanel gherkin={xrayDetail.gherkin} />
                   </Section>
                 )}
 
