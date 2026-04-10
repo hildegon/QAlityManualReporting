@@ -184,4 +184,40 @@ impl XrayClient {
             return Ok(typed);
         }
     }
+
+    /// Fetch an evidence/attachment file from Xray Cloud and return it as a
+    /// `data:<mime>;base64,<content>` URI that can be used directly in `<img src>`.
+    ///
+    /// Only URLs on the Xray Cloud domain (`xray.cloud.getxray.app`) are allowed
+    /// to prevent SSRF leaks.
+    pub async fn fetch_evidence_as_data_uri(
+        &self,
+        download_url: &str,
+        mime_type: &str,
+    ) -> Result<String> {
+        use base64::{engine::general_purpose::STANDARD, Engine};
+
+        if !download_url.starts_with("https://xray.cloud.getxray.app/") {
+            bail!(
+                "Evidence URL must belong to Xray Cloud (expected prefix 'https://xray.cloud.getxray.app/')"
+            );
+        }
+
+        let token = self.get_token().await?;
+        let bytes = self
+            .client
+            .get(download_url)
+            .bearer_auth(&token)
+            .send()
+            .await
+            .context("Failed to fetch Xray evidence")?
+            .error_for_status()
+            .context("Xray evidence fetch returned an error status")?
+            .bytes()
+            .await
+            .context("Failed to read evidence bytes")?;
+
+        let b64 = STANDARD.encode(&bytes);
+        Ok(format!("data:{mime_type};base64,{b64}"))
+    }
 }

@@ -14,9 +14,33 @@ import { Spinner } from "@/components/ui/spinner";
 import { DonutChart, StatCard, StackedBar, MiniStackedBar } from "@/components/charts/StatusCharts";
 import { buildSlicesFromTests, findSlice } from "@/components/charts/status-utils";
 import { parseRateLimitError } from "@/stores/uiStore";
+import {
+  normalizeStatusKey,
+  STATUS_PASS,
+  STATUS_FAIL,
+  STATUS_BLOCKED,
+  STATUS_NA,
+} from "@/constants/statuses";
 import type { XrayTestSet, XrayTestWithStatus } from "@/types";
 import { StatusBadge } from "./StatusBadge";
 import { passRate, hasFail } from "./utils";
+
+/** Hover border + background tint based on test status. */
+function statusHoverClasses(statusName: string | undefined): string {
+  const key = normalizeStatusKey(statusName ?? "TODO");
+  switch (key) {
+    case STATUS_PASS:
+      return "hover:border-emerald-400 hover:bg-emerald-50 dark:hover:border-emerald-500 dark:hover:bg-emerald-900/30";
+    case STATUS_FAIL:
+      return "hover:border-red-400 hover:bg-red-50 dark:hover:border-red-500 dark:hover:bg-red-900/30";
+    case STATUS_NA:
+      return "hover:border-amber-400 hover:bg-amber-50 dark:hover:border-amber-500 dark:hover:bg-amber-900/30";
+    case STATUS_BLOCKED:
+      return "hover:border-blue-400 hover:bg-blue-50 dark:hover:border-blue-500 dark:hover:bg-blue-900/30";
+    default: // TODO / NOT RUN / unknown
+      return "hover:border-slate-400 hover:bg-slate-100 dark:hover:border-slate-500 dark:hover:bg-slate-700/50";
+  }
+}
 
 export type SortBy = "key" | "name" | "status";
 export type SortDir = "asc" | "desc";
@@ -372,7 +396,7 @@ export const TestSetSection = memo(function TestSetSection({
                   className={cn(
                     "mx-3 my-1 flex items-center gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2.5 transition-colors dark:border-slate-700 dark:bg-slate-800",
                     onTestClick &&
-                      "cursor-pointer hover:border-indigo-400 hover:bg-indigo-50 dark:hover:border-indigo-500 dark:hover:bg-indigo-900/40",
+                      cn("cursor-pointer", statusHoverClasses(test.latest_status?.name)),
                   )}
                   onClick={() => onTestClick?.(test)}
                   onKeyDown={(e) => e.key === "Enter" && onTestClick?.(test)}

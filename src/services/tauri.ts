@@ -121,6 +121,13 @@ export const fetchAttachmentToTemp = (contentUrl: string, mimeType: string): Pro
   invoke("fetch_attachment_to_temp", { contentUrl, mimeType });
 
 /**
+ * Fetch an Xray evidence/attachment file by its download URL and return it as a base64 data URI.
+ * Used to proxy authenticated downloads for images/files attached to test runs.
+ */
+export const fetchXrayEvidence = (downloadUrl: string, mimeType: string): Promise<string> =>
+  invoke("fetch_xray_evidence", { downloadUrl, mimeType });
+
+/**
  * Create an issue link between two Jira issues.
  * `linkTypeName` is the Jira link type name, e.g. "is detected by".
  * The bug is the inward issue; the test is the outward issue.

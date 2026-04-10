@@ -1,8 +1,170 @@
 import { useMemo } from "react";
-import { Activity, AlertTriangle, CheckSquare2, Clock, XCircle } from "lucide-react";
+import {
+  Activity,
+  AlertTriangle,
+  CheckCircle2,
+  ShieldAlert,
+  BarChart3,
+  Eye,
+  Flame,
+} from "lucide-react";
+import { cn } from "@/components/ui/utils";
 import type { XrayTestSet, XrayTestWithStatus } from "@/types";
 import { findSlice } from "@/components/charts/status-utils";
 import { type SetQueryMap, passRate, hasFail } from "./utils";
+
+// ── Shared sub-components ────────────────────────────────────────────────────
+
+function KpiCard({
+  label,
+  value,
+  sub,
+  accent,
+}: {
+  label: string;
+  value: string | number;
+  sub?: string;
+  accent: "emerald" | "red" | "amber" | "blue" | "slate";
+}) {
+  const ring = {
+    emerald: "ring-emerald-200 dark:ring-emerald-800",
+    red: "ring-red-200 dark:ring-red-800",
+    amber: "ring-amber-200 dark:ring-amber-800",
+    blue: "ring-blue-200 dark:ring-blue-800",
+    slate: "ring-slate-200 dark:ring-slate-700",
+  }[accent];
+  const bg = {
+    emerald: "bg-emerald-50 dark:bg-emerald-950/40",
+    red: "bg-red-50 dark:bg-red-950/40",
+    amber: "bg-amber-50 dark:bg-amber-950/40",
+    blue: "bg-blue-50 dark:bg-blue-950/40",
+    slate: "bg-slate-50 dark:bg-slate-800/60",
+  }[accent];
+  const valColor = {
+    emerald: "text-emerald-700 dark:text-emerald-300",
+    red: "text-red-700 dark:text-red-300",
+    amber: "text-amber-700 dark:text-amber-300",
+    blue: "text-blue-700 dark:text-blue-300",
+    slate: "text-slate-700 dark:text-slate-200",
+  }[accent];
+
+  return (
+    <div className={cn("rounded-lg ring-1 p-2.5", ring, bg)}>
+      <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+        {label}
+      </p>
+      <p className={cn("mt-0.5 text-xl font-bold tabular-nums leading-none", valColor)}>
+        {value}
+      </p>
+      {sub && (
+        <p className="mt-0.5 text-[10px] text-slate-500 dark:text-slate-400">{sub}</p>
+      )}
+    </div>
+  );
+}
+
+type FindingType = "critical" | "warn" | "ok" | "info";
+
+function FindingCard({
+  type,
+  text,
+}: {
+  type: FindingType;
+  text: string;
+}) {
+  const styles = {
+    critical: {
+      border: "border-red-200 dark:border-red-800/60",
+      bg: "bg-red-50/60 dark:bg-red-950/20",
+      icon: <Flame className="h-4 w-4 text-red-500" />,
+      textCls: "text-red-800 dark:text-red-200",
+    },
+    warn: {
+      border: "border-amber-200 dark:border-amber-800/60",
+      bg: "bg-amber-50/60 dark:bg-amber-950/20",
+      icon: <AlertTriangle className="h-4 w-4 text-amber-500" />,
+      textCls: "text-amber-800 dark:text-amber-200",
+    },
+    ok: {
+      border: "border-emerald-200 dark:border-emerald-800/60",
+      bg: "bg-emerald-50/60 dark:bg-emerald-950/20",
+      icon: <CheckCircle2 className="h-4 w-4 text-emerald-500" />,
+      textCls: "text-emerald-800 dark:text-emerald-200",
+    },
+    info: {
+      border: "border-blue-200 dark:border-blue-800/60",
+      bg: "bg-blue-50/60 dark:bg-blue-950/20",
+      icon: <Eye className="h-4 w-4 text-blue-400" />,
+      textCls: "text-blue-800 dark:text-blue-200",
+    },
+  }[type];
+
+  return (
+    <div
+      className={cn(
+        "flex items-start gap-2.5 rounded-lg border px-3.5 py-2.5",
+        styles.border,
+        styles.bg,
+      )}
+    >
+      <span className="mt-0.5 shrink-0">{styles.icon}</span>
+      <p className={cn("text-xs leading-relaxed", styles.textCls)}>{text}</p>
+    </div>
+  );
+}
+
+function SetProgressBar({
+  label,
+  subLabel,
+  count,
+  total,
+  maxCount,
+  barColor,
+  countColor,
+}: {
+  label: string;
+  subLabel: string;
+  count: number;
+  total: number;
+  maxCount: number;
+  barColor: string;
+  countColor: string;
+}) {
+  const pct = total > 0 ? Math.round((count / total) * 100) : 0;
+  const barWidth = maxCount > 0 ? (count / maxCount) * 100 : 0;
+
+  return (
+    <div className="group rounded-lg border border-slate-100 bg-white px-3.5 py-2.5 transition-colors hover:border-slate-200 dark:border-slate-700/60 dark:bg-slate-800/40 dark:hover:border-slate-600">
+      <div className="mb-1.5 flex items-center justify-between gap-2">
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-xs font-medium text-slate-700 dark:text-slate-200">
+            {label}
+          </p>
+          <p className="font-mono text-[10px] text-slate-400">{subLabel}</p>
+        </div>
+        <div className="shrink-0 text-right">
+          <p className={cn("text-sm font-bold tabular-nums", countColor)}>
+            {count}
+          </p>
+          <p className="text-[10px] text-slate-400">
+            {pct}% of {total}
+          </p>
+        </div>
+      </div>
+      <div className="h-2 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-700/60">
+        <div
+          className={cn(
+            "h-full rounded-full transition-all duration-700 ease-out",
+            barColor,
+          )}
+          style={{ width: `${barWidth}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
+// ── Insights Panel ───────────────────────────────────────────────────────────
 
 export function InsightsPanel({
   allTests,
@@ -13,7 +175,7 @@ export function InsightsPanel({
   selectedSets: XrayTestSet[];
   queryBySetId: SetQueryMap;
 }) {
-  const data = useMemo(() => {
+  const { kpis, findings } = useMemo(() => {
     const total = allTests.length;
     const failingTests = allTests.filter(
       (t) => findSlice(t.latest_status?.name ?? "TODO").key === "FAIL",
@@ -62,19 +224,8 @@ export function InsightsPanel({
       .filter((r) => r.fails > 0)
       .sort((a, b) => b.fails - a.fails)[0];
 
-    const items: { type: "critical" | "warn" | "ok" | "info"; text: string }[] = [];
+    const items: { type: FindingType; text: string }[] = [];
 
-    // Summary metrics
-    items.push({
-      type: "info",
-      text: `${coveragePct}% coverage — ${runAtLeastOnce} of ${total} tests run at least once`,
-    });
-    items.push({
-      type: passRatePct === 100 ? "ok" : passRatePct >= 80 ? "info" : passRatePct >= 50 ? "warn" : "critical",
-      text: `${passRatePct}% overall pass rate (${passedTests.length} passed, ${failingTests.length} failed)`,
-    });
-
-    // Failure findings
     if (failingTests.length > 0) {
       items.push({
         type: "warn",
@@ -93,8 +244,6 @@ export function InsightsPanel({
         text: `Most failures in "${topFailSet.ts.jira.summary}" (${topFailSet.fails} failing)`,
       });
     }
-
-    // Blocked / executing
     if (blockedTests.length > 0) {
       items.push({
         type: "warn",
@@ -107,22 +256,18 @@ export function InsightsPanel({
         text: `${executingTests.length} test${executingTests.length !== 1 ? "s are" : " is"} currently executing`,
       });
     }
-
-    // Coverage gaps
     if (neverRun.length > 0) {
       items.push({
         type: "info",
-        text: `${neverRun.length} test${neverRun.length !== 1 ? "s" : ""} never executed (${100 - coveragePct}% coverage gap) across ${setsWithNeverRun} set${setsWithNeverRun !== 1 ? "s" : ""}`,
+        text: `${neverRun.length} test${neverRun.length !== 1 ? "s" : ""} never executed (${100 - coveragePct}% gap) across ${setsWithNeverRun} set${setsWithNeverRun !== 1 ? "s" : ""}`,
       });
     }
     if (uncoveredSets.length > 0) {
       items.push({
-        type: "warn",
-        text: `${uncoveredSets.length} set${uncoveredSets.length !== 1 ? "s have" : " has"} 0% coverage — not a single test has been run: ${uncoveredSets.map((ts) => ts.jira.summary).join(", ")}`,
+        type: "critical",
+        text: `${uncoveredSets.length} set${uncoveredSets.length !== 1 ? "s have" : " has"} 0% coverage: ${uncoveredSets.map((ts) => ts.jira.summary).join(", ")}`,
       });
     }
-
-    // Good news
     if (fullyPassingSets.length > 0) {
       items.push({
         type: "ok",
@@ -130,51 +275,79 @@ export function InsightsPanel({
       });
     }
     if (coveragePct === 100) {
-      items.push({ type: "ok", text: "All tests have been run at least once — coverage is complete" });
+      items.push({ type: "ok", text: "All tests have been run at least once — full coverage" });
     }
 
-    return items;
+    return {
+      kpis: {
+        total,
+        coveragePct,
+        passRatePct,
+        passed: passedTests.length,
+        failed: failingTests.length,
+        blocked: blockedTests.length,
+        neverRun: neverRun.length,
+      },
+      findings: items,
+    };
   }, [allTests, selectedSets, queryBySetId]);
 
-  if (data.length === 0) return null;
-
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-800">
-      <div className="mb-4 flex items-center gap-1.5">
-        <Activity className="h-3.5 w-3.5 text-slate-400" />
-        <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">Insights</p>
+    <div className="space-y-4">
+      {/* Hero KPI cards */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <KpiCard
+          label="Coverage"
+          value={`${kpis.coveragePct}%`}
+          sub={`${kpis.total - kpis.neverRun} of ${kpis.total} run`}
+          accent={kpis.coveragePct === 100 ? "emerald" : kpis.coveragePct >= 70 ? "blue" : "amber"}
+        />
+        <KpiCard
+          label="Pass Rate"
+          value={`${kpis.passRatePct}%`}
+          sub={`${kpis.passed} passed`}
+          accent={kpis.passRatePct >= 90 ? "emerald" : kpis.passRatePct >= 60 ? "amber" : "red"}
+        />
+        <KpiCard
+          label="Failures"
+          value={kpis.failed}
+          sub={kpis.failed > 0 ? `${Math.round((kpis.failed / kpis.total) * 100)}% of tests` : "None"}
+          accent={kpis.failed === 0 ? "emerald" : kpis.failed <= 3 ? "amber" : "red"}
+        />
+        <KpiCard
+          label="Not Run"
+          value={kpis.neverRun}
+          sub={kpis.neverRun > 0 ? `${Math.round((kpis.neverRun / kpis.total) * 100)}% untested` : "All executed"}
+          accent={kpis.neverRun === 0 ? "emerald" : kpis.neverRun <= 5 ? "amber" : "slate"}
+        />
       </div>
-      <ul className="space-y-2.5">
-        {data.map((item, i) => (
-          <li key={i} className="flex items-start gap-2 text-xs">
-            {item.type === "critical" ? (
-              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-red-500" />
-            ) : item.type === "warn" ? (
-              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500" />
-            ) : item.type === "ok" ? (
-              <CheckSquare2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-500" />
-            ) : (
-              <Clock className="mt-0.5 h-3.5 w-3.5 shrink-0 text-blue-400" />
-            )}
-            <span
-              className={
-                item.type === "critical"
-                  ? "text-red-700 dark:text-red-300"
-                  : item.type === "warn"
-                    ? "text-slate-700 dark:text-slate-200"
-                    : item.type === "ok"
-                      ? "text-emerald-700 dark:text-emerald-300"
-                      : "text-slate-500 dark:text-slate-400"
-              }
-            >
-              {item.text}
+
+      {/* Findings */}
+      {findings.length > 0 && (
+        <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+          <div className="mb-3 flex items-center gap-2">
+            <div className="flex h-6 w-6 items-center justify-center rounded-lg bg-indigo-100 dark:bg-indigo-900/40">
+              <Activity className="h-3.5 w-3.5 text-indigo-600 dark:text-indigo-400" />
+            </div>
+            <p className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+              Findings
+            </p>
+            <span className="ml-auto rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold tabular-nums text-slate-500 dark:bg-slate-700 dark:text-slate-400">
+              {findings.length}
             </span>
-          </li>
-        ))}
-      </ul>
+          </div>
+          <div className="space-y-2">
+            {findings.map((item, i) => (
+              <FindingCard key={i} type={item.type} text={item.text} />
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
+
+// ── Failure Concentration Panel ──────────────────────────────────────────────
 
 export function FailureConcentrationPanel({
   selectedSets,
@@ -201,43 +374,37 @@ export function FailureConcentrationPanel({
   const maxFails = ranked[0]!.failCount;
 
   return (
-    <div className="rounded-xl border border-slate-100 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800/60">
-      <div className="mb-3 flex items-center gap-1.5">
-        <XCircle className="h-3.5 w-3.5 text-red-400" />
-        <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">
-          Failure concentration
+    <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+      <div className="mb-3 flex items-center gap-2">
+        <div className="flex h-6 w-6 items-center justify-center rounded-lg bg-red-100 dark:bg-red-900/40">
+          <ShieldAlert className="h-3.5 w-3.5 text-red-600 dark:text-red-400" />
+        </div>
+        <p className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+          Failure Concentration
         </p>
+        <span className="ml-auto rounded-full bg-red-50 px-2 py-0.5 text-[10px] font-semibold tabular-nums text-red-600 dark:bg-red-900/30 dark:text-red-400">
+          {ranked.length} set{ranked.length !== 1 ? "s" : ""}
+        </span>
       </div>
-      <div className="space-y-3">
-        {ranked.map(({ ts, failCount, total }) => {
-          const pct = total > 0 ? Math.round((failCount / total) * 100) : 0;
-          const barWidth = maxFails > 0 ? (failCount / maxFails) * 100 : 0;
-          return (
-            <div key={ts.issue_id}>
-              <div className="mb-1 flex items-center justify-between gap-2">
-                <div className="min-w-0 flex-1">
-                  <span className="block truncate text-xs font-medium text-slate-700 dark:text-slate-200">
-                    {ts.jira.summary}
-                  </span>
-                  <span className="font-mono text-[10px] text-slate-400">{ts.jira.key}</span>
-                </div>
-                <span className="shrink-0 text-xs font-semibold text-red-600 dark:text-red-400">
-                  {failCount} ({pct}%)
-                </span>
-              </div>
-              <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700">
-                <div
-                  className="h-full rounded-full bg-red-400 transition-all duration-500"
-                  style={{ width: `${barWidth}%` }}
-                />
-              </div>
-            </div>
-          );
-        })}
+      <div className="space-y-2">
+        {ranked.map(({ ts, failCount, total }) => (
+          <SetProgressBar
+            key={ts.issue_id}
+            label={ts.jira.summary}
+            subLabel={ts.jira.key}
+            count={failCount}
+            total={total}
+            maxCount={maxFails}
+            barColor="bg-gradient-to-r from-red-400 to-red-500"
+            countColor="text-red-600 dark:text-red-400"
+          />
+        ))}
       </div>
     </div>
   );
 }
+
+// ── Never-Run Panel ──────────────────────────────────────────────────────────
 
 export function NeverRunPanel({
   selectedSets,
@@ -262,39 +429,31 @@ export function NeverRunPanel({
   const maxNever = ranked[0]!.neverRun;
 
   return (
-    <div className="rounded-xl border border-slate-100 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800/60">
-      <div className="mb-3 flex items-center gap-1.5">
-        <Clock className="h-3.5 w-3.5 text-amber-400" />
-        <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">
-          Never-run tests
+    <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+      <div className="mb-3 flex items-center gap-2">
+        <div className="flex h-6 w-6 items-center justify-center rounded-lg bg-amber-100 dark:bg-amber-900/40">
+          <BarChart3 className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" />
+        </div>
+        <p className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+          Never-Run Tests
         </p>
+        <span className="ml-auto rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-semibold tabular-nums text-amber-600 dark:bg-amber-900/30 dark:text-amber-400">
+          {ranked.length} set{ranked.length !== 1 ? "s" : ""}
+        </span>
       </div>
-      <div className="space-y-3">
-        {ranked.map(({ ts, neverRun, total }) => {
-          const pct = total > 0 ? Math.round((neverRun / total) * 100) : 0;
-          const barWidth = maxNever > 0 ? (neverRun / maxNever) * 100 : 0;
-          return (
-            <div key={ts.issue_id}>
-              <div className="mb-1 flex items-center justify-between gap-2">
-                <div className="min-w-0 flex-1">
-                  <span className="block truncate text-xs font-medium text-slate-700 dark:text-slate-200">
-                    {ts.jira.summary}
-                  </span>
-                  <span className="font-mono text-[10px] text-slate-400">{ts.jira.key}</span>
-                </div>
-                <span className="shrink-0 text-xs font-semibold text-amber-600 dark:text-amber-400">
-                  {neverRun} ({pct}%)
-                </span>
-              </div>
-              <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700">
-                <div
-                  className="h-full rounded-full bg-amber-400 transition-all duration-500"
-                  style={{ width: `${barWidth}%` }}
-                />
-              </div>
-            </div>
-          );
-        })}
+      <div className="space-y-2">
+        {ranked.map(({ ts, neverRun, total }) => (
+          <SetProgressBar
+            key={ts.issue_id}
+            label={ts.jira.summary}
+            subLabel={ts.jira.key}
+            count={neverRun}
+            total={total}
+            maxCount={maxNever}
+            barColor="bg-gradient-to-r from-amber-300 to-amber-400"
+            countColor="text-amber-600 dark:text-amber-400"
+          />
+        ))}
       </div>
     </div>
   );
