@@ -84,7 +84,7 @@ export function CoveragePage() {
   );
 
   // Fetch tests-with-status for every selected set, windowed to avoid 429s.
-  const MAX_CONCURRENT_COVERAGE = 4;
+  const MAX_CONCURRENT_COVERAGE = 6;
   const coverageSettledRef = useRef(0);
 
   const testQueries = useQueries({
