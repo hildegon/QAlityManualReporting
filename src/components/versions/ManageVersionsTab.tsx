@@ -7,6 +7,7 @@ import {
   Pencil,
   Trash2,
   Save,
+  Search,
   X,
   PackageCheck,
   Archive,
@@ -21,19 +22,21 @@ import type { JiraVersion } from "@/types";
 
 // ── VersionRow ─────────────────────────────────────────────────────────────────
 
+type VersionPatch = {
+  name?: string;
+  description?: string;
+  released?: boolean;
+  archived?: boolean;
+  startDate?: string;
+  releaseDate?: string;
+};
+
 const VersionRow = memo(function VersionRow({
   version,
   onUpdate,
 }: {
   version: JiraVersion;
-  onUpdate: (patch: {
-    name?: string;
-    description?: string;
-    released?: boolean;
-    archived?: boolean;
-    startDate?: string;
-    releaseDate?: string;
-  }) => void;
+  onUpdate: (patch: VersionPatch) => Promise<JiraVersion>;
 }) {
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(version.name);
@@ -44,7 +47,7 @@ const VersionRow = memo(function VersionRow({
   const [actioning, setActioning] = useState<string | null>(null);
 
   type PendingAction = {
-    patch: Parameters<typeof onUpdate>[0];
+    patch: VersionPatch;
     key: string;
     title: string;
     message: string;
@@ -63,22 +66,30 @@ const VersionRow = memo(function VersionRow({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [version]);
 
-  function saveEdit() {
+  async function saveEdit() {
     setSaving(true);
-    onUpdate({
-      name: name.trim() || version.name,
-      description: description.trim(),
-      ...(startDate ? { startDate } : {}),
-      ...(releaseDate ? { releaseDate } : {}),
-    });
-    setSaving(false);
-    setEditing(false);
+    try {
+      await onUpdate({
+        name: name.trim() || version.name,
+        description: description.trim(),
+        ...(startDate ? { startDate } : {}),
+        ...(releaseDate ? { releaseDate } : {}),
+      });
+      setEditing(false);
+    } catch {
+      // Mutation failed — keep editing mode open so the user can retry
+    } finally {
+      setSaving(false);
+    }
   }
 
-  function doAction(patch: Parameters<typeof onUpdate>[0], key: string) {
+  async function doAction(patch: VersionPatch, key: string) {
     setActioning(key);
-    onUpdate(patch);
-    setTimeout(() => setActioning(null), 1500);
+    try {
+      await onUpdate(patch);
+    } finally {
+      setActioning(null);
+    }
   }
 
   function confirmAction(action: PendingAction) {
@@ -87,7 +98,7 @@ const VersionRow = memo(function VersionRow({
 
   function executeConfirmed() {
     if (!pendingAction) return;
-    doAction(pendingAction.patch, pendingAction.key);
+    void doAction(pendingAction.patch, pendingAction.key);
     setPendingAction(null);
   }
 
@@ -277,7 +288,7 @@ export function ManageVersionsTab({ projectKey, versions }: ManageVersionsTabPro
   const { data: projects } = useJiraProjects();
   const project = projects?.find((p) => p.key === projectKey);
   const { mutate: createVersion, isPending: creating } = useCreateVersion(projectKey);
-  const { mutate: updateVersion } = useUpdateVersion(projectKey);
+  const { mutateAsync: updateVersion } = useUpdateVersion(projectKey);
   const { versionGroups, addVersionGroup, updateVersionGroup, removeVersionGroup } =
     useVersionsStore();
   const groups = versionGroups[projectKey] ?? [];
@@ -296,6 +307,7 @@ export function ManageVersionsTab({ projectKey, versions }: ManageVersionsTabPro
   const [editingGroupId, setEditingGroupId] = useState<string | null>(null);
   const [editGroupName, setEditGroupName] = useState("");
   const [editGroupVersionIds, setEditGroupVersionIds] = useState<string[]>([]);
+  const [nameFilter, setNameFilter] = useState("");
 
   function submitCreateGroup() {
     if (!groupName.trim() || groupVersionIds.length === 0) return;
@@ -362,23 +374,49 @@ export function ManageVersionsTab({ projectKey, versions }: ManageVersionsTabPro
 
   const sorted = useMemo(() => {
     const order = (v: JiraVersion) => (v.archived ? 2 : v.released ? 1 : 0);
-    return [...versions].sort((a, b) => order(a) - order(b) || a.name.localeCompare(b.name));
-  }, [versions]);
+    const needle = nameFilter.trim().toLowerCase();
+    const filtered = needle
+      ? versions.filter((v) => v.name.toLowerCase().includes(needle))
+      : versions;
+    return [...filtered].sort((a, b) => order(a) - order(b) || a.name.localeCompare(b.name));
+  }, [versions, nameFilter]);
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <p className="text-xs text-slate-500 dark:text-slate-400">
-          {versions.length} version{versions.length !== 1 ? "s" : ""} in{" "}
+          {sorted.length === versions.length
+            ? <>{versions.length} version{versions.length !== 1 ? "s" : ""}</>
+            : <>{sorted.length} of {versions.length} version{versions.length !== 1 ? "s" : ""}</>}{" "}
+          in{" "}
           <span className="font-medium text-slate-700 dark:text-slate-200">{projectKey}</span>
         </p>
-        <button
-          onClick={() => setShowCreate((o) => !o)}
-          className="flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-700 dark:bg-indigo-500 dark:hover:bg-indigo-600"
-        >
-          <Plus className="h-3.5 w-3.5" />
-          New Version
-        </button>
+        <div className="flex items-center gap-2">
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+            <input
+              value={nameFilter}
+              onChange={(e) => setNameFilter(e.target.value)}
+              placeholder="Filter by name…"
+              className="w-44 rounded-lg border border-slate-200 bg-white py-1.5 pl-7 pr-7 text-xs text-slate-800 outline-none focus:border-indigo-400 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:focus:border-indigo-500"
+            />
+            {nameFilter && (
+              <button
+                onClick={() => setNameFilter("")}
+                className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded p-0.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            )}
+          </div>
+          <button
+            onClick={() => setShowCreate((o) => !o)}
+            className="flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-700 dark:bg-indigo-500 dark:hover:bg-indigo-600"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            New Version
+          </button>
+        </div>
       </div>
 
       {showCreate && (

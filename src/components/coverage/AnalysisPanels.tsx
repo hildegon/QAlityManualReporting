@@ -347,6 +347,69 @@ export function InsightsPanel({
   );
 }
 
+// ── Stacked bar chart ─────────────────────────────────────────────────────────
+
+function StackedBar({
+  items,
+  accentShade,
+}: {
+  items: { value: number; label: string }[];
+  accentShade: "red" | "amber";
+}) {
+  const total = items.reduce((s, it) => s + it.value, 0);
+  if (total === 0) return null;
+
+  // Show top 3 as labels, rest grouped
+  const top3 = items.slice(0, 3);
+  const rest = items.slice(3);
+  const restSum = rest.reduce((s, it) => s + it.value, 0);
+
+  const shades = accentShade === "red"
+    ? ["bg-red-600", "bg-red-400", "bg-red-300", "bg-red-200"]
+    : ["bg-amber-500", "bg-amber-400", "bg-amber-300", "bg-amber-200"];
+
+  return (
+    <div className="rounded-lg border border-slate-100 bg-slate-50/60 p-3 dark:border-slate-700/50 dark:bg-slate-800/40">
+      {/* Stacked bar */}
+      <div className="mb-2 flex h-3 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-700/60">
+        {items.map((it, i) => (
+          <div
+            key={i}
+            className={cn("h-full transition-all duration-500", shades[Math.min(i, shades.length - 1)])}
+            style={{ width: `${(it.value / total) * 100}%` }}
+            title={`${it.label}: ${it.value}`}
+          />
+        ))}
+      </div>
+      {/* Labels for top items */}
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-0.5">
+        {top3.map((it, i) => (
+          <div key={i} className="flex items-center gap-1.5">
+            <span className={cn("inline-block h-2 w-2 rounded-full", shades[i])} />
+            <span className="max-w-[140px] truncate text-[10px] text-slate-500 dark:text-slate-400">
+              {it.label}
+            </span>
+            <span className="text-[10px] font-bold tabular-nums text-slate-600 dark:text-slate-300">
+              {it.value}
+            </span>
+          </div>
+        ))}
+        {restSum > 0 && (
+          <div className="flex items-center gap-1.5">
+            <span className={cn("inline-block h-2 w-2 rounded-full", shades[shades.length - 1])} />
+            <span className="text-[10px] text-slate-500 dark:text-slate-400">
+              +{rest.length} more
+            </span>
+            <span className="text-[10px] font-bold tabular-nums text-slate-600 dark:text-slate-300">
+              {restSum}
+            </span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── Failure Concentration Panel ──────────────────────────────────────────────
 
 export function FailureConcentrationPanel({
@@ -372,6 +435,7 @@ export function FailureConcentrationPanel({
   if (ranked.length === 0) return null;
 
   const maxFails = ranked[0]!.failCount;
+  const totalFails = ranked.reduce((s, r) => s + r.failCount, 0);
 
   return (
     <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800">
@@ -383,10 +447,20 @@ export function FailureConcentrationPanel({
           Failure Concentration
         </p>
         <span className="ml-auto rounded-full bg-red-50 px-2 py-0.5 text-[10px] font-semibold tabular-nums text-red-600 dark:bg-red-900/30 dark:text-red-400">
-          {ranked.length} set{ranked.length !== 1 ? "s" : ""}
+          {totalFails} failure{totalFails !== 1 ? "s" : ""} in {ranked.length} set{ranked.length !== 1 ? "s" : ""}
         </span>
       </div>
-      <div className="space-y-2">
+
+      {/* Chart summary */}
+      <div className="mb-3">
+        <StackedBar
+          items={ranked.map((r) => ({ value: r.failCount, label: r.ts.jira.summary }))}
+          accentShade="red"
+        />
+      </div>
+
+      {/* Detailed bars */}
+      <div className="max-h-64 space-y-2 overflow-y-auto">
         {ranked.map(({ ts, failCount, total }) => (
           <SetProgressBar
             key={ts.issue_id}
@@ -427,6 +501,7 @@ export function NeverRunPanel({
   if (ranked.length === 0) return null;
 
   const maxNever = ranked[0]!.neverRun;
+  const totalNever = ranked.reduce((s, r) => s + r.neverRun, 0);
 
   return (
     <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800">
@@ -438,10 +513,20 @@ export function NeverRunPanel({
           Never-Run Tests
         </p>
         <span className="ml-auto rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-semibold tabular-nums text-amber-600 dark:bg-amber-900/30 dark:text-amber-400">
-          {ranked.length} set{ranked.length !== 1 ? "s" : ""}
+          {totalNever} test{totalNever !== 1 ? "s" : ""} in {ranked.length} set{ranked.length !== 1 ? "s" : ""}
         </span>
       </div>
-      <div className="space-y-2">
+
+      {/* Chart summary */}
+      <div className="mb-3">
+        <StackedBar
+          items={ranked.map((r) => ({ value: r.neverRun, label: r.ts.jira.summary }))}
+          accentShade="amber"
+        />
+      </div>
+
+      {/* Detailed bars */}
+      <div className="max-h-64 space-y-2 overflow-y-auto">
         {ranked.map(({ ts, neverRun, total }) => (
           <SetProgressBar
             key={ts.issue_id}
