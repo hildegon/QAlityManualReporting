@@ -177,22 +177,21 @@ impl XrayClient {
 
         let mut results: Vec<(String, crate::models::xray::LatestTestStatus)> = Vec::new();
 
-        // Process in chunks, each chunk runs all tests concurrently.
-        let chunk_size = 10;
-        for chunk in test_issue_ids.chunks(chunk_size) {
-            let futures: Vec<_> = chunk
-                .iter()
-                .map(|test_id| {
-                    let test_id = test_id.clone();
-                    async move {
-                        // Step 1: Find the latest execution for this test.
-                        let exec_id = match self
-                            .get_latest_execution_for_test(&test_id)
-                            .await
-                        {
-                            Ok(Some(id)) => id,
-                            _ => return None,
-                        };
+        // Fire all lookups concurrently — the global request semaphore
+        // limits how many HTTP calls are actually in-flight at once.
+        let futures: Vec<_> = test_issue_ids
+            .iter()
+            .map(|test_id| {
+                let test_id = test_id.clone();
+                async move {
+                    // Step 1: Find the latest execution for this test.
+                    let exec_id = match self
+                        .get_latest_execution_for_test(&test_id)
+                        .await
+                    {
+                        Ok(Some(id)) => id,
+                        _ => return None,
+                    };
 
                         // Step 2: Get the run status in that execution.
                         let resp: RunResp = match self
@@ -215,10 +214,9 @@ impl XrayClient {
                 })
                 .collect();
 
-            let chunk_results = futures::future::join_all(futures).await;
-            for result in chunk_results.into_iter().flatten() {
-                results.push(result);
-            }
+        let all_results = futures::future::join_all(futures).await;
+        for result in all_results.into_iter().flatten() {
+            results.push(result);
         }
 
         Ok(results)
