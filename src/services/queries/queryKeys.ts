@@ -30,6 +30,7 @@ export const queryKeys = {
   projectVersions: (projectKey: string) => ["jira", "versions", projectKey] as const,
   issueTransitions: (issueKey: string) => ["jira", "transitions", issueKey] as const,
   userSearch: (query: string) => ["jira", "user-search", query] as const,
+  userDisplayName: (accountId: string) => ["jira", "user-display-name", accountId] as const,
   testPlans: (projectKey: string) => ["xray", "test-plans", projectKey] as const,
   testExecutions: (projectKey: string) => ["xray", "test-executions", projectKey] as const,
   testExecutionsByVersion: (projectKey: string, versionName: string) =>
@@ -56,4 +57,6 @@ export const queryKeys = {
   execSummary: (executionIssueId: string, start: number) =>
     ["xray", "exec-summary", executionIssueId, start] as const,
   testDetail: (testKey: string) => ["xray", "test-detail", testKey] as const,
+  testRunsByTestId: (testIssueId: string) =>
+    ["xray", "test-runs-by-test-id", testIssueId] as const,
 };

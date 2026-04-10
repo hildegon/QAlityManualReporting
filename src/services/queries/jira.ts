@@ -70,6 +70,19 @@ export function useSearchUsers(query: string) {
   });
 }
 
+/** Resolve a Jira account ID to a display name. Cached for the session. */
+export function useUserDisplayName(accountId: string | null | undefined) {
+  return useQuery<string>({
+    queryKey: queryKeys.userDisplayName(accountId ?? ""),
+    queryFn: () => api.getUserDisplayName(accountId!),
+    enabled: !!accountId,
+    staleTime: Infinity,
+    gcTime: Infinity,
+    retry: 1,
+    meta: { persist: true },
+  });
+}
+
 // ── Transition Jira issue ─────────────────────────────────────────────────────
 
 interface TransitionIssueVars {
@@ -271,8 +284,9 @@ export function useIssueDetail(issueKey: string | null) {
     queryKey: queryKeys.issueDetail(issueKey ?? ""),
     queryFn: () => api.getIssueDetail(issueKey!),
     enabled: !!issueKey,
-    staleTime: 5 * 60 * 1_000,
-    gcTime: Infinity, // re-opening the same issue modal reuses in-memory cache for the session
+    staleTime: 10 * 60 * 1_000,
+    gcTime: Infinity,
+    meta: { persist: true },
   });
 }
 

@@ -117,8 +117,9 @@ export function useTestRuns(executionIssueId: string | null) {
       return nextStart;
     },
     enabled: !!executionIssueId,
-    staleTime: 2 * 60 * 1_000, // 2 minutes — mutations handle optimistic updates
+    staleTime: 5 * 60 * 1_000, // mutations handle optimistic updates
     gcTime: Infinity,
+    meta: { persist: true },
   });
 }
 
@@ -283,7 +284,7 @@ export function useGetTestSetTestsWithStatus(issueId: string | null) {
     queryKey: queryKeys.testSetTestsWithStatus(issueId ?? ""),
     queryFn: () => api.getTestSetTestsWithStatus(issueId!),
     enabled: !!issueId,
-    staleTime: 5 * 60 * 1_000, // status can change via external test runs
+    staleTime: 10 * 60 * 1_000, // status can change via external test runs
     gcTime: Infinity,
     meta: { persist: true },
   });
@@ -352,6 +353,24 @@ export function useTestDetail(testKey: string | null) {
     queryKey: queryKeys.testDetail(testKey ?? ""),
     queryFn: () => api.getTestDetail(testKey!),
     enabled: !!testKey,
-    staleTime: 5 * 60_000,
+    staleTime: 10 * 60_000,
+    gcTime: Infinity,
+    meta: { persist: true },
+  });
+}
+
+/**
+ * Fetch the latest test runs for a specific test issue across all executions.
+ * Includes full step results, iterations, defects, and parent execution info.
+ * Only fetches when testIssueId is non-null (lazy).
+ */
+export function useTestRunsByTestId(testIssueId: string | null) {
+  return useQuery<TestRunsPage>({
+    queryKey: queryKeys.testRunsByTestId(testIssueId ?? ""),
+    queryFn: () => api.getTestRunsByTestId(testIssueId!),
+    enabled: !!testIssueId,
+    staleTime: 10 * 60_000,
+    gcTime: Infinity,
+    meta: { persist: true },
   });
 }

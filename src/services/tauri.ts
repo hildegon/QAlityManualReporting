@@ -68,6 +68,10 @@ export const updateAssignee = (issueKey: string, accountId?: string): Promise<vo
 export const searchUsers = (query: string): Promise<JiraUser[]> =>
   invoke("search_users", { query });
 
+/** Fetch a Jira user's display name by account ID. */
+export const getUserDisplayName = (accountId: string): Promise<string> =>
+  invoke("get_user_display_name", { accountId });
+
 /** Fetch all versions for a Jira project. */
 export const getProjectVersions = (projectKey: string): Promise<JiraVersion[]> =>
   invoke("get_project_versions", { projectKey });
@@ -158,6 +162,12 @@ export const getTestRuns = (
   limit?: number,
   start?: number,
 ): Promise<TestRunsPage> => invoke("get_test_runs", { testExecutionIssueId, limit, start });
+
+/** Fetch the latest test runs for a specific test across all executions. */
+export const getTestRunsByTestId = (
+  testIssueId: string,
+  limit?: number,
+): Promise<TestRunsPage> => invoke("get_test_runs_by_test_id", { testIssueId, limit });
 
 /** Lightweight alternative to getTestRuns — fetches only status names for the summary bar. */
 export const getTestRunStatuses = (

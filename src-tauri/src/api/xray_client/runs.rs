@@ -9,6 +9,202 @@ use super::XrayClient;
 impl XrayClient {
     // ── Test Runs (tests inside an execution) ─────────────────────────────────
 
+    /// Fetch a single test run for a specific test in a specific execution.
+    ///
+    /// Uses the `getTestRun(testIssueId, testExecIssueId)` GraphQL query which
+    /// returns exactly one `TestRun` (or null if the test isn't in that execution).
+    pub async fn get_single_test_run(
+        &self,
+        test_issue_id: &str,
+        test_exec_issue_id: &str,
+    ) -> Result<Option<crate::models::xray::TestRun>> {
+        let query = r#"
+            query GetSingleTestRun($testIssueId: String!, $testExecIssueId: String!) {
+                getTestRun(testIssueId: $testIssueId, testExecIssueId: $testExecIssueId) {
+                    id
+                    status { name color description final }
+                    comment
+                    startedOn
+                    finishedOn
+                    assigneeId
+                    executedById
+                    testType { name kind }
+                    gherkin
+                    defects
+                    parameters { name value }
+                    test {
+                        issueId
+                        jira(fields: ["key", "summary"])
+                    }
+                    testExecution {
+                        issueId
+                        jira(fields: ["key", "summary"])
+                    }
+                    steps {
+                        id
+                        action
+                        data
+                        result
+                        actualResult
+                        comment
+                        defects
+                        status { name color description }
+                    }
+                    iterations(limit: 100) {
+                        total
+                        results {
+                            rank
+                            parameters { name value }
+                            status { name color description }
+                        }
+                    }
+                    results {
+                        status { name color description }
+                        steps {
+                            keyword
+                            name
+                            status { name color description }
+                            error
+                        }
+                    }
+                }
+            }
+        "#;
+
+        #[derive(serde::Deserialize)]
+        struct Resp {
+            #[serde(rename = "getTestRun")]
+            get_test_run: Option<crate::models::xray::TestRun>,
+        }
+
+        let resp: Resp = self
+            .graphql(
+                query,
+                serde_json::json!({
+                    "testIssueId": test_issue_id,
+                    "testExecIssueId": test_exec_issue_id,
+                }),
+            )
+            .await?;
+
+        Ok(resp.get_test_run)
+    }
+
+    /// Fetch the latest test run for a specific test across all executions.
+    ///
+    /// Uses an execution-based approach to guarantee we always get the status
+    /// from the most recently created execution:
+    ///   1. `getTest(issueId) → testExecutions` — find the latest execution
+    ///      this test participates in (highest numeric issueId).
+    ///   2. `getTestRun(testIssueId, testExecIssueId)` — fetch the single run
+    ///      in that execution with full details.
+    ///
+    /// Returns a `TestRunsResult` with a single result (the latest run) or an
+    /// empty `results` vec if no runs exist.
+    pub async fn get_test_runs_by_test_id(
+        &self,
+        test_issue_id: &str,
+        _limit: u32,
+    ) -> Result<TestRunsResult> {
+        let empty = || TestRunsResult {
+            test_runs: crate::models::xray::TestRunsPage {
+                total: 0,
+                start: Some(0),
+                limit: Some(0),
+                results: vec![],
+            },
+        };
+
+        // Step 1: Find the latest execution this test is part of.
+        let Some(latest_exec_id) = self
+            .get_latest_execution_for_test(test_issue_id)
+            .await?
+        else {
+            return Ok(empty());
+        };
+
+        // Step 2: Fetch the single run for this test in that execution.
+        let Some(run) = self
+            .get_single_test_run(test_issue_id, &latest_exec_id)
+            .await?
+        else {
+            return Ok(empty());
+        };
+
+        Ok(TestRunsResult {
+            test_runs: crate::models::xray::TestRunsPage {
+                total: 1,
+                start: Some(0),
+                limit: Some(1),
+                results: vec![run],
+            },
+        })
+    }
+
+    /// Fetch the latest run status for each test in a batch.
+    ///
+    /// For each test, finds its latest execution via
+    /// `getTest(issueId) → testExecutions`, then fetches the run status via
+    /// `getTestRun(testIssueId, testExecIssueId)`.
+    ///
+    /// Tests are processed in chunks of 10 to limit concurrency.
+    pub async fn get_latest_run_statuses_for_tests(
+        &self,
+        test_issue_ids: &[String],
+    ) -> Result<Vec<(String, crate::models::xray::LatestTestStatus)>> {
+        if test_issue_ids.is_empty() {
+            return Ok(vec![]);
+        }
+
+        // Lightweight query to get just the status from a single test run.
+        let run_query = r#"
+            query GetRunStatus($testIssueId: String!, $testExecIssueId: String!) {
+                getTestRun(testIssueId: $testIssueId, testExecIssueId: $testExecIssueId) {
+                    status { name color description final }
+                }
+            }
+        "#;
+
+        #[derive(serde::Deserialize)]
+        struct RunResp {
+            #[serde(rename = "getTestRun")]
+            get_test_run: Option<RunRow>,
+        }
+        #[derive(serde::Deserialize)]
+        struct RunRow {
+            status: crate::models::xray::LatestTestStatus,
+        }
+
+        let mut results: Vec<(String, crate::models::xray::LatestTestStatus)> = Vec::new();
+
+        let chunk_size = 10;
+        for chunk in test_issue_ids.chunks(chunk_size) {
+            for test_id in chunk {
+                // Step 1: Find the latest execution for this test.
+                let Some(exec_id) = self.get_latest_execution_for_test(test_id).await? else {
+                    continue;
+                };
+
+                // Step 2: Get the run status in that execution.
+                let resp: RunResp = self
+                    .graphql(
+                        run_query,
+                        serde_json::json!({
+                            "testIssueId": test_id,
+                            "testExecIssueId": &exec_id,
+                        }),
+                    )
+                    .await?;
+
+                if let Some(row) = resp.get_test_run {
+                    results.push((test_id.clone(), row.status));
+                }
+            }
+        }
+
+        Ok(results)
+    }
+
     pub async fn get_test_runs(
         &self,
         test_execution_issue_id: &str,

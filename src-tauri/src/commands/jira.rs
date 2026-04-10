@@ -190,6 +190,19 @@ pub async fn update_assignee(
         .map_err(format_err)
 }
 
+/// Fetch a Jira user's display name by account ID.
+#[tauri::command]
+pub async fn get_user_display_name(
+    app: AppHandle,
+    account_id: String,
+) -> Result<String, String> {
+    let client = make_jira_client(&app)?;
+    client
+        .get_user_display_name(&account_id)
+        .await
+        .map_err(format_err)
+}
+
 /// Search Jira users by display name or email.
 #[tauri::command]
 pub async fn search_users(

@@ -18,7 +18,7 @@ import {
 import { cn } from "@/components/ui/utils";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
-import { useProjectComponents, useSearchUsers, useCreateBug } from "@/services/queries";
+import { useProjectComponents, useSearchUsers, useCreateBug, useProjectVersions } from "@/services/queries";
 import type { JiraVersion } from "@/types";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -269,24 +269,42 @@ export interface CreateBugModalProps {
   open: boolean;
   onClose: () => void;
   projectKey: string;
-  version: JiraVersion;
+  /** When provided, the version is pre-selected and the picker is hidden. */
+  version?: JiraVersion;
+  /** Pre-fill the description field (e.g. with failed step info). */
+  prefillDescription?: string;
+  /** Called after a bug is successfully created, with the new issue key. */
+  onBugCreated?: (bugKey: string) => void;
 }
 
-export function CreateBugModal({ open, onClose, projectKey, version }: CreateBugModalProps) {
+export function CreateBugModal({
+  open,
+  onClose,
+  projectKey,
+  version: fixedVersion,
+  prefillDescription,
+  onBugCreated,
+}: CreateBugModalProps) {
   const [summary, setSummary] = useState("");
   const [description, setDescription] = useState("");
   const [componentId, setComponentId] = useState("");
   const [assignee, setAssignee] = useState<{ accountId: string; displayName: string } | null>(null);
   const [attachments, setAttachments] = useState<string[]>([]);
   const [createdKey, setCreatedKey] = useState<string | null>(null);
+  const [selectedVersionId, setSelectedVersionId] = useState<string>("");
   const summaryRef = useRef<HTMLInputElement>(null);
 
   const createBug = useCreateBug();
+  const { data: versions } = useProjectVersions(!fixedVersion ? projectKey : null);
+
+  // The effective version: either the fixed prop or the user-selected one.
+  const effectiveVersion = fixedVersion ?? (versions ?? []).find((v) => v.id === selectedVersionId);
 
   // Focus summary on open; reset on close
   useEffect(() => {
     if (open) {
       setCreatedKey(null);
+      setDescription(prefillDescription ?? "");
       setTimeout(() => summaryRef.current?.focus(), 50);
     } else {
       setSummary("");
@@ -295,6 +313,7 @@ export function CreateBugModal({ open, onClose, projectKey, version }: CreateBug
       setAssignee(null);
       setAttachments([]);
       setCreatedKey(null);
+      setSelectedVersionId("");
       createBug.reset();
     }
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -320,12 +339,12 @@ export function CreateBugModal({ open, onClose, projectKey, version }: CreateBug
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!summary.trim()) return;
+    if (!summary.trim() || !effectiveVersion) return;
     const vars: Parameters<typeof createBug.mutateAsync>[0] = {
       projectKey,
-      versionName: version.name,
+      versionName: effectiveVersion.name,
       summary: summary.trim(),
-      affectedVersionId: version.id,
+      affectedVersionId: effectiveVersion.id,
       attachmentPaths: attachments,
     };
     if (description.trim()) vars.description = description.trim();
@@ -336,6 +355,7 @@ export function CreateBugModal({ open, onClose, projectKey, version }: CreateBug
     }
     const result = await createBug.mutateAsync(vars);
     setCreatedKey(result.key);
+    onBugCreated?.(result.key);
   };
 
   if (!open) return null;
@@ -358,10 +378,16 @@ export function CreateBugModal({ open, onClose, projectKey, version }: CreateBug
             </div>
             <div>
               <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-100">Create Bug</h2>
-              <p className="text-xs text-slate-500 dark:text-slate-400">
-                Affected version:{" "}
-                <span className="font-medium text-slate-700 dark:text-slate-200">{version.name}</span>
-              </p>
+              {effectiveVersion ? (
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  Affected version:{" "}
+                  <span className="font-medium text-slate-700 dark:text-slate-200">{effectiveVersion.name}</span>
+                </p>
+              ) : (
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  Select a version below
+                </p>
+              )}
             </div>
           </div>
           <button
@@ -446,6 +472,32 @@ export function CreateBugModal({ open, onClose, projectKey, version }: CreateBug
                 />
               </div>
 
+              {/* Version picker — only shown when no fixed version */}
+              {!fixedVersion && (
+                <div className="space-y-1.5">
+                  <label className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                    Affected Version <span className="text-red-500">*</span>
+                  </label>
+                  <select
+                    value={selectedVersionId}
+                    onChange={(e) => setSelectedVersionId(e.target.value)}
+                    className={cn(
+                      "w-full rounded-lg border px-3 py-2 text-sm transition-colors outline-none",
+                      "border-slate-200 bg-white text-slate-700 hover:border-slate-300 focus:border-slate-400",
+                      "dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200 dark:hover:border-slate-500 dark:focus:border-slate-400",
+                      !selectedVersionId && "text-slate-400 dark:text-slate-500",
+                    )}
+                  >
+                    <option value="">Select a version…</option>
+                    {(versions ?? []).map((v) => (
+                      <option key={v.id} value={v.id}>
+                        {v.name}{v.released ? " (released)" : ""}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
               {/* Component + Assignee row */}
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
@@ -521,9 +573,11 @@ export function CreateBugModal({ open, onClose, projectKey, version }: CreateBug
             {/* Footer */}
             <div className="flex shrink-0 items-center justify-between border-t border-slate-100 px-5 py-3 dark:border-slate-700">
               <div className="flex items-center gap-1.5">
-                <span className="rounded bg-slate-100 px-2 py-0.5 font-mono text-[10px] text-slate-500 dark:bg-slate-800 dark:text-slate-400">
-                  {version.name}
-                </span>
+                {effectiveVersion && (
+                  <span className="rounded bg-slate-100 px-2 py-0.5 font-mono text-[10px] text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                    {effectiveVersion.name}
+                  </span>
+                )}
                 {attachments.length > 0 && (
                   <span className="text-[10px] text-slate-400">
                     + {attachments.length} file{attachments.length !== 1 ? "s" : ""}
@@ -540,7 +594,7 @@ export function CreateBugModal({ open, onClose, projectKey, version }: CreateBug
                 </button>
                 <button
                   type="submit"
-                  disabled={!summary.trim() || createBug.isPending}
+                  disabled={!summary.trim() || !effectiveVersion || createBug.isPending}
                   className="flex items-center gap-1.5 rounded-lg bg-red-600 px-4 py-1.5 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-50 dark:bg-red-700 dark:hover:bg-red-600"
                 >
                   {createBug.isPending ? (

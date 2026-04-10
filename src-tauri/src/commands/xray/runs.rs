@@ -10,6 +10,30 @@ use crate::{
 
 use super::{format_err, get_xray_client};
 
+/// Fetch the latest test run for a given test across all executions.
+///
+/// Returns full run details (steps, iterations, Gherkin, defects) plus the
+/// parent `testExecution` so the UI can show which execution the run belongs to.
+///
+/// Two-step approach: first paginates through all run IDs to find the most
+/// recently created run (highest numeric ID), then fetches full details for
+/// just that one run.  This guarantees the correct "latest" run regardless of
+/// how many historical runs exist.
+#[tauri::command]
+pub async fn get_test_runs_by_test_id(
+    app: AppHandle,
+    state: State<'_, XrayClientState>,
+    test_issue_id: String,
+    limit: Option<u32>,
+) -> Result<TestRunsPage, String> {
+    let client = get_xray_client(&app, &state).await?;
+    let result = client
+        .get_test_runs_by_test_id(&test_issue_id, limit.unwrap_or(100))
+        .await
+        .map_err(format_err)?;
+    Ok(result.test_runs)
+}
+
 #[tauri::command]
 pub async fn get_test_runs(
     app: AppHandle,
