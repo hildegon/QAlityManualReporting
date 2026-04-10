@@ -35,11 +35,13 @@ import {
 } from "@/services/queries";
 import { StatusBadge } from "./StatusBadge";
 import { CreateBugModal } from "@/components/bugs/CreateBugModal";
+import { AttachmentPreview } from "@/components/versions/IssueDetailModal";
 import type {
   TestRun,
   TestRunStep,
   TestRunIteration,
   XrayTestStepDefinition,
+  DescriptionBlock,
 } from "@/types";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -906,23 +908,55 @@ export function CoverageTestDetailModal({
                   </Section>
                 )}
 
-                {/* Description */}
+                {/* Description with inline images */}
                 {jiraDetail && jiraDetail.description_blocks.length > 0 && (
                   <Section title="Description">
-                    <div className="space-y-1.5 rounded-lg border border-slate-100 bg-slate-50 px-3 py-2.5 dark:border-slate-700 dark:bg-slate-800">
-                      {jiraDetail.description_blocks
-                        .filter((b) => b.type === "text")
-                        .map((b, i) => (
-                          <p
-                            key={i}
-                            className="whitespace-pre-wrap text-sm text-slate-700 dark:text-slate-300"
-                          >
-                            {b.type === "text" ? b.content : null}
-                          </p>
-                        ))}
+                    <div className="space-y-2 rounded-lg border border-slate-100 bg-slate-50 px-3 py-2.5 dark:border-slate-700 dark:bg-slate-800">
+                      {jiraDetail.description_blocks.map((block: DescriptionBlock, i: number) => {
+                        if (block.type === "text") {
+                          return (
+                            <p
+                              key={i}
+                              className="whitespace-pre-wrap text-sm text-slate-700 dark:text-slate-300"
+                            >
+                              {block.content}
+                            </p>
+                          );
+                        }
+                        const att = jiraDetail.attachments.find(
+                          (a) => a.filename === block.filename,
+                        );
+                        return att ? (
+                          <div key={i} className="py-1">
+                            <AttachmentPreview attachment={att} inline />
+                          </div>
+                        ) : null;
+                      })}
                     </div>
                   </Section>
                 )}
+
+                {/* Remaining attachments (not embedded in description) */}
+                {jiraDetail && (() => {
+                  const embeddedFilenames = new Set(
+                    jiraDetail.description_blocks
+                      .filter((b): b is Extract<DescriptionBlock, { type: "media" }> => b.type === "media")
+                      .map((b) => b.filename),
+                  );
+                  const remaining = jiraDetail.attachments.filter(
+                    (a) => !embeddedFilenames.has(a.filename),
+                  );
+                  if (remaining.length === 0) return null;
+                  return (
+                    <Section title={`Attachments (${remaining.length})`}>
+                      <div className="flex flex-wrap gap-3">
+                        {remaining.map((att) => (
+                          <AttachmentPreview key={att.id} attachment={att} />
+                        ))}
+                      </div>
+                    </Section>
+                  );
+                })()}
 
                 {/* No content at all */}
                 {!xrayLoading &&
