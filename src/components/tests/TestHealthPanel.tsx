@@ -3,7 +3,8 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { Activity, Eye, RefreshCw, Search, X } from "lucide-react";
 import * as api from "@/services/tauri";
 
-import { useGetTests, useIssueTransitions, useIsTestsStreaming } from "@/services/queries";
+import { useGetTests, useIssueTransitions, useIsTestsStreaming, queryKeys } from "@/services/queries";
+import { useQueryClient } from "@tanstack/react-query";
 import type { XrayTest, JiraTransition, TestLastRunEntry } from "@/types";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
@@ -62,6 +63,7 @@ export function TestHealthPanel({
   healthLoading,
   healthProgress,
 }: TestHealthPanelProps) {
+  const queryClient = useQueryClient();
   const { data: tests, isLoading: testsLoading } = useGetTests(projectKey, enabled);
   const isStreaming = useIsTestsStreaming(projectKey);
 
@@ -149,6 +151,13 @@ export function TestHealthPanel({
         selectedIds.size > 0 && selectedIds.size < sorted.length;
     }
   }, [selectedIds.size, sorted.length]);
+
+  // Reset scroll to top when the filter changes so virtualizer renders from index 0.
+  useEffect(() => {
+    if (parentRef.current) {
+      parentRef.current.scrollTop = 0;
+    }
+  }, [search]);
 
   const ROW_HEIGHT = 41;
   const virtualizer = useVirtualizer({
@@ -444,6 +453,17 @@ export function TestHealthPanel({
                         triggerClassName="opacity-0 group-hover:opacity-100"
                         onTransitioned={(statusName) => {
                           onToast(`${test.jira.key} moved to "${statusName}"`, "success");
+                          // Patch the test's status in the cache so the deprecated filter
+                          // removes it from the list instantly without a full reload.
+                          queryClient.setQueryData<XrayTest[]>(
+                            queryKeys.tests(projectKey),
+                            (prev) =>
+                              prev?.map((t) =>
+                                t.jira.key === test.jira.key
+                                  ? { ...t, jira: { ...t.jira, status: { name: statusName } } }
+                                  : t,
+                              ),
+                          );
                         }}
                       />
                     </div>

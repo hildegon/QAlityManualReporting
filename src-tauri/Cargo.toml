@@ -1,6 +1,6 @@
 [package]
 name = "qality-manual-reporting"
-version = "2.0.0"
+version = "2.0.1"
 description = "QAlity Manual Reporting — desktop app for Jira/Xray test management"
 authors = []
 edition = "2021"
