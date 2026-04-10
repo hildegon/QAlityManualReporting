@@ -276,6 +276,11 @@ export interface TestRun {
     total?: number;
     results: TestRunIteration[];
   };
+  /** Parent execution (populated by queries that select `testExecution`). */
+  test_execution?: {
+    issue_id: string;
+    jira: { key: string; summary: string };
+  };
 }
 
 /** The overall status of a test run (e.g. PASS, FAIL, TODO). */

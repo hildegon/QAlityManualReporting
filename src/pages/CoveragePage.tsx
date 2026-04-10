@@ -30,6 +30,7 @@ import { PresetsBar } from "@/components/coverage/PresetsBar";
 import { OverallDashboard } from "@/components/coverage/OverallDashboard";
 import { TestSetSection } from "@/components/coverage/TestSetSection";
 import { InsightsPanel, FailureConcentrationPanel, NeverRunPanel } from "@/components/coverage/AnalysisPanels";
+import { CoverageTestDetailModal } from "@/components/coverage/CoverageTestDetailModal";
 export function CoveragePage() {
   const projectKey = useContentProjectKey();
   const queryClient = useQueryClient();
@@ -53,6 +54,11 @@ export function CoveragePage() {
   const [loadedPresetSetIds, setLoadedPresetSetIds] = useState<string[]>([]);
   const [expandSignal, setExpandSignal] = useState(0);
   const [collapseSignal, setCollapseSignal] = useState(0);
+  const [selectedTest, setSelectedTest] = useState<{
+    issueId: string;
+    key: string;
+    status?: { name: string; color?: string } | null;
+  } | null>(null);
 
   // Dirty detection: preset is "modified" when selection drifts from what was loaded.
   const isModified = useMemo(() => {
@@ -86,8 +92,9 @@ export function CoveragePage() {
       queryKey: queryKeys.testSetTestsWithStatus(ts.issue_id),
       queryFn: () => api.getTestSetTestsWithStatus(ts.issue_id),
       enabled: i < coverageSettledRef.current + MAX_CONCURRENT_COVERAGE,
-      staleTime: 2 * 60 * 1_000,
+      staleTime: 10 * 60 * 1_000,
       gcTime: Infinity,
+      meta: { persist: true },
     })),
   });
 
@@ -100,6 +107,7 @@ export function CoveragePage() {
       {
         tests: XrayTestWithStatus[] | undefined;
         isLoading: boolean;
+        isFetching: boolean;
         isError: boolean;
         error: unknown;
       }
@@ -109,6 +117,7 @@ export function CoveragePage() {
       map.set(ts.issue_id, {
         tests: q?.data,
         isLoading: q?.isLoading ?? false,
+        isFetching: q?.isFetching ?? false,
         isError: q?.isError ?? false,
         error: q?.error,
       });
@@ -129,6 +138,14 @@ export function CoveragePage() {
       testQueries.every((q) => !q.isLoading && !q.isFetching && !q.isError),
     [testQueries],
   );
+
+  // Loading progress for the progress bar.
+  const loadedCount = testQueries.filter((q) => q.isSuccess && !q.isFetching).length;
+  const fetchingCount = testQueries.filter((q) => q.isFetching).length;
+  const initialLoadingCount = testQueries.filter((q) => q.isLoading).length;
+  const totalCount = selectedSets.length;
+  const isAnyLoading = totalCount > 0 && !allQueriesSettled;
+  const isBackgroundRefresh = isAnyLoading && initialLoadingCount === 0;
 
   const handleRefresh = async () => {
     setIsRefreshing(true);
@@ -458,6 +475,59 @@ export function CoveragePage() {
           </div>
         )}
 
+        {/* Loading progress bar */}
+        {isAnyLoading && (
+          <div className={cn(
+            "flex items-center gap-3 rounded-lg border px-4 py-2",
+            isBackgroundRefresh
+              ? "border-emerald-100 bg-emerald-50/60 dark:border-emerald-900 dark:bg-emerald-950/30"
+              : "border-blue-100 bg-blue-50/60 dark:border-blue-900 dark:bg-blue-950/30",
+          )}>
+            <Spinner size="sm" />
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center justify-between">
+                <p className={cn(
+                  "text-xs font-medium",
+                  isBackgroundRefresh
+                    ? "text-emerald-700 dark:text-emerald-300"
+                    : "text-blue-700 dark:text-blue-300",
+                )}>
+                  {isBackgroundRefresh ? "Refreshing cached data…" : "Loading test set data…"}{" "}
+                  <span className="font-semibold">
+                    {loadedCount}/{totalCount}
+                  </span>
+                  {fetchingCount > 0 && (
+                    <span className={cn(
+                      "ml-1 font-normal",
+                      isBackgroundRefresh
+                        ? "text-emerald-500 dark:text-emerald-400"
+                        : "text-blue-500 dark:text-blue-400",
+                    )}>
+                      ({fetchingCount} in progress)
+                    </span>
+                  )}
+                </p>
+              </div>
+              <div className={cn(
+                "mt-1.5 h-1.5 w-full overflow-hidden rounded-full",
+                isBackgroundRefresh
+                  ? "bg-emerald-100 dark:bg-emerald-900/50"
+                  : "bg-blue-100 dark:bg-blue-900/50",
+              )}>
+                <div
+                  className={cn(
+                    "h-full rounded-full transition-all duration-500 ease-out",
+                    isBackgroundRefresh
+                      ? "bg-emerald-500 dark:bg-emerald-400"
+                      : "bg-blue-500 dark:bg-blue-400",
+                  )}
+                  style={{ width: `${totalCount > 0 ? (loadedCount / totalCount) * 100 : 0}%` }}
+                />
+              </div>
+            </div>
+          </div>
+        )}
+
         {selectedSets.length > 0 && coverageTab === "coverage" && (
           <>
             {/* Coverage tab toolbar */}
@@ -506,6 +576,7 @@ export function CoveragePage() {
                     testSet={ts}
                     tests={q?.tests}
                     isLoading={q?.isLoading ?? false}
+                    isFetching={q?.isFetching ?? false}
                     isError={q?.isError ?? false}
                     error={q?.error}
                     onRetry={() =>
@@ -517,6 +588,13 @@ export function CoveragePage() {
                     statusFilter={null}
                     expandSignal={expandSignal}
                     collapseSignal={collapseSignal}
+                    onTestClick={(test) =>
+                      setSelectedTest({
+                        issueId: test.issue_id,
+                        key: test.jira.key,
+                        status: test.latest_status ?? null,
+                      })
+                    }
                   />
                 );
               })}
@@ -542,6 +620,17 @@ export function CoveragePage() {
           </div>
         )}
       </div>
+
+      {/* Test detail modal */}
+      {selectedTest && (
+        <CoverageTestDetailModal
+          testIssueId={selectedTest.issueId}
+          testKey={selectedTest.key}
+          projectKey={projectKey}
+          coverageStatus={selectedTest.status}
+          onClose={() => setSelectedTest(null)}
+        />
+      )}
     </div>
   );
 }

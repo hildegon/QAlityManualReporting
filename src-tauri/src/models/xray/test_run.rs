@@ -34,6 +34,10 @@ pub struct TestRun {
     /// Iteration results for parametrized manual tests (one entry per dataset row).
     #[serde(default)]
     pub iterations: Option<TestRunIterationsPage>,
+    /// The test execution this run belongs to (only populated by queries that
+    /// select `testExecution`; absent when querying runs within a known execution).
+    #[serde(default, rename(deserialize = "testExecution"))]
+    pub test_execution: Option<TestRunExecution>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -55,6 +59,23 @@ pub struct TestRunTest {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TestRunTestJira {
+    pub key: String,
+    pub summary: String,
+}
+
+/// Lightweight test execution info embedded in a `TestRun` response.
+/// Used when the caller needs to know *which* execution a run belongs to
+/// (e.g. "latest run for test X came from execution EXEC-42").
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TestRunExecution {
+    #[serde(rename(deserialize = "issueId"))]
+    pub issue_id: String,
+    #[serde(deserialize_with = "super::deserialize_jira_json")]
+    pub jira: TestRunExecutionJira,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TestRunExecutionJira {
     pub key: String,
     pub summary: String,
 }

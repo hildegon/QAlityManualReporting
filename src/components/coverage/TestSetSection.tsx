@@ -40,6 +40,7 @@ export interface TestSetSectionProps {
   testSet: XrayTestSet;
   tests: XrayTestWithStatus[] | undefined;
   isLoading: boolean;
+  isFetching?: boolean;
   isError: boolean;
   error: unknown;
   onRetry: () => void;
@@ -47,12 +48,14 @@ export interface TestSetSectionProps {
   statusFilter: string | null;
   expandSignal: number;
   collapseSignal: number;
+  onTestClick?: (test: XrayTestWithStatus) => void;
 }
 
 export const TestSetSection = memo(function TestSetSection({
   testSet,
   tests,
   isLoading,
+  isFetching,
   isError,
   error,
   onRetry,
@@ -60,6 +63,7 @@ export const TestSetSection = memo(function TestSetSection({
   statusFilter,
   expandSignal,
   collapseSignal,
+  onTestClick,
 }: TestSetSectionProps) {
   const [collapsed, setCollapsed] = useState(true);
   const lastExpandSignal = useRef(0);
@@ -187,6 +191,12 @@ export const TestSetSection = memo(function TestSetSection({
 
         {/* Right-side summary — only show when data is loaded */}
         {isLoading && <Spinner size="sm" />}
+        {!isLoading && isFetching && (
+          <span className="flex items-center gap-1 text-[10px] text-blue-500 dark:text-blue-400">
+            <Spinner size="sm" />
+            Refreshing…
+          </span>
+        )}
         {!isLoading && !isError && tests && (
           <div className="flex shrink-0 items-center gap-2">
             {/* Stacked colour bar */}
@@ -357,9 +367,18 @@ export const TestSetSection = memo(function TestSetSection({
               filtered.map((test) => (
                 <div
                   key={test.issue_id}
-                  className="flex items-center gap-3 px-4 py-2.5 hover:bg-slate-50 dark:hover:bg-slate-700"
+                  className={cn(
+                    "flex items-center gap-3 px-4 py-2.5 hover:bg-slate-50 dark:hover:bg-slate-700",
+                    onTestClick && "cursor-pointer",
+                  )}
+                  onClick={() => onTestClick?.(test)}
                 >
-                  <span className="w-28 shrink-0 font-mono text-xs text-slate-400">
+                  <span className={cn(
+                    "w-28 shrink-0 font-mono text-xs",
+                    onTestClick
+                      ? "text-blue-600 hover:underline dark:text-blue-400"
+                      : "text-slate-400",
+                  )}>
                     {test.jira.key}
                   </span>
                   <span className="flex-1 truncate text-sm text-slate-700 dark:text-slate-300">

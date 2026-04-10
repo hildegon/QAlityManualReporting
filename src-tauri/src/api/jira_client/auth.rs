@@ -53,6 +53,34 @@ impl JiraClient {
         .context("Failed to parse Jira user search response")
     }
 
+    /// Fetch a Jira user's display name by account ID.
+    ///
+    /// Uses `GET /rest/api/3/user?accountId=<id>`.
+    pub async fn get_user_display_name(&self, account_id: &str) -> Result<String> {
+        let url = format!("{}/rest/api/3/user", self.base_url);
+
+        let resp: serde_json::Value = check_rate_limit(
+            self.client
+                .get(&url)
+                .query(&[("accountId", account_id)])
+                .header("Authorization", &self.auth_header)
+                .header("Accept", "application/json")
+                .send()
+                .await
+                .context("Failed to send Jira get-user request")?,
+        )?
+        .error_for_status()
+        .context("Jira get-user request failed")?
+        .json()
+        .await
+        .context("Failed to parse Jira get-user response")?;
+
+        resp.get("displayName")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+            .ok_or_else(|| anyhow::anyhow!("No displayName in Jira user response"))
+    }
+
     /// Update the assignee of a Jira issue.
     ///
     /// Uses `PUT /rest/api/3/issue/{key}/assignee` with body `{"accountId":"<id>"}`.

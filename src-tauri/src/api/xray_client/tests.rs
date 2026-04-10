@@ -171,6 +171,91 @@ impl XrayClient {
         Ok(result.get_tests.results.into_iter().next())
     }
 
+    /// Find the latest test execution that a specific test is involved in.
+    ///
+    /// Uses `getTest(issueId) { testExecutions(limit, start) }` and paginates
+    /// all executions, returning the execution with the highest numeric issueId
+    /// (= most recently created).
+    pub async fn get_latest_execution_for_test(
+        &self,
+        test_issue_id: &str,
+    ) -> Result<Option<String>> {
+        #[derive(serde::Deserialize)]
+        struct Resp {
+            #[serde(rename = "getTest")]
+            get_test: Option<TestNode>,
+        }
+        #[derive(serde::Deserialize)]
+        struct TestNode {
+            #[serde(rename = "testExecutions")]
+            test_executions: Option<ExecPage>,
+        }
+        #[derive(serde::Deserialize)]
+        struct ExecPage {
+            total: u32,
+            results: Vec<ExecRow>,
+        }
+        #[derive(serde::Deserialize)]
+        struct ExecRow {
+            #[serde(rename = "issueId")]
+            issue_id: String,
+        }
+
+        let query = r#"
+            query GetTestExecs($issueId: String!, $limit: Int!, $start: Int) {
+                getTest(issueId: $issueId) {
+                    testExecutions(limit: $limit, start: $start) {
+                        total
+                        results {
+                            issueId
+                        }
+                    }
+                }
+            }
+        "#;
+
+        let page_size: u32 = 100;
+        let mut start: u32 = 0;
+        let mut best_id: Option<i64> = None;
+        let mut best_str: Option<String> = None;
+
+        loop {
+            let resp: Resp = self
+                .graphql(
+                    query,
+                    serde_json::json!({
+                        "issueId": test_issue_id,
+                        "limit": page_size,
+                        "start": start,
+                    }),
+                )
+                .await?;
+
+            let Some(test_node) = resp.get_test else {
+                return Ok(None);
+            };
+            let Some(page) = test_node.test_executions else {
+                return Ok(None);
+            };
+
+            let total = page.total;
+            for row in &page.results {
+                let num = row.issue_id.parse::<i64>().unwrap_or(0);
+                if best_id.is_none_or(|prev| num > prev) {
+                    best_id = Some(num);
+                    best_str = Some(row.issue_id.clone());
+                }
+            }
+
+            start += page_size;
+            if page.results.is_empty() || start >= total {
+                break;
+            }
+        }
+
+        Ok(best_str)
+    }
+
     /// Fetch steps, gherkin, and unstructured content for the given test issue IDs.
     ///
     /// Queries in batches of 50 using `id in (...)` JQL so the main test-list

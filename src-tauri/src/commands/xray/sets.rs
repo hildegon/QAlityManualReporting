@@ -35,6 +35,12 @@ pub async fn get_test_set_tests(
 /// Fetch all tests in a test set, including each test's latest execution status.
 /// Used by the Coverage page to show per-test status without requiring a specific
 /// test execution to be selected.
+///
+/// After retrieving the test list from Xray's `getTestSet` query, this command
+/// also batch-fetches actual test-run statuses (via `getTestRuns` with
+/// `testIssueIds`) and overlays the real latest-run status onto each test.
+/// This avoids relying on Xray's aggregated `status` field which can differ
+/// from the actual latest run (due to project rules, draft runs, etc.).
 #[tauri::command]
 pub async fn get_test_set_tests_with_status(
     app: AppHandle,
@@ -42,10 +48,38 @@ pub async fn get_test_set_tests_with_status(
     issue_id: String,
 ) -> Result<Vec<XrayTestWithStatus>, String> {
     let client = get_xray_client(&app, &state).await?;
-    client
+
+    // 1. Fetch test-set membership + Xray's aggregated status as a baseline.
+    let mut tests = client
         .get_test_set_tests_with_status(&issue_id)
         .await
-        .map_err(format_err)
+        .map_err(format_err)?;
+
+    if tests.is_empty() {
+        return Ok(tests);
+    }
+
+    // 2. Batch-fetch actual latest run status for every test in the set.
+    let test_ids: Vec<String> = tests.iter().map(|t| t.issue_id.clone()).collect();
+    match client.get_latest_run_statuses_for_tests(&test_ids).await {
+        Ok(statuses) => {
+            let map: std::collections::HashMap<String, _> =
+                statuses.into_iter().collect();
+            for test in &mut tests {
+                if let Some(real_status) = map.get(&test.issue_id) {
+                    test.latest_status = Some(real_status.clone());
+                }
+            }
+        }
+        Err(e) => {
+            // Non-fatal: fall back to Xray's aggregated status.
+            eprintln!(
+                "Warning: Failed to fetch actual run statuses for test set {issue_id}: {e:#}"
+            );
+        }
+    }
+
+    Ok(tests)
 }
 
 /// Fetch all test sets for a project and build a membership map
