@@ -2,7 +2,7 @@ use anyhow::{bail, Context, Result};
 use reqwest::Client;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, Semaphore};
 
 use super::common::{rate_limit_until_ms, truncate_body};
 use crate::models::xray::{GraphQLRequest, GraphQLResponse, XrayAuthRequest};
@@ -19,8 +19,12 @@ mod tests;
 const XRAY_AUTH_URL: &str = "https://xray.cloud.getxray.app/api/v2/authenticate";
 const XRAY_GRAPHQL_URL: &str = "https://xray.cloud.getxray.app/api/v2/graphql";
 
+/// Maximum number of concurrent in-flight Xray GraphQL requests.
+/// Keeps us well below the Xray Cloud rate limit (~10-20 req/s).
+const MAX_CONCURRENT_REQUESTS: usize = 6;
+
 /// Thread-safe Xray Cloud client with token caching.
-/// Cloning is cheap — the token cache is shared via `Arc`.
+/// Cloning is cheap — the token cache and semaphore are shared via `Arc`.
 #[derive(Clone)]
 pub struct XrayClient {
     client: Client,
@@ -28,6 +32,8 @@ pub struct XrayClient {
     client_secret: String,
     /// Cached bearer token — refreshed on 401 or on explicit call.
     token: Arc<Mutex<Option<String>>>,
+    /// Limits how many GraphQL requests can be in-flight at once.
+    request_semaphore: Arc<Semaphore>,
 }
 
 impl XrayClient {
@@ -41,6 +47,7 @@ impl XrayClient {
             client_id,
             client_secret,
             token: Arc::new(Mutex::new(None)),
+            request_semaphore: Arc::new(Semaphore::new(MAX_CONCURRENT_REQUESTS)),
         }
     }
 
@@ -85,6 +92,9 @@ impl XrayClient {
 
     /// Execute a GraphQL query against the Xray Cloud API.
     ///
+    /// Concurrency is limited by the shared semaphore so multiple callers
+    /// (e.g. parallel status enrichment) don't overwhelm the API.
+    ///
     /// Retry behaviour:
     /// - **401 Unauthorized** – clears the cached token and retries once.
     /// - **429 Too Many Requests** – sleeps until the rate-limit window resets
@@ -103,6 +113,13 @@ impl XrayClient {
         let mut auth_retried = false;
 
         loop {
+            // Acquire a permit before sending the request.
+            let _permit = self
+                .request_semaphore
+                .acquire()
+                .await
+                .context("Request semaphore closed")?;
+
             let token = self.get_token().await?;
             let resp = self
                 .client
@@ -117,6 +134,8 @@ impl XrayClient {
 
             // ── 401: refresh token and retry once ────────────────────────────
             if status == reqwest::StatusCode::UNAUTHORIZED {
+                // Drop permit before sleeping/retrying.
+                drop(_permit);
                 if auth_retried {
                     bail!("Xray authentication failed after token refresh");
                 }
@@ -127,14 +146,16 @@ impl XrayClient {
 
             // ── 429: sleep until the rate-limit window resets, then retry ────
             if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
+                // Drop the permit so other waiters don't queue behind our sleep.
+                drop(_permit);
                 let wait_ms = match rate_limit_until_ms(resp.headers()) {
                     Some(until_ms) => {
                         let now_ms = SystemTime::now()
                             .duration_since(UNIX_EPOCH)
                             .unwrap_or_default()
                             .as_millis() as u64;
-                        // Add a 500 ms buffer so we don't hit the boundary.
-                        until_ms.saturating_sub(now_ms) + 500
+                        // Add a 1 s buffer so we don't hit the boundary.
+                        until_ms.saturating_sub(now_ms) + 1_000
                     }
                     // No header — wait 30 s as a safe default.
                     None => 30_000,
@@ -147,6 +168,9 @@ impl XrayClient {
                 .text()
                 .await
                 .context("Failed to read Xray GraphQL response body")?;
+
+            // Release the permit before doing CPU-bound parsing.
+            drop(_permit);
 
             if !status.is_success() {
                 bail!(
