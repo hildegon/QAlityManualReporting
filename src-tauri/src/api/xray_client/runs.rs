@@ -147,7 +147,7 @@ impl XrayClient {
     /// `getTest(issueId) → testExecutions`, then fetches the run status via
     /// `getTestRun(testIssueId, testExecIssueId)`.
     ///
-    /// Tests are processed in chunks of 10 to limit concurrency.
+    /// Tests within each chunk are processed concurrently using `join_all`.
     pub async fn get_latest_run_statuses_for_tests(
         &self,
         test_issue_ids: &[String],
@@ -177,28 +177,47 @@ impl XrayClient {
 
         let mut results: Vec<(String, crate::models::xray::LatestTestStatus)> = Vec::new();
 
+        // Process in chunks, each chunk runs all tests concurrently.
         let chunk_size = 10;
         for chunk in test_issue_ids.chunks(chunk_size) {
-            for test_id in chunk {
-                // Step 1: Find the latest execution for this test.
-                let Some(exec_id) = self.get_latest_execution_for_test(test_id).await? else {
-                    continue;
-                };
+            let futures: Vec<_> = chunk
+                .iter()
+                .map(|test_id| {
+                    let test_id = test_id.clone();
+                    async move {
+                        // Step 1: Find the latest execution for this test.
+                        let exec_id = match self
+                            .get_latest_execution_for_test(&test_id)
+                            .await
+                        {
+                            Ok(Some(id)) => id,
+                            _ => return None,
+                        };
 
-                // Step 2: Get the run status in that execution.
-                let resp: RunResp = self
-                    .graphql(
-                        run_query,
-                        serde_json::json!({
-                            "testIssueId": test_id,
-                            "testExecIssueId": &exec_id,
-                        }),
-                    )
-                    .await?;
+                        // Step 2: Get the run status in that execution.
+                        let resp: RunResp = match self
+                            .graphql(
+                                run_query,
+                                serde_json::json!({
+                                    "testIssueId": &test_id,
+                                    "testExecIssueId": &exec_id,
+                                }),
+                            )
+                            .await
+                        {
+                            Ok(r) => r,
+                            Err(_) => return None,
+                        };
 
-                if let Some(row) = resp.get_test_run {
-                    results.push((test_id.clone(), row.status));
-                }
+                        resp.get_test_run
+                            .map(|row| (test_id, row.status))
+                    }
+                })
+                .collect();
+
+            let chunk_results = futures::future::join_all(futures).await;
+            for result in chunk_results.into_iter().flatten() {
+                results.push(result);
             }
         }
 
