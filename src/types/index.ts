@@ -239,12 +239,53 @@ export interface CucumberResultsStep {
   status?: StepStatus;
   /** Error/failure message from the test runner. */
   error?: string;
+  /** Execution duration in seconds. */
+  duration?: number;
+  /** Robot Framework log output. */
+  log?: string;
+  /** Inline embeddings (screenshots, files) attached to this step. */
+  embeddings?: ResultsEmbedding[];
+}
+
+/** Inline embedding on a Cucumber step (usually a screenshot). */
+export interface ResultsEmbedding {
+  filename?: string;
+  /** MIME type (e.g. "image/png"). */
+  mime_type?: string;
+  /** Base64-encoded file content — may be absent for large files. */
+  data?: string;
+  /** Fallback download URL when inline data is not provided. */
+  download_link?: string;
 }
 
 /** A single Cucumber scenario result (one per scenario / outline row). */
 export interface CucumberResult {
   status?: StepStatus;
+  /** Scenario name. */
+  name?: string;
+  /** Error/failure log output (JUnit, xUnit, NUnit, TestNG). */
+  log?: string;
+  /** Execution duration in seconds. */
+  duration?: number;
+  /** Background steps (run before each scenario). */
+  backgrounds?: CucumberResultsStep[];
+  /** Hook steps (before/after each scenario). */
+  hooks?: CucumberResultsStep[];
   steps?: CucumberResultsStep[];
+}
+
+/** Evidence file attached to a test run or step. */
+export interface Evidence {
+  id?: string;
+  filename?: string;
+  /** Whether the file is stored in Jira (vs Xray storage). */
+  stored_in_jira?: boolean;
+  /** Direct download URL. */
+  download_link?: string;
+  /** File size in bytes. */
+  size?: number;
+  /** ISO-8601 creation timestamp. */
+  created_on?: string;
 }
 
 /** A single test run within a test execution. */
@@ -255,6 +296,8 @@ export interface TestRun {
   test_type?: TestType;
   /** Raw Gherkin feature definition string (present for Cucumber tests). */
   gherkin?: string;
+  /** "Scenario" or "Scenario Outline" — present for Cucumber tests. */
+  scenario_type?: string;
   test: {
     issue_id: string;
     jira: { key: string; summary: string };
@@ -281,6 +324,8 @@ export interface TestRun {
     issue_id: string;
     jira: { key: string; summary: string };
   };
+  /** Evidence files (screenshots, logs, etc.) attached to this run. */
+  evidence?: Evidence[];
 }
 
 /** The overall status of a test run (e.g. PASS, FAIL, TODO). */
@@ -301,6 +346,8 @@ export interface TestRunStep {
   actual_result?: string;
   comment?: string;
   defects?: string[];
+  /** Evidence files (screenshots, logs, etc.) attached to this step. */
+  evidence?: Evidence[];
 }
 
 /** The status of a manual test step (PASS, FAIL, TODO, etc.). */

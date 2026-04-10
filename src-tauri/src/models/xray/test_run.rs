@@ -13,6 +13,9 @@ pub struct TestRun {
     pub test_type: Option<TestType>,
     /// Raw Gherkin feature definition string (present for Cucumber tests).
     pub gherkin: Option<String>,
+    /// "Scenario" or "Scenario Outline" — present for Cucumber tests.
+    #[serde(rename(deserialize = "scenarioType"))]
+    pub scenario_type: Option<String>,
     pub comment: Option<String>,
     pub steps: Option<Vec<TestRunStep>>,
     /// Cucumber scenario results (one entry per scenario / outline row).
@@ -38,6 +41,9 @@ pub struct TestRun {
     /// select `testExecution`; absent when querying runs within a known execution).
     #[serde(default, rename(deserialize = "testExecution"))]
     pub test_execution: Option<TestRunExecution>,
+    /// Evidence files (screenshots, logs, etc.) attached to this test run.
+    #[serde(default)]
+    pub evidence: Vec<Evidence>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -93,6 +99,9 @@ pub struct TestRunStep {
     pub actual_result: Option<String>,
     pub comment: Option<String>,
     pub defects: Option<Vec<String>>,
+    /// Evidence files (screenshots, logs, etc.) attached to this step.
+    #[serde(default)]
+    pub evidence: Vec<Evidence>,
 }
 
 // ── Dataset / Iterations (parametrized manual tests) ─────────────────────────
@@ -150,9 +159,43 @@ pub struct TestRunIterationStepResult {
     pub defects: Vec<String>,
 }
 
+// ── Evidence / Attachments ────────────────────────────────────────────────────
+
+/// A file attached as evidence to a test run or test run step.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Evidence {
+    pub id: Option<String>,
+    pub filename: Option<String>,
+    /// Whether the file is stored in Jira (vs Xray storage).
+    #[serde(default, rename(deserialize = "storedInJira"))]
+    pub stored_in_jira: Option<bool>,
+    /// Direct download URL for the evidence file.
+    #[serde(rename(deserialize = "downloadLink"))]
+    pub download_link: Option<String>,
+    /// File size in bytes.
+    pub size: Option<u32>,
+    /// ISO-8601 creation timestamp.
+    #[serde(rename(deserialize = "createdOn"))]
+    pub created_on: Option<String>,
+}
+
 // ── Cucumber / BDD Results ────────────────────────────────────────────────────
 
-/// A single step within a `CucumberResult` (from `results[].steps`).
+/// Inline embedding on a Cucumber step (usually a screenshot).
+/// `data` is base64-encoded; falls back to `download_link` when absent.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ResultsEmbedding {
+    pub filename: Option<String>,
+    #[serde(rename(deserialize = "mimeType"))]
+    pub mime_type: Option<String>,
+    /// Base64-encoded file content — may be absent for large files.
+    pub data: Option<String>,
+    /// Fallback download URL when inline `data` is not provided.
+    #[serde(rename(deserialize = "downloadLink"))]
+    pub download_link: Option<String>,
+}
+
+/// A single step within a Cucumber scenario result (`results[].steps[]`).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CucumberResultsStep {
     /// The Gherkin keyword (Given, When, Then, And, But) — may be absent for hooks.
@@ -162,12 +205,32 @@ pub struct CucumberResultsStep {
     pub status: Option<StepStatus>,
     /// Error message from the test runner when the step failed.
     pub error: Option<String>,
+    /// Execution duration in seconds.
+    pub duration: Option<f64>,
+    /// Robot Framework log output.
+    pub log: Option<String>,
+    /// Inline embeddings (screenshots, files) attached to this step.
+    #[serde(default)]
+    pub embeddings: Vec<ResultsEmbedding>,
 }
 
 /// A single Cucumber scenario result (from `results[]`).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CucumberResult {
     pub status: Option<StepStatus>,
+    /// Scenario name.
+    pub name: Option<String>,
+    /// Error/failure log output (JUnit, xUnit, NUnit, TestNG).
+    pub log: Option<String>,
+    /// Execution duration in seconds.
+    pub duration: Option<f64>,
+    /// Background steps (run before each scenario).
+    #[serde(default)]
+    pub backgrounds: Vec<CucumberResultsStep>,
+    /// Hook steps (before/after each scenario).
+    #[serde(default)]
+    pub hooks: Vec<CucumberResultsStep>,
+    /// Scenario steps.
     pub steps: Option<Vec<CucumberResultsStep>>,
 }
 

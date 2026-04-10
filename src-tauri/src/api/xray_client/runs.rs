@@ -1,7 +1,8 @@
 use anyhow::Result;
 
 use crate::models::xray::{
-    GetTestRunResult, TestRunIteration, TestRunsResult, UpdateTestRunStatusInput,
+    GetTestRunResult, LatestTestStatus, TestRunIteration, TestRunsForHealthResult,
+    TestRunsResult, TestsForHealthResult, UpdateTestRunStatusInput,
 };
 
 use super::XrayClient;
@@ -30,6 +31,7 @@ impl XrayClient {
                     executedById
                     testType { name kind }
                     gherkin
+                    scenarioType
                     defects
                     parameters { name value }
                     test {
@@ -40,6 +42,9 @@ impl XrayClient {
                         issueId
                         jira(fields: ["key", "summary"])
                     }
+                    evidence {
+                        id filename storedInJira downloadLink size createdOn
+                    }
                     steps {
                         id
                         action
@@ -49,6 +54,9 @@ impl XrayClient {
                         comment
                         defects
                         status { name color description }
+                        evidence {
+                            id filename storedInJira downloadLink size createdOn
+                        }
                     }
                     iterations(limit: 100) {
                         total
@@ -60,11 +68,20 @@ impl XrayClient {
                     }
                     results {
                         status { name color description }
+                        name
+                        log
+                        duration
+                        backgrounds {
+                            keyword name status { name color description } error duration
+                            embeddings { filename mimeType data downloadLink }
+                        }
+                        hooks {
+                            keyword name status { name color description } error duration
+                            embeddings { filename mimeType data downloadLink }
+                        }
                         steps {
-                            keyword
-                            name
-                            status { name color description }
-                            error
+                            keyword name status { name color description } error duration
+                            embeddings { filename mimeType data downloadLink }
                         }
                     }
                 }
@@ -143,80 +160,113 @@ impl XrayClient {
 
     /// Fetch the latest run status for each test in a batch.
     ///
-    /// For each test, finds its latest execution via
-    /// `getTest(issueId) → testExecutions`, then fetches the run status via
-    /// `getTestRun(testIssueId, testExecIssueId)`.
+    /// Uses the same efficient batched approach as health queries:
+    /// `getTests(jql: "id in (...)")` with `testRuns(limit: 1)` fetches the
+    /// latest run for up to 50 tests in a single API call — orders of magnitude
+    /// faster than the previous per-test sequential approach.
     ///
-    /// Tests within each chunk are processed concurrently using `join_all`.
+    /// Falls back to `getTestRuns(testIssueIds: [...])` for tests that have a
+    /// cross-version `latestStatus` but no `testRuns` in the current version.
     pub async fn get_latest_run_statuses_for_tests(
         &self,
         test_issue_ids: &[String],
-    ) -> Result<Vec<(String, crate::models::xray::LatestTestStatus)>> {
+    ) -> Result<Vec<(String, LatestTestStatus)>> {
         if test_issue_ids.is_empty() {
             return Ok(vec![]);
         }
 
-        // Lightweight query to get just the status from a single test run.
-        let run_query = r#"
-            query GetRunStatus($testIssueId: String!, $testExecIssueId: String!) {
-                getTestRun(testIssueId: $testIssueId, testExecIssueId: $testExecIssueId) {
-                    status { name color description final }
+        let query = r#"
+            query GetTestsStatus($jql: String!, $limit: Int!) {
+                getTests(jql: $jql, limit: $limit, start: 0) {
+                    results {
+                        issueId
+                        status { name color description final }
+                        testRuns(limit: 1) {
+                            results {
+                                status { name color description final }
+                            }
+                        }
+                    }
                 }
             }
         "#;
 
-        #[derive(serde::Deserialize)]
-        struct RunResp {
-            #[serde(rename = "getTestRun")]
-            get_test_run: Option<RunRow>,
-        }
-        #[derive(serde::Deserialize)]
-        struct RunRow {
-            status: crate::models::xray::LatestTestStatus,
-        }
-
-        let mut results: Vec<(String, crate::models::xray::LatestTestStatus)> = Vec::new();
-
-        // Fire all lookups concurrently — the global request semaphore
-        // limits how many HTTP calls are actually in-flight at once.
-        let futures: Vec<_> = test_issue_ids
-            .iter()
-            .map(|test_id| {
-                let test_id = test_id.clone();
-                async move {
-                    // Step 1: Find the latest execution for this test.
-                    let exec_id = match self
-                        .get_latest_execution_for_test(&test_id)
-                        .await
-                    {
-                        Ok(Some(id)) => id,
-                        _ => return None,
-                    };
-
-                        // Step 2: Get the run status in that execution.
-                        let resp: RunResp = match self
-                            .graphql(
-                                run_query,
-                                serde_json::json!({
-                                    "testIssueId": &test_id,
-                                    "testExecIssueId": &exec_id,
-                                }),
-                            )
-                            .await
-                        {
-                            Ok(r) => r,
-                            Err(_) => return None,
-                        };
-
-                        resp.get_test_run
-                            .map(|row| (test_id, row.status))
+        let fallback_query = r#"
+            query GetFallbackRuns($testIssueIds: [String]!, $limit: Int!) {
+                getTestRuns(testIssueIds: $testIssueIds, limit: $limit) {
+                    total
+                    results {
+                        status { name color description final }
+                        test { issueId }
                     }
-                })
-                .collect();
+                }
+            }
+        "#;
 
-        let all_results = futures::future::join_all(futures).await;
-        for result in all_results.into_iter().flatten() {
-            results.push(result);
+        let mut results: Vec<(String, LatestTestStatus)> = Vec::new();
+
+        // Batch 50 tests per query — each batch is a single API call.
+        const BATCH_SIZE: usize = 50;
+        for (chunk_idx, chunk) in test_issue_ids.chunks(BATCH_SIZE).enumerate() {
+            if chunk_idx > 0 {
+                tokio::time::sleep(tokio::time::Duration::from_millis(150)).await;
+            }
+
+            let ids_jql = chunk.join(", ");
+            let jql = format!("id in ({ids_jql})");
+
+            let resp: TestsForHealthResult = self
+                .graphql(
+                    query,
+                    serde_json::json!({ "jql": jql, "limit": chunk.len() as u32 }),
+                )
+                .await?;
+
+            let mut fallback_ids: Vec<String> = Vec::new();
+
+            for t in resp.get_tests.results {
+                let run_status = t
+                    .test_runs
+                    .and_then(|tr| tr.results.into_iter().next())
+                    .and_then(|r| r.status);
+
+                if let Some(status) = run_status {
+                    results.push((t.issue_id, status));
+                } else if let Some(agg_status) = t.latest_status {
+                    // Has aggregated status but no testRuns — needs fallback.
+                    fallback_ids.push(t.issue_id.clone());
+                    results.push((t.issue_id, agg_status));
+                }
+            }
+
+            // Fallback: fetch via getTestRuns for tests with no inline runs.
+            if !fallback_ids.is_empty() {
+                let fb_limit = (fallback_ids.len() as u32).saturating_mul(5).max(50);
+                if let Ok(fb) = self
+                    .graphql::<TestRunsForHealthResult>(
+                        fallback_query,
+                        serde_json::json!({
+                            "testIssueIds": fallback_ids,
+                            "limit": fb_limit,
+                        }),
+                    )
+                    .await
+                {
+                    let mut best: std::collections::HashMap<String, LatestTestStatus> =
+                        std::collections::HashMap::new();
+                    for run in fb.get_test_runs.results {
+                        if let Some(status) = run.status {
+                            best.entry(run.test.issue_id).or_insert(status);
+                        }
+                    }
+                    // Override the aggregated status with the actual run status.
+                    for (id, status) in &mut results {
+                        if let Some(real) = best.remove(id) {
+                            *status = real;
+                        }
+                    }
+                }
+            }
         }
 
         Ok(results)
@@ -244,11 +294,15 @@ impl XrayClient {
                         executedById
                         testType { name kind }
                         gherkin
+                        scenarioType
                         defects
                         parameters { name value }
                         test {
                             issueId
                             jira(fields: ["key", "summary"])
+                        }
+                        evidence {
+                            id filename storedInJira downloadLink size createdOn
                         }
                         steps {
                             id
@@ -259,6 +313,9 @@ impl XrayClient {
                             comment
                             defects
                             status { name color description }
+                            evidence {
+                                id filename storedInJira downloadLink size createdOn
+                            }
                         }
                         iterations(limit: 100) {
                             total
@@ -270,11 +327,20 @@ impl XrayClient {
                         }
                         results {
                             status { name color description }
+                            name
+                            log
+                            duration
+                            backgrounds {
+                                keyword name status { name color description } error duration
+                                embeddings { filename mimeType data downloadLink }
+                            }
+                            hooks {
+                                keyword name status { name color description } error duration
+                                embeddings { filename mimeType data downloadLink }
+                            }
                             steps {
-                                keyword
-                                name
-                                status { name color description }
-                                error
+                                keyword name status { name color description } error duration
+                                embeddings { filename mimeType data downloadLink }
                             }
                         }
                     }
