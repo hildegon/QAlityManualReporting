@@ -1,6 +1,7 @@
 import { useState, useCallback, useMemo, useRef, useEffect, memo } from "react";
 import {
   BookOpen,
+  AlertTriangle,
   Check,
   CheckCircle2,
   Circle,
@@ -30,6 +31,7 @@ import {
   useSearchUsers,
 } from "@/services/queries";
 import { useConfluenceStore } from "@/stores/confluenceStore";
+import { needsTranscode, transcodeToMp4 } from "@/services/videoTranscoder";
 import { ConfluencePagePicker } from "./ConfluencePagePicker";
 import { Button } from "@/components/ui/button";
 import type { JiraVersion, JiraUser, ConfluenceAttachment } from "@/types";
@@ -824,7 +826,7 @@ function UserSearchInput({
 // ── Attachment helpers ────────────────────────────────────────────────────────
 
 const IMAGE_EXTENSIONS = ["jpg", "jpeg", "png", "gif", "webp", "bmp"];
-const VIDEO_EXTENSIONS = ["mp4", "mov", "avi", "mkv", "webm"];
+const VIDEO_EXTENSIONS = ["mp4", "mov", "webm", "avi", "mkv"];
 const MEDIA_EXTENSIONS = [...IMAGE_EXTENSIONS, ...VIDEO_EXTENSIONS];
 
 function isImageFile(filename: string): boolean {
@@ -872,41 +874,70 @@ function MediaTextArea({
 }) {
   const upload = useUploadConfluenceAttachment();
   const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const wrapperRef = useRef<HTMLDivElement>(null);
 
-  const uploadPaths = useCallback(
+  // Keep a ref to the latest upload-handling state so the single drag-drop
+  // listener (registered once) always reads current values — no stale closures.
+  const stateRef = useRef({ pageId, fileNames, onAttachmentsChange, disabled });
+  stateRef.current = { pageId, fileNames, onAttachmentsChange, disabled };
+
+  const MAX_FILE_SIZE_MB = 100;
+
+  const doUpload = useCallback(
     async (paths: string[]) => {
-      if (paths.length === 0 || disabled) return;
+      const { pageId: pid, fileNames: fns, onAttachmentsChange: onChange, disabled: dis } = stateRef.current;
+      if (paths.length === 0 || dis) return;
       setUploading(true);
+      setUploadError(null);
+      const errors: string[] = [];
       try {
         const uploaded: string[] = [];
         for (const p of paths) {
           const fname = p.split("/").pop() ?? p.split("\\").pop() ?? p;
-          if (!isMediaFile(fname)) continue;
-          const att = await upload.mutateAsync({ pageId, filePath: p });
-          uploaded.push(att.title);
+          if (!isMediaFile(fname)) {
+            errors.push(`"${fname}" is not a supported media file`);
+            continue;
+          }
+          try {
+            const att = await upload.mutateAsync({ pageId: pid, filePath: p });
+            uploaded.push(att.title);
+          } catch (err) {
+            const msg = String(err);
+            if (msg.toLowerCase().includes("too large") || msg.toLowerCase().includes("size")) {
+              errors.push(`"${fname}" is too large (max ${MAX_FILE_SIZE_MB} MB)`);
+            } else {
+              errors.push(`"${fname}" failed to upload: ${msg}`);
+            }
+          }
         }
         if (uploaded.length > 0) {
-          onAttachmentsChange([...fileNames, ...uploaded]);
+          onChange([...fns, ...uploaded]);
         }
-      } catch {
-        // errors surfaced via mutation state
+      } catch (err) {
+        errors.push(`Upload failed: ${String(err)}`);
       } finally {
         setUploading(false);
+        if (errors.length > 0) {
+          setUploadError(errors.join(" · "));
+        }
       }
     },
-    [pageId, fileNames, onAttachmentsChange, upload, disabled],
+    [upload],
   );
 
   // Tauri native drag-drop: use event position to hit-test this zone.
   // HTML5 drag events do NOT fire for external file drops in macOS WKWebView,
   // so we rely entirely on Tauri's onDragDropEvent + getBoundingClientRect.
+  // Registered ONCE (empty deps) to prevent listener leaks; reads latest
+  // state through stateRef / doUpload.
   useEffect(() => {
     let unlisten: (() => void) | undefined;
+    let cancelled = false;
     void getCurrentWebview()
       .onDragDropEvent((event) => {
-        if (!wrapperRef.current) return;
+        if (cancelled || !wrapperRef.current) return;
         const payload = event.payload;
 
         if (payload.type === "leave") {
@@ -931,13 +962,18 @@ function MediaTextArea({
         } else if (payload.type === "drop") {
           setDragOver(false);
           if (hit) {
-            void uploadPaths(payload.paths);
+            void doUpload(payload.paths);
           }
         }
       })
-      .then((fn) => { unlisten = fn; });
-    return () => unlisten?.();
-  }, [uploadPaths]);
+      .then((fn) => {
+        if (cancelled) { fn(); } else { unlisten = fn; }
+      });
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, [doUpload]);
 
   const handlePick = async () => {
     const result = await openFilePicker({
@@ -947,7 +983,7 @@ function MediaTextArea({
     });
     if (!result || (Array.isArray(result) && result.length === 0)) return;
     const paths: string[] = Array.isArray(result) ? result : [result];
-    await uploadPaths(paths);
+    await doUpload(paths);
   };
 
   const mediaFiles = fileNames.filter((f) => isImageFile(f) || isVideoFile(f));
@@ -1014,6 +1050,24 @@ function MediaTextArea({
         </button>
       </div>
 
+      {/* Upload error banner */}
+      {uploadError && (
+        <div className="mt-1 flex items-start gap-1.5 rounded-md border border-red-200 bg-red-50
+          px-2.5 py-1.5 text-[11px] text-red-700 dark:border-red-800 dark:bg-red-950/40
+          dark:text-red-300"
+        >
+          <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
+          <span className="flex-1">{uploadError}</span>
+          <button
+            type="button"
+            onClick={() => setUploadError(null)}
+            className="shrink-0 rounded p-0.5 hover:bg-red-100 dark:hover:bg-red-900"
+          >
+            <X className="h-3 w-3" />
+          </button>
+        </div>
+      )}
+
       {/* Filename chips */}
       {fileNames.length > 0 && (
         <div className="mt-1 flex flex-wrap gap-1">
@@ -1060,30 +1114,190 @@ const MediaPreviewItem = memo(function MediaPreviewItem({
     attachment?.mediaType || "application/octet-stream",
   );
 
+  const [lightboxOpen, setLightboxOpen] = useState(false);
+  const [videoError, setVideoError] = useState(false);
+  const [transcodedUri, setTranscodedUri] = useState<string | null>(null);
+  const [transcoding, setTranscoding] = useState(false);
+  const [transcodeError, setTranscodeError] = useState(false);
+  const [videoBlobUrl, setVideoBlobUrl] = useState<string | null>(null);
   const isVideo = isVideoFile(filename);
+  const requiresTranscode = isVideo && needsTranscode(filename);
+
+  // Transcode .avi/.mkv to MP4 via FFmpeg.wasm when the raw data URI is ready
+  useEffect(() => {
+    if (!dataUri || !requiresTranscode) return;
+    let cancelled = false;
+    console.log(`[MediaPreview] Starting transcode for "${filename}" (ext=${filename.split(".").pop()})`);
+    setTranscoding(true);
+    setTranscodeError(false);
+    transcodeToMp4(dataUri, attachment?.downloadUrl || filename)
+      .then((mp4Uri) => {
+        if (!cancelled) {
+          console.log(`[MediaPreview] Transcode succeeded for "${filename}" (output ${mp4Uri.length} chars)`);
+          setTranscodedUri(mp4Uri);
+        }
+      })
+      .catch((err) => {
+        console.error(`[MediaPreview] Transcode FAILED for "${filename}":`, err);
+        if (!cancelled) setTranscodeError(true);
+      })
+      .finally(() => {
+        if (!cancelled) setTranscoding(false);
+      });
+    return () => { cancelled = true; };
+  }, [dataUri, requiresTranscode, attachment?.downloadUrl, filename]);
+
+  // WKWebView blocks data: URIs for <video> — convert to Blob URL
+  const videoDataUri = requiresTranscode ? transcodedUri : dataUri;
+  useEffect(() => {
+    if (!isVideo || !videoDataUri) return;
+    let url: string | null = null;
+    try {
+      const [header, b64] = videoDataUri.split(",");
+      const mime = header?.match(/data:(.*?);/)?.[1] ?? "video/mp4";
+      const raw = atob(b64 ?? "");
+      const buf = new Uint8Array(raw.length);
+      for (let i = 0; i < raw.length; i++) buf[i] = raw.charCodeAt(i);
+      url = URL.createObjectURL(new Blob([buf], { type: mime }));
+      setVideoBlobUrl(url);
+    } catch (err) {
+      console.error(`[MediaPreview] Blob URL conversion failed for "${filename}":`, err);
+      setVideoBlobUrl(null);
+    }
+    return () => {
+      if (url) URL.revokeObjectURL(url);
+    };
+  }, [isVideo, videoDataUri, filename]);
+
+  const effectiveUri = isVideo ? videoBlobUrl : dataUri;
+  const isMedia = !isError && !!effectiveUri && !transcodeError;
+  const canPlay = isVideo && isMedia && !videoError;
+  const showTranscoding = requiresTranscode && transcoding && !!dataUri;
+
+  // Only flag unsupported format (code 4), not transient network/decode errors.
+  const handleVideoError = useCallback((e: React.SyntheticEvent<HTMLVideoElement>) => {
+    const code = e.currentTarget.error?.code;
+    const msg = e.currentTarget.error?.message ?? "unknown";
+    console.error(
+      `[MediaPreview] Video error for "${filename}" — code=${code}, message="${msg}", ` +
+      `extension="${filename.split(".").pop()}", requiresTranscode=${requiresTranscode}`,
+    );
+    // MEDIA_ERR_SRC_NOT_SUPPORTED = 4
+    if (code === 4) setVideoError(true);
+  }, [filename, requiresTranscode]);
 
   return (
-    <div className="overflow-hidden rounded border border-slate-200 dark:border-slate-700">
-      {dataUri ? (
-        isVideo ? (
-          <video src={dataUri} controls className="max-h-32 max-w-[220px]" />
+    <div className="relative">
+      <div
+        className={`overflow-hidden rounded border border-slate-200 dark:border-slate-700
+          ${isMedia && !videoError ? "cursor-pointer transition-opacity hover:opacity-80" : ""}`}
+        onClick={() => isMedia && !videoError && setLightboxOpen(true)}
+        title={transcodeError
+          ? `Transcode failed — ${filename}`
+          : videoError
+            ? `Unsupported video format — ${filename}`
+            : isMedia ? `Click to enlarge — ${filename}` : filename}
+      >
+        {showTranscoding ? (
+          <div className="flex h-20 w-28 flex-col items-center justify-center gap-1
+            bg-slate-100 dark:bg-slate-800"
+          >
+            <Loader2 className="h-4 w-4 animate-spin text-blue-500" />
+            <span className="text-[8px] text-slate-500">Converting…</span>
+          </div>
+        ) : transcodeError ? (
+          <div className="flex h-20 w-28 flex-col items-center justify-center gap-0.5
+            bg-red-50 text-red-400 dark:bg-red-950/30"
+          >
+            <AlertTriangle className="h-4 w-4" />
+            <span className="text-center text-[8px] leading-tight">Transcode<br/>failed</span>
+          </div>
+        ) : effectiveUri ? (
+          isVideo ? (
+            videoError ? (
+              <div className="flex h-20 w-28 flex-col items-center justify-center gap-0.5
+                bg-slate-100 text-slate-400 dark:bg-slate-800"
+              >
+                <AlertTriangle className="h-4 w-4" />
+                <span className="text-center text-[8px] leading-tight">Unsupported<br/>format</span>
+              </div>
+            ) : (
+              <div className="relative flex h-20 w-28 items-center justify-center bg-black">
+                <video
+                  src={effectiveUri}
+                  className="max-h-full max-w-full object-contain"
+                  muted
+                  playsInline
+                  preload="auto"
+                  onError={handleVideoError}
+                />
+                <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                  <div className="rounded-full bg-black/50 p-1.5">
+                    <svg className="h-4 w-4 text-white" viewBox="0 0 24 24" fill="currentColor">
+                      <polygon points="5,3 19,12 5,21" />
+                    </svg>
+                  </div>
+                </div>
+              </div>
+            )
+          ) : (
+            <div className="flex h-20 w-28 items-center justify-center bg-slate-100 dark:bg-slate-800">
+              <img src={effectiveUri} alt={filename} className="max-h-full max-w-full object-contain" />
+            </div>
+          )
+        ) : isError ? (
+          <div className="flex h-20 w-28 flex-col items-center justify-center gap-0.5
+            bg-red-50 text-red-400 dark:bg-red-950/30"
+          >
+            <X className="h-4 w-4" />
+            <span className="text-[8px]">Failed</span>
+          </div>
+        ) : isLoading ? (
+          <div className="flex h-20 w-28 items-center justify-center bg-slate-50 dark:bg-slate-800">
+            <Loader2 className="h-4 w-4 animate-spin text-slate-400" />
+          </div>
         ) : (
-          <img src={dataUri} alt={filename} className="max-h-24 max-w-[160px] object-contain" />
-        )
-      ) : isError ? (
-        <div className="flex h-16 w-24 flex-col items-center justify-center gap-0.5
-          bg-red-50 text-red-400 dark:bg-red-950/30"
+          <div className="flex h-20 w-28 items-center justify-center bg-slate-50 dark:bg-slate-800">
+            <Paperclip className="h-4 w-4 text-slate-400" />
+          </div>
+        )}
+      </div>
+
+      {/* Lightbox modal */}
+      {lightboxOpen && effectiveUri && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center p-6"
+          style={{ background: "rgba(0,0,0,0.85)" }}
+          onClick={() => setLightboxOpen(false)}
         >
-          <X className="h-4 w-4" />
-          <span className="text-[8px]">Failed</span>
-        </div>
-      ) : isLoading ? (
-        <div className="flex h-16 w-24 items-center justify-center bg-slate-50 dark:bg-slate-800">
-          <Loader2 className="h-4 w-4 animate-spin text-slate-400" />
-        </div>
-      ) : (
-        <div className="flex h-16 w-24 items-center justify-center bg-slate-50 dark:bg-slate-800">
-          <Paperclip className="h-4 w-4 text-slate-400" />
+          <button
+            className="absolute right-4 top-4 rounded-full bg-black/40 p-2 text-white
+              hover:bg-black/60"
+            onClick={() => setLightboxOpen(false)}
+          >
+            <X className="h-5 w-5" />
+          </button>
+          <p className="absolute bottom-4 left-1/2 -translate-x-1/2 rounded bg-black/50 px-3 py-1
+            text-xs text-white/80"
+          >
+            {filename}
+          </p>
+          {canPlay ? (
+            <video
+              src={effectiveUri}
+              controls
+              autoPlay
+              className="max-h-full max-w-full rounded-lg shadow-2xl"
+              onClick={(e) => e.stopPropagation()}
+            />
+          ) : (
+            <img
+              src={effectiveUri}
+              alt={filename}
+              className="max-h-full max-w-full rounded-lg object-contain shadow-2xl"
+              onClick={(e) => e.stopPropagation()}
+            />
+          )}
         </div>
       )}
     </div>
