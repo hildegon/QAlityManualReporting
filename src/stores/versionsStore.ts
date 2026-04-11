@@ -40,6 +40,7 @@ interface VersionsState {
   addVersionGroup: (projectKey: string, group: VersionGroup) => void;
   updateVersionGroup: (projectKey: string, group: VersionGroup) => void;
   removeVersionGroup: (projectKey: string, groupId: string) => void;
+
 }
 
 export const useVersionsStore = create<VersionsState>()(
@@ -146,6 +147,7 @@ export const useVersionsStore = create<VersionsState>()(
           },
         }));
       },
+
     }),
     {
       name: "qality-version-favourites",

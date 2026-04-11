@@ -11,3 +11,4 @@ export * from "./jira";
 export * from "./xray-queries";
 export * from "./xray-mutations/index";
 export * from "./version-stats";
+export * from "./confluence";

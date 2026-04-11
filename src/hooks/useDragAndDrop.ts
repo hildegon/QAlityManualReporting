@@ -51,6 +51,7 @@ export function useDragAndDrop(
 
   const startDrag = useCallback((ids: string[], e: React.MouseEvent) => {
     e.preventDefault();
+    document.body.style.userSelect = "none";
     const state: DragState = { ids, x: e.pageX, y: e.pageY };
     dragRef.current = state;
     setDrag(state);
@@ -106,6 +107,7 @@ export function useDragAndDrop(
       dragRef.current = null;
       setDrag(null);
       setHoveredTargetId(null);
+      document.body.style.userSelect = "";
 
       if (hit) onDrop(ids, hit);
     };

@@ -10,6 +10,7 @@ import {
   Star,
   Layers,
   BarChart3,
+  MessageSquare,
 } from "lucide-react";
 import { useProjectVersions, queryKeys } from "@/services/queries";
 import { useQueryClient } from "@tanstack/react-query";
@@ -26,6 +27,7 @@ import { VersionCard } from "@/components/versions/VersionCard";
 import { VersionGroupCard, GroupReportPanel } from "@/components/versions/VersionGroups";
 import { ExecutionListPanel } from "@/components/versions/ExecutionListPanel";
 import { ManageVersionsTab } from "@/components/versions/ManageVersionsTab";
+import { FeedbackPanel } from "@/components/versions/FeedbackPanel";
 
 export function VersionsPage() {
   const executionProjectKey = useExecutionProjectKey();
@@ -63,7 +65,7 @@ export function VersionsPage() {
   const [versionFilter, setVersionFilter] = useState("");
   const deferredVersionFilter = useDeferredValue(versionFilter);
   const [showReleased, setShowReleased] = useState(false);
-  const [activeTab, setActiveTab] = useState<"report" | "manage">("report");
+  const [activeTab, setActiveTab] = useState<"report" | "feedback" | "manage">("report");
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
 
   const projectGroups = executionProjectKey ? (versionGroups[executionProjectKey] ?? []) : [];
@@ -431,6 +433,18 @@ export function VersionsPage() {
             Report
           </button>
           <button
+            onClick={() => setActiveTab("feedback")}
+            className={cn(
+              "flex items-center gap-1.5 border-b-2 px-3 pb-2.5 text-xs font-medium transition-colors",
+              activeTab === "feedback"
+                ? "border-indigo-500 text-indigo-600 dark:border-indigo-400 dark:text-indigo-400"
+                : "border-transparent text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200",
+            )}
+          >
+            <MessageSquare className="h-3.5 w-3.5" />
+            Feedback
+          </button>
+          <button
             onClick={() => setActiveTab("manage")}
             className={cn(
               "flex items-center gap-1.5 border-b-2 px-3 pb-2.5 text-xs font-medium transition-colors",
@@ -445,7 +459,16 @@ export function VersionsPage() {
         </div>
 
         <div className="flex-1 overflow-y-auto">
-          {activeTab === "report" ? (
+          {activeTab === "feedback" ? (
+            selectedVersion ? (
+              <FeedbackPanel key={selectedVersion.id} version={selectedVersion} projectKey={executionProjectKey ?? ""} />
+            ) : (
+              <div className="flex h-48 flex-col items-center justify-center gap-2 text-slate-400 dark:text-slate-500">
+                <MessageSquare className="h-8 w-8 opacity-40" />
+                <p className="text-sm">Select a version to view or edit its feedback.</p>
+              </div>
+            )
+          ) : activeTab === "report" ? (
             selectedGroup ? (
               <GroupReportPanel
                 group={selectedGroup}

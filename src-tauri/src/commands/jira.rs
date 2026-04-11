@@ -452,6 +452,36 @@ pub async fn update_version(
         .map_err(format_err)
 }
 
+/// Fetch a custom property stored on a Jira version.
+/// Returns the raw JSON value string, or `None` if the property does not exist.
+#[tauri::command]
+pub async fn get_version_property(
+    app: AppHandle,
+    version_id: String,
+    property_key: String,
+) -> Result<Option<String>, String> {
+    let client = make_jira_client(&app)?;
+    client
+        .get_version_property(&version_id, &property_key)
+        .await
+        .map_err(format_err)
+}
+
+/// Create or update a custom property on a Jira version.
+#[tauri::command]
+pub async fn set_version_property(
+    app: AppHandle,
+    version_id: String,
+    property_key: String,
+    value: String,
+) -> Result<(), String> {
+    let client = make_jira_client(&app)?;
+    client
+        .set_version_property(&version_id, &property_key, &value)
+        .await
+        .map_err(format_err)
+}
+
 /// Fetch a Jira attachment by its authenticated URL and return it as a base64 data URI.
 ///
 /// The returned string can be used directly as `<img src>` or `<video src>` without

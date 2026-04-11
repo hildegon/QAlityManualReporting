@@ -5,6 +5,10 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
   AppConfig,
+  ConfluenceAttachment,
+  ConfluenceChild,
+  ConfluencePage,
+  ConfluenceSpace,
   CreateBugResult,
   JiraIssueDetail,
   CreateTestExecutionResult,
@@ -97,6 +101,14 @@ export const updateVersion = (
   releaseDate?: string,
 ): Promise<JiraVersion> =>
   invoke("update_version", { versionId, name, description, released, archived, startDate, releaseDate });
+
+/** Fetch a custom property stored on a Jira version. Returns null if not set. */
+export const getVersionProperty = (versionId: string, propertyKey: string): Promise<string | null> =>
+  invoke("get_version_property", { versionId, propertyKey });
+
+/** Create or update a custom property on a Jira version. Value must be valid JSON string. */
+export const setVersionProperty = (versionId: string, propertyKey: string, value: string): Promise<void> =>
+  invoke("set_version_property", { versionId, propertyKey, value });
 
 /** Fetch Bug issues with the given affectedVersion in the project. */
 export const getBugsByVersion = (projectKey: string, versionName: string): Promise<JiraBug[]> =>
@@ -387,3 +399,56 @@ export const saveHealthCache = (
   projectKey: string,
   entries: TestLastRunEntry[],
 ): Promise<void> => invoke("save_health_cache", { projectKey, entries });
+
+// ── Confluence ────────────────────────────────────────────────────────────────
+
+export const listConfluenceSpaces = (): Promise<ConfluenceSpace[]> =>
+  invoke("list_confluence_spaces");
+
+export const listConfluencePages = (
+  spaceId: string,
+  parentId?: string,
+): Promise<ConfluencePage[]> =>
+  invoke("list_confluence_pages", { spaceId, parentId: parentId ?? null });
+
+export const listConfluenceChildren = (
+  parentId: string,
+  parentType: string,
+): Promise<ConfluenceChild[]> =>
+  invoke("list_confluence_children", { parentId, parentType });
+
+export const getConfluencePage = (pageId: string): Promise<ConfluencePage> =>
+  invoke("get_confluence_page", { pageId });
+
+export const createConfluencePage = (
+  spaceId: string,
+  parentId: string | null,
+  title: string,
+  body: string,
+): Promise<ConfluencePage> =>
+  invoke("create_confluence_page", { spaceId, parentId, title, body });
+
+export const updateConfluencePage = (
+  pageId: string,
+  versionNumber: number,
+  title: string,
+  body: string,
+): Promise<ConfluencePage> =>
+  invoke("update_confluence_page", { pageId, versionNumber, title, body });
+
+export const uploadConfluenceAttachment = (
+  pageId: string,
+  filePath: string,
+): Promise<ConfluenceAttachment> =>
+  invoke("upload_confluence_attachment", { pageId, filePath });
+
+export const listConfluenceAttachments = (
+  pageId: string,
+): Promise<ConfluenceAttachment[]> =>
+  invoke("list_confluence_attachments", { pageId });
+
+export const fetchConfluenceAttachment = (
+  downloadUrl: string,
+  mimeType: string,
+): Promise<string> =>
+  invoke("fetch_confluence_attachment", { downloadUrl, mimeType });

@@ -237,4 +237,73 @@ impl JiraClient {
         .await
         .context("Failed to parse update-version response")
     }
+
+    /// Fetch a custom property stored on a Jira version.
+    ///
+    /// Uses `GET /rest/api/3/version/{versionId}/properties/{propertyKey}`.
+    /// Returns the raw JSON string of the `value` field, or `None` if the property does not
+    /// exist (404).
+    pub async fn get_version_property(
+        &self,
+        version_id: &str,
+        property_key: &str,
+    ) -> Result<Option<String>> {
+        let url = format!(
+            "{}/rest/api/3/version/{}/properties/{}",
+            self.base_url,
+            version_id.trim(),
+            property_key.trim(),
+        );
+        let resp = check_rate_limit(
+            self.client
+                .get(&url)
+                .header("Authorization", &self.auth_header)
+                .header("Accept", "application/json")
+                .send()
+                .await
+                .context("Failed to send get-version-property request")?,
+        )?;
+        if resp.status() == reqwest::StatusCode::NOT_FOUND {
+            return Ok(None);
+        }
+        let body: serde_json::Value = resp
+            .error_for_status()
+            .context("Get-version-property request returned error status")?
+            .json()
+            .await
+            .context("Failed to parse get-version-property response")?;
+        Ok(Some(body["value"].to_string()))
+    }
+
+    /// Create or update a custom property on a Jira version.
+    ///
+    /// Uses `PUT /rest/api/3/version/{versionId}/properties/{propertyKey}`.
+    /// `value` must be a valid JSON string; it is sent as the request body directly.
+    pub async fn set_version_property(
+        &self,
+        version_id: &str,
+        property_key: &str,
+        value: &str,
+    ) -> Result<()> {
+        let url = format!(
+            "{}/rest/api/3/version/{}/properties/{}",
+            self.base_url,
+            version_id.trim(),
+            property_key.trim(),
+        );
+        check_rate_limit(
+            self.client
+                .put(&url)
+                .header("Authorization", &self.auth_header)
+                .header("Content-Type", "application/json")
+                .header("Accept", "application/json")
+                .body(value.to_string())
+                .send()
+                .await
+                .context("Failed to send set-version-property request")?,
+        )?
+        .error_for_status()
+        .context("Set-version-property request returned error status")?;
+        Ok(())
+    }
 }
