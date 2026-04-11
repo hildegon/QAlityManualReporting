@@ -5,12 +5,18 @@ mod state;
 
 use commands::{
     config::{clear_config, get_config, save_config_cmd},
+    confluence::{
+        create_confluence_page, fetch_confluence_attachment, get_confluence_page,
+        list_confluence_attachments, list_confluence_children, list_confluence_pages,
+        list_confluence_spaces, update_confluence_page, upload_confluence_attachment,
+    },
     jira::{
         add_attachment, add_jira_comment, create_bug, create_issue_link, create_version,
         get_bugs_by_version,
         fetch_attachment_to_temp, get_issue_detail, get_issue_link_types, get_issue_transitions,
         get_jira_projects,
         get_project_components, get_project_versions, get_user_display_name, get_version_issues,
+        get_version_property, set_version_property,
         search_users,
         transition_issue, update_assignee, update_issue_fix_version, update_issue_summary,
         update_version, validate_jira_credentials,
@@ -65,6 +71,8 @@ pub fn run() {
             create_bug,
             create_version,
             update_version,
+            get_version_property,
+            set_version_property,
             add_attachment,
             add_jira_comment,
             get_issue_detail,
@@ -110,6 +118,16 @@ pub fn run() {
             update_test_step,
             add_test_step,
             remove_test_step,
+            // Confluence
+            list_confluence_spaces,
+            list_confluence_pages,
+            list_confluence_children,
+            get_confluence_page,
+            create_confluence_page,
+            update_confluence_page,
+            upload_confluence_attachment,
+            list_confluence_attachments,
+            fetch_confluence_attachment,
             // Utils
             write_text_file,
         ])

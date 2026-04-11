@@ -584,3 +584,46 @@ export interface CreateTestPlanResult {
   test_plan?: CreatedTestPlan;
   warnings?: string[];
 }
+
+// ── Confluence ────────────────────────────────────────────────────────────────
+
+/** A Confluence Cloud space. */
+export interface ConfluenceSpace {
+  id: string;
+  key: string;
+  name: string;
+  /** `"global"` or `"personal"`. */
+  spaceType: string;
+  /** ID of the space's homepage (root page). */
+  homepageId: string | null;
+}
+
+/** A Confluence Cloud page. */
+export interface ConfluencePage {
+  id: string;
+  title: string;
+  space_id: string;
+  parent_id: string | null;
+  body_storage: string | null;
+  version_number: number | null;
+  web_url: string | null;
+}
+
+/** A child item in the Confluence content tree (page or folder). */
+export interface ConfluenceChild {
+  id: string;
+  title: string;
+  /** `"page"` or `"folder"`. */
+  contentType: string;
+  spaceId: string;
+}
+
+/** An attachment on a Confluence page. */
+export interface ConfluenceAttachment {
+  id: string;
+  title: string;
+  /** Absolute download URL. */
+  downloadUrl: string;
+  /** MIME type (e.g. `"image/png"`). */
+  mediaType: string;
+}

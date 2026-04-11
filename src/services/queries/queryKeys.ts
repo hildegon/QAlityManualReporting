@@ -47,6 +47,8 @@ export const queryKeys = {
   testPlanTests: (issueId: string) => ["xray", "test-plan-tests", issueId] as const,
   xrayStatuses: (projectId: string) => ["xray", "statuses", projectId] as const,
   stepStatuses: (projectId: string) => ["xray", "step-statuses", projectId] as const,
+  versionProperty: (versionId: string, propertyKey: string) =>
+    ["jira", "version-property", versionId, propertyKey] as const,
   bugsByVersion: (projectKey: string, versionName: string) =>
     ["jira", "bugs-by-version", projectKey, versionName] as const,
   versionIssues: (projectKey: string, versionName: string) =>
@@ -61,4 +63,15 @@ export const queryKeys = {
     ["xray", "test-runs-by-test-id", testIssueId] as const,
   xrayEvidence: (downloadUrl: string) =>
     ["xray", "evidence", downloadUrl] as const,
+  // Confluence
+  confluenceSpaces: ["confluence", "spaces"] as const,
+  confluencePages: (spaceId: string, parentId?: string) =>
+    ["confluence", "pages", spaceId, parentId ?? "root"] as const,
+  confluenceChildren: (parentId: string, parentType: string) =>
+    ["confluence", "children", parentId, parentType] as const,
+  confluencePage: (pageId: string) => ["confluence", "page", pageId] as const,
+  confluenceAttachments: (pageId: string) =>
+    ["confluence", "attachments", pageId] as const,
+  confluenceAttachmentFile: (downloadUrl: string) =>
+    ["confluence", "attachment-file", downloadUrl] as const,
 };

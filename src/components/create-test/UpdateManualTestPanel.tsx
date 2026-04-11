@@ -18,6 +18,7 @@ import { Toast } from "@/components/ui/toast";
 import { showToast } from "@/components/ui/toast-utils";
 import type { ToastMessage } from "@/components/ui/toast-utils";
 import { StepRow } from "./StepRow";
+import type { StepEditStatus } from "./StepRow";
 import { newDraftStep } from "./types";
 import type { DraftStep } from "./types";
 
@@ -250,6 +251,23 @@ export function UpdateManualTestPanel({ projectKey }: Props) {
 
   const isDirty = stepsChanged(originalSteps, draftSteps);
 
+  const stepEditStatus = useCallback(
+    (step: EditDraftStep): StepEditStatus => {
+      if (!step._xrayId) return "new";
+      const orig = originalSteps.find((o) => o._xrayId === step._xrayId);
+      if (!orig) return "new";
+      if (
+        orig.action !== step.action ||
+        orig.data !== step.data ||
+        orig.result !== step.result
+      ) {
+        return "modified";
+      }
+      return "unchanged";
+    },
+    [originalSteps],
+  );
+
   // ── Render ────────────────────────────────────────────────────────────────
   return (
     <>
@@ -434,6 +452,7 @@ export function UpdateManualTestPanel({ projectKey }: Props) {
                       index={idx}
                       total={draftSteps.length}
                       disabled={isSaving}
+                      editStatus={stepEditStatus(step)}
                       onChange={(field, value) => handleUpdateStep(step._id, field, value)}
                       onRemove={() => handleRemoveStep(step._id)}
                       onDuplicate={() => handleDuplicateStep(step._id)}

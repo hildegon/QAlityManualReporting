@@ -248,6 +248,33 @@ export function useUpdateVersion(projectKey: string) {
   });
 }
 
+// ── Version properties ────────────────────────────────────────────────────────
+
+/** Fetch a custom property from a Jira version. Returns null if not yet set. */
+export function useVersionProperty(versionId: string | null, propertyKey: string) {
+  return useQuery<string | null>({
+    queryKey: queryKeys.versionProperty(versionId ?? "", propertyKey),
+    queryFn: () => api.getVersionProperty(versionId!, propertyKey),
+    enabled: !!versionId,
+    staleTime: 5 * 60 * 1_000,
+    gcTime: Infinity,
+    retry: false,
+  });
+}
+
+/** Set a custom property on a Jira version and invalidate its cache. */
+export function useSetVersionProperty(versionId: string, propertyKey: string) {
+  const queryClient = useQueryClient();
+  return useMutation<void, Error, string>({
+    mutationFn: (value) => api.setVersionProperty(versionId, propertyKey, value),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.versionProperty(versionId, propertyKey),
+      });
+    },
+  });
+}
+
 // ── Issue link types ──────────────────────────────────────────────────────────
 
 /** Fetch all issue link types configured in the Jira instance. */

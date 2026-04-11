@@ -5,11 +5,14 @@ import { cn } from "@/components/ui/utils";
 import type { CreateTestStepInput } from "@/types";
 import type { DraftStep } from "./types";
 
+export type StepEditStatus = "unchanged" | "modified" | "new";
+
 interface StepRowProps {
   step: DraftStep;
   index: number;
   total: number;
   disabled: boolean;
+  editStatus?: StepEditStatus;
   onChange: (field: keyof CreateTestStepInput, value: string) => void;
   onRemove: () => void;
   onDuplicate: () => void;
@@ -24,6 +27,7 @@ export function StepRow({
   index,
   total,
   disabled,
+  editStatus = "unchanged",
   onChange,
   onRemove,
   onDuplicate,
@@ -31,10 +35,29 @@ export function StepRow({
   onMoveDown,
   onTabFromResult,
 }: StepRowProps) {
+  const borderClass =
+    editStatus === "modified"
+      ? "border-amber-300 dark:border-amber-600"
+      : editStatus === "new"
+        ? "border-emerald-300 dark:border-emerald-600"
+        : "border-slate-200 dark:border-slate-700";
+
+  const statusLabel =
+    editStatus === "modified" ? (
+      <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
+        Modified
+      </span>
+    ) : editStatus === "new" ? (
+      <span className="rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">
+        New
+      </span>
+    ) : null;
+
   return (
     <div
       className={cn(
-        "rounded-lg border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800",
+        "rounded-lg border bg-white shadow-sm transition-colors dark:bg-slate-800",
+        borderClass,
         disabled && "opacity-60",
       )}
     >
@@ -66,6 +89,7 @@ export function StepRow({
           Step {index + 1}
           {total > 1 ? ` / ${total}` : ""}
         </span>
+        {statusLabel}
 
         <div className="ml-auto flex items-center gap-0.5">
           <Button
