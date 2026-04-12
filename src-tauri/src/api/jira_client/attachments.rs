@@ -1,6 +1,6 @@
 use anyhow::{bail, Context, Result};
 
-use crate::api::common::check_rate_limit;
+use crate::api::common::{check_rate_limit, validate_issue_key};
 
 use super::JiraClient;
 
@@ -13,6 +13,7 @@ impl JiraClient {
     /// The file path is canonicalized and checked against a blocklist of sensitive
     /// directories (`.ssh`, `.gnupg`, `.config`) to prevent exfiltration of secrets.
     pub async fn add_attachment(&self, issue_key: &str, file_path: &str) -> Result<()> {
+        validate_issue_key(issue_key)?;
         let path = std::path::Path::new(file_path);
         let canonical = path
             .canonicalize()
@@ -107,6 +108,7 @@ impl JiraClient {
     ///
     /// Uses `POST /rest/api/3/issue/{key}/comment` with an ADF body.
     pub async fn add_comment(&self, issue_key: &str, body: &str) -> Result<()> {
+        validate_issue_key(issue_key)?;
         let url = format!(
             "{}/rest/api/3/issue/{}/comment",
             self.base_url,

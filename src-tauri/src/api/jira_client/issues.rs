@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 
-use crate::api::common::check_rate_limit;
+use crate::api::common::{check_rate_limit, validate_issue_key};
 use crate::models::jira::JiraIssue;
 
 use super::JiraClient;
@@ -8,6 +8,7 @@ use super::JiraClient;
 impl JiraClient {
     /// Fetch a single Jira issue by key (e.g. "PROJ-123").
     pub async fn get_issue(&self, issue_key: &str) -> Result<JiraIssue> {
+        validate_issue_key(issue_key)?;
         let url = format!(
             "{}/rest/api/3/issue/{}?fields=summary,status,assignee,priority,issuetype,description,attachment,comment",
             self.base_url, issue_key,
@@ -35,6 +36,7 @@ impl JiraClient {
     /// Uses `PUT /rest/api/3/issue/{key}` with body `{"fields":{"summary":"…"}}`.
     /// Returns 204 No Content on success.
     pub async fn update_issue_summary(&self, issue_key: &str, summary: &str) -> Result<()> {
+        validate_issue_key(issue_key)?;
         let url = format!("{}/rest/api/3/issue/{}", self.base_url, issue_key.trim(),);
         let body = serde_json::json!({ "fields": { "summary": summary } });
 
@@ -62,6 +64,7 @@ impl JiraClient {
     /// Uses `PUT /rest/api/3/issue/{key}` with body `{"fields":{"fixVersions":[{"id":"…"}]}}`.
     /// Returns 204 No Content on success.
     pub async fn update_issue_fix_version(&self, issue_key: &str, version_id: &str) -> Result<()> {
+        validate_issue_key(issue_key)?;
         let url = format!("{}/rest/api/3/issue/{}", self.base_url, issue_key.trim());
         let fix_versions = if version_id.trim().is_empty() {
             serde_json::json!([])

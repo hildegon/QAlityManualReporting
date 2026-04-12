@@ -13,7 +13,6 @@
     "fs:allow-mkdir",
     "fs:scope-appconfig-recursive",
     "fs:scope-download-recursive",
-    "fs:scope-desktop-recursive",
     "fs:scope-document-recursive"
   ]
 }

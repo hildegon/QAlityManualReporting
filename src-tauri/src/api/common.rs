@@ -139,6 +139,51 @@ mod tests {
         // Must come from X-RateLimit-Reset (absolute epoch), not Retry-After (relative).
         assert_eq!(result, 2_000_000_000_000u64);
     }
+
+    // ── validate_issue_key ────────────────────────────────────────────────────
+
+    #[test]
+    fn validate_issue_key_accepts_standard_keys() {
+        assert!(validate_issue_key("PROJ-1").is_ok());
+        assert!(validate_issue_key("MYPROJECT-12345").is_ok());
+        assert!(validate_issue_key("A-1").is_ok());
+    }
+
+    #[test]
+    fn validate_issue_key_rejects_empty_string() {
+        let err = validate_issue_key("").unwrap_err();
+        assert!(err.to_string().contains("empty"));
+    }
+
+    #[test]
+    fn validate_issue_key_rejects_missing_dash() {
+        assert!(validate_issue_key("PROJ1").is_err());
+        assert!(validate_issue_key("PROJ").is_err());
+    }
+
+    #[test]
+    fn validate_issue_key_rejects_lowercase_prefix() {
+        assert!(validate_issue_key("proj-1").is_err());
+        assert!(validate_issue_key("Proj-1").is_err());
+    }
+
+    #[test]
+    fn validate_issue_key_rejects_non_numeric_suffix() {
+        assert!(validate_issue_key("PROJ-abc").is_err());
+        assert!(validate_issue_key("PROJ-1a").is_err());
+    }
+
+    #[test]
+    fn validate_issue_key_rejects_path_traversal() {
+        assert!(validate_issue_key("../../admin").is_err());
+        assert!(validate_issue_key("PROJ-1/../../admin").is_err());
+    }
+
+    #[test]
+    fn validate_issue_key_rejects_special_characters() {
+        assert!(validate_issue_key("PROJ-1; DROP TABLE--").is_err());
+        assert!(validate_issue_key("PROJ-1\n").is_err());
+    }
 }
 
 /// Validate that a Jira project key contains only safe characters (`[A-Z0-9_]+`).
@@ -157,6 +202,30 @@ pub(crate) fn validate_project_key(key: &str) -> Result<()> {
             "Invalid project key '{}': must contain only uppercase letters, digits, or underscores",
             key
         );
+    }
+    Ok(())
+}
+
+/// Validate that a Jira issue key matches the expected `[A-Z]+-[0-9]+` format.
+///
+/// This prevents URL path traversal attacks (e.g. `../../admin`) when the key
+/// is interpolated into REST API paths like `/rest/api/3/issue/{key}`.
+pub(crate) fn validate_issue_key(key: &str) -> Result<()> {
+    if key.is_empty() {
+        bail!("Issue key must not be empty");
+    }
+    let Some((prefix, number)) = key.split_once('-') else {
+        bail!("Invalid issue key '{key}': must match format PROJECT-123");
+    };
+    if prefix.is_empty()
+        || !prefix
+            .chars()
+            .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_')
+    {
+        bail!("Invalid issue key '{key}': project prefix must be uppercase letters, digits, or underscores");
+    }
+    if number.is_empty() || !number.chars().all(|c| c.is_ascii_digit()) {
+        bail!("Invalid issue key '{key}': number suffix must be digits only");
     }
     Ok(())
 }

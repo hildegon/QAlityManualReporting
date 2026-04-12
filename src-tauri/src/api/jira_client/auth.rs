@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 
-use crate::api::common::check_rate_limit;
+use crate::api::common::{check_rate_limit, validate_issue_key};
 use crate::models::jira::JiraUserSearchResult;
 
 use super::JiraClient;
@@ -87,6 +87,7 @@ impl JiraClient {
     /// Pass `account_id = None` to unassign.
     /// Returns 204 No Content on success.
     pub async fn update_assignee(&self, issue_key: &str, account_id: Option<&str>) -> Result<()> {
+        validate_issue_key(issue_key)?;
         let url = format!(
             "{}/rest/api/3/issue/{}/assignee",
             self.base_url,

@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 
-use crate::api::common::check_rate_limit;
+use crate::api::common::{check_rate_limit, validate_issue_key};
 use crate::models::jira::{JiraTransition, JiraTransitionsResponse};
 
 use super::JiraClient;
@@ -10,6 +10,7 @@ impl JiraClient {
     ///
     /// Uses `GET /rest/api/3/issue/{key}/transitions`.
     pub async fn get_issue_transitions(&self, issue_key: &str) -> Result<Vec<JiraTransition>> {
+        validate_issue_key(issue_key)?;
         let url = format!(
             "{}/rest/api/3/issue/{}/transitions",
             self.base_url,
@@ -39,6 +40,7 @@ impl JiraClient {
     /// Uses `POST /rest/api/3/issue/{key}/transitions` with body `{"transition":{"id":"<id>"}}`.
     /// Returns 204 No Content on success.
     pub async fn transition_issue(&self, issue_key: &str, transition_id: &str) -> Result<()> {
+        validate_issue_key(issue_key)?;
         let url = format!(
             "{}/rest/api/3/issue/{}/transitions",
             self.base_url,

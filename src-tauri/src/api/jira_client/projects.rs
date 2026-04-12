@@ -49,6 +49,7 @@ impl JiraClient {
     /// Uses the direct project endpoint which is faster than paginating all projects.
     pub async fn get_project(&self, project_key: &str) -> Result<JiraProject> {
         use crate::api::common::check_rate_limit;
+        validate_project_key(project_key)?;
         let url = format!(
             "{}/rest/api/3/project/{}",
             self.base_url,
