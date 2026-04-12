@@ -36,7 +36,13 @@ interface BreadcrumbItem {
 
 export interface ConfluencePagePickerProps {
   version: JiraVersion;
-  onCreated: (pageId: string, spaceId: string, parentId: string | null) => void;
+  onCreated: (
+    pageId: string,
+    spaceId: string,
+    parentId: string | null,
+    webUrl: string | null,
+    pageTitle: string,
+  ) => void;
   onCancel?: () => void;
 }
 
@@ -109,7 +115,7 @@ export function ConfluencePagePicker({
       { spaceId, parentId, parentType: currentParentType, title, body },
       {
         onSuccess: (page) => {
-          onCreated(page.id, spaceId, parentId);
+          onCreated(page.id, spaceId, parentId, page.web_url, page.title);
         },
       },
     );

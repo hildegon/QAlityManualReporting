@@ -30,6 +30,7 @@ import type {
   TestRunsPage,
   TestRunStatusesPage,
   TestSetMembershipsResponse,
+  VersionRelatedWork,
   XrayStepStatus,
   XrayTest,
   XrayTestDetail,
@@ -109,6 +110,27 @@ export const getVersionProperty = (versionId: string, propertyKey: string): Prom
 /** Create or update a custom property on a Jira version. Value must be valid JSON string. */
 export const setVersionProperty = (versionId: string, propertyKey: string, value: string): Promise<void> =>
   invoke("set_version_property", { versionId, propertyKey, value });
+
+/** Delete a custom property from a Jira version. */
+export const deleteVersionProperty = (versionId: string, propertyKey: string): Promise<void> =>
+  invoke("delete_version_property", { versionId, propertyKey });
+
+/** Fetch all "Related Work" entries for a Jira version. */
+export const getVersionRelatedWork = (versionId: string): Promise<VersionRelatedWork[]> =>
+  invoke("get_version_related_work", { versionId });
+
+/** Create a "Related Work" entry on a Jira version. */
+export const createVersionRelatedWork = (
+  versionId: string,
+  category: string,
+  title: string,
+  url: string,
+): Promise<VersionRelatedWork> =>
+  invoke("create_version_related_work", { versionId, category, title, url });
+
+/** Delete a "Related Work" entry from a Jira version. */
+export const deleteVersionRelatedWork = (versionId: string, relatedWorkId: string): Promise<void> =>
+  invoke("delete_version_related_work", { versionId, relatedWorkId });
 
 /** Fetch Bug issues with the given affectedVersion in the project. */
 export const getBugsByVersion = (projectKey: string, versionName: string): Promise<JiraBug[]> =>

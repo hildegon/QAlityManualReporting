@@ -117,6 +117,14 @@ export interface JiraVersion {
   start_date?: string;
 }
 
+/** A "Related Work" entry attached to a Jira version (release). */
+export interface VersionRelatedWork {
+  category: string;
+  relatedWorkId?: string;
+  title?: string;
+  url?: string;
+}
+
 /** A single issue link as returned by Jira's `issuelinks` field. */
 export interface JiraIssueLink {
   id: string;

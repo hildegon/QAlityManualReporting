@@ -6,7 +6,7 @@ use crate::{
     models::jira::{
         DescriptionBlock, IssueLinkType, JiraBug, JiraComment, JiraCommentFlat, JiraComponent,
         JiraCreatedIssue, JiraIssueDetail, JiraProject, JiraTransition, JiraUserSearchResult,
-        JiraVersion,
+        JiraVersion, VersionRelatedWork,
     },
 };
 
@@ -482,6 +482,20 @@ pub async fn set_version_property(
         .map_err(format_err)
 }
 
+/// Delete a custom property from a Jira version.
+#[tauri::command]
+pub async fn delete_version_property(
+    app: AppHandle,
+    version_id: String,
+    property_key: String,
+) -> Result<(), String> {
+    let client = make_jira_client(&app)?;
+    client
+        .delete_version_property(&version_id, &property_key)
+        .await
+        .map_err(format_err)
+}
+
 /// Fetch a Jira attachment by its authenticated URL and return it as a base64 data URI.
 ///
 /// The returned string can be used directly as `<img src>` or `<video src>` without
@@ -495,6 +509,49 @@ pub async fn fetch_attachment_to_temp(
     let client = make_jira_client(&app)?;
     client
         .fetch_attachment_as_data_uri(&content_url, &mime_type)
+        .await
+        .map_err(format_err)
+}
+
+/// Fetch all "Related Work" entries for a Jira version.
+#[tauri::command]
+pub async fn get_version_related_work(
+    app: AppHandle,
+    version_id: String,
+) -> Result<Vec<VersionRelatedWork>, String> {
+    let client = make_jira_client(&app)?;
+    client
+        .get_version_related_work(&version_id)
+        .await
+        .map_err(format_err)
+}
+
+/// Create a "Related Work" entry on a Jira version.
+#[tauri::command]
+pub async fn create_version_related_work(
+    app: AppHandle,
+    version_id: String,
+    category: String,
+    title: String,
+    url: String,
+) -> Result<VersionRelatedWork, String> {
+    let client = make_jira_client(&app)?;
+    client
+        .create_version_related_work(&version_id, &category, &title, &url)
+        .await
+        .map_err(format_err)
+}
+
+/// Delete a "Related Work" entry from a Jira version.
+#[tauri::command]
+pub async fn delete_version_related_work(
+    app: AppHandle,
+    version_id: String,
+    related_work_id: String,
+) -> Result<(), String> {
+    let client = make_jira_client(&app)?;
+    client
+        .delete_version_related_work(&version_id, &related_work_id)
         .await
         .map_err(format_err)
 }
