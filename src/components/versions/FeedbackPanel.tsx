@@ -836,6 +836,7 @@ export function FeedbackPanel({ version }: FeedbackPanelProps) {
             <div className="rounded-lg border border-blue-200 bg-blue-50/50 p-3 dark:border-blue-800 dark:bg-blue-950/30">
               <div className="grid grid-cols-3 gap-2">
                 <input
+                  autoCorrect="off" autoCapitalize="off" spellCheck={false}
                   type="text"
                   placeholder="Jira Ticket (e.g. PROJ-123)"
                   value={addForm.jiraTicket}
@@ -1071,6 +1072,7 @@ function UserSearchInput({
         <div className="relative flex-1">
           <Search className="pointer-events-none absolute left-2 top-1/2 h-3 w-3 -translate-y-1/2 text-slate-400" />
           <input
+            autoCorrect="off" autoCapitalize="off" spellCheck={false}
             type="text"
             placeholder={placeholder}
             value={searchText}
@@ -1743,6 +1745,7 @@ function IssueCard({ row, rowIndex: _rowIndex, isSaving, pageId, allAttachments,
         </div>
         <div className="grid grid-cols-3 gap-2">
           <input
+            autoCorrect="off" autoCapitalize="off" spellCheck={false}
             type="text"
             placeholder="Jira Ticket"
             value={draft.jiraTicket}

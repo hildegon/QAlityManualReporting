@@ -676,6 +676,7 @@ export function TestExecutionDetail({
             <div className="flex items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-1.5 dark:border-slate-600 dark:bg-slate-800">
               <Search className="h-3.5 w-3.5 shrink-0 text-slate-400" />
               <input
+                autoCorrect="off" autoCapitalize="off" spellCheck={false}
                 type="text"
                 placeholder="Filter test sets…"
                 value={addSetSearch}
@@ -749,6 +750,7 @@ export function TestExecutionDetail({
             <div className="flex items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-1.5 dark:border-slate-600 dark:bg-slate-800">
               <Search className="h-3.5 w-3.5 shrink-0 text-slate-400" />
               <input
+                autoCorrect="off" autoCapitalize="off" spellCheck={false}
                 type="text"
                 placeholder="Search by key or summary…"
                 value={addTestSearch}
@@ -902,6 +904,7 @@ export function TestExecutionDetail({
                 <div className="absolute left-0 top-full z-20 mt-1 w-56 rounded-md border border-slate-200 bg-white shadow-lg dark:border-slate-700 dark:bg-slate-800">
                   <div className="p-1.5">
                     <input
+                      autoCorrect="off" autoCapitalize="off" spellCheck={false}
                       autoFocus
                       placeholder="Search versions…"
                       value={versionSearch}
@@ -1037,6 +1040,7 @@ export function TestExecutionDetail({
               <div className="flex flex-1 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 shadow-sm dark:border-slate-700 dark:bg-slate-800">
                 <Search className="h-3.5 w-3.5 shrink-0 text-slate-400" />
                 <input
+                  autoCorrect="off" autoCapitalize="off" spellCheck={false}
                   type="text"
                   placeholder="Filter by key or name…"
                   value={testSearch}
@@ -1442,6 +1446,7 @@ export function TestExecutionDetail({
                                   Link defect(s)
                                 </p>
                                 <input
+                                  autoCorrect="off" autoCapitalize="off" spellCheck={false}
                                   autoFocus
                                   value={defectInputValue}
                                   onChange={(e) => setDefectInputValue(e.target.value)}
@@ -1512,6 +1517,7 @@ export function TestExecutionDetail({
                       {activeComment === run.id && (
                         <div className="flex items-center gap-2 border-b border-slate-100 bg-slate-50 px-4 py-2 dark:border-slate-700 dark:bg-slate-700/40">
                           <input
+                            autoCorrect="off" autoCapitalize="off" spellCheck={false}
                             autoFocus
                             className="flex-1 rounded border border-slate-200 bg-white px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200 dark:focus:ring-slate-500"
                             placeholder="Add a comment..."
@@ -2077,6 +2083,7 @@ function StepsPanel({
                       {isEditingActual ? (
                         <div className="flex items-center gap-1">
                           <input
+                            autoCorrect="off" autoCapitalize="off" spellCheck={false}
                             autoFocus
                             className="flex-1 rounded border border-slate-200 bg-white px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-slate-400 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200"
                             placeholder="Actual result..."
@@ -2130,6 +2137,7 @@ function StepsPanel({
                       {isEditingComment ? (
                         <div className="flex items-center gap-1">
                           <input
+                            autoCorrect="off" autoCapitalize="off" spellCheck={false}
                             autoFocus
                             className="flex-1 rounded border border-slate-200 bg-white px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-slate-400 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200"
                             placeholder="Step comment..."
