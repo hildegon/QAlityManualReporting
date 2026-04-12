@@ -158,6 +158,7 @@ export function ConfluencePagePicker({
         <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 dark:border-slate-700 dark:bg-slate-900">
           <Search className="h-3.5 w-3.5 shrink-0 text-slate-400" />
           <input
+            autoCorrect="off" autoCapitalize="off" spellCheck={false}
             type="text"
             placeholder="Search spaces\u2026"
             value={spaceSearch}
@@ -302,6 +303,7 @@ export function ConfluencePagePicker({
         bg-white px-3 py-2 dark:border-slate-700 dark:bg-slate-900">
         <Search className="h-3.5 w-3.5 shrink-0 text-slate-400" />
         <input
+          autoCorrect="off" autoCapitalize="off" spellCheck={false}
           type="text"
           placeholder="Search pages\u2026"
           value={pageSearch}

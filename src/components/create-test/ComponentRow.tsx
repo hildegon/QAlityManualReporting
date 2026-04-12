@@ -18,6 +18,7 @@ export function ComponentRow({ name, selected, disabled, onSelect }: ComponentRo
       )}
     >
       <input
+        autoCorrect="off" autoCapitalize="off" spellCheck={false}
         type="radio"
         checked={selected}
         onChange={onSelect}

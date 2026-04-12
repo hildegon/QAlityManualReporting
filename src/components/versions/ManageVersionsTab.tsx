@@ -135,7 +135,7 @@ const VersionRow = memo(function VersionRow({
 
       <td className={cellClass}>
         {editing ? (
-          <input value={name} onChange={(e) => setName(e.target.value)} className={inputClass} />
+          <input autoCorrect="off" autoCapitalize="off" spellCheck={false} value={name} onChange={(e) => setName(e.target.value)} className={inputClass} />
         ) : (
           <span className="font-medium text-slate-800 dark:text-slate-100">{version.name}</span>
         )}
@@ -143,7 +143,7 @@ const VersionRow = memo(function VersionRow({
 
       <td className={cellClass}>
         {editing ? (
-          <input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="—" className={inputClass} />
+          <input autoCorrect="off" autoCapitalize="off" spellCheck={false} value={description} onChange={(e) => setDescription(e.target.value)} placeholder="—" className={inputClass} />
         ) : (
           <span className="text-slate-500 dark:text-slate-400">{version.description || "—"}</span>
         )}
@@ -395,6 +395,7 @@ export function ManageVersionsTab({ projectKey, versions }: ManageVersionsTabPro
           <div className="relative">
             <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
             <input
+              autoCorrect="off" autoCapitalize="off" spellCheck={false}
               value={nameFilter}
               onChange={(e) => setNameFilter(e.target.value)}
               placeholder="Filter by name…"
@@ -428,6 +429,7 @@ export function ManageVersionsTab({ projectKey, versions }: ManageVersionsTabPro
                 Name <span className="text-red-500">*</span>
               </label>
               <input
+                autoCorrect="off" autoCapitalize="off" spellCheck={false}
                 value={newName}
                 onChange={(e) => setNewName(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && submitCreate()}
@@ -440,6 +442,7 @@ export function ManageVersionsTab({ projectKey, versions }: ManageVersionsTabPro
                 Description
               </label>
               <input
+                autoCorrect="off" autoCapitalize="off" spellCheck={false}
                 value={newDescription}
                 onChange={(e) => setNewDescription(e.target.value)}
                 placeholder="Optional description"
@@ -575,6 +578,7 @@ export function ManageVersionsTab({ projectKey, versions }: ManageVersionsTabPro
                 Group Name <span className="text-red-500">*</span>
               </label>
               <input
+                autoCorrect="off" autoCapitalize="off" spellCheck={false}
                 value={groupName}
                 onChange={(e) => setGroupName(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && submitCreateGroup()}
@@ -650,6 +654,7 @@ export function ManageVersionsTab({ projectKey, versions }: ManageVersionsTabPro
                       Group Name
                     </label>
                     <input
+                      autoCorrect="off" autoCapitalize="off" spellCheck={false}
                       value={editGroupName}
                       onChange={(e) => setEditGroupName(e.target.value)}
                       className="w-full rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm text-slate-800 outline-none focus:border-violet-400 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"

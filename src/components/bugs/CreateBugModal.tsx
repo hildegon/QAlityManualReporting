@@ -98,6 +98,7 @@ function ComponentSelector({ projectKey, value, onChange }: ComponentSelectorPro
             <div className="relative">
               <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
               <input
+                autoCorrect="off" autoCapitalize="off" spellCheck={false}
                 autoFocus
                 placeholder="Search components…"
                 value={search}
@@ -181,6 +182,7 @@ function AssigneeSelector({ value, onChange }: AssigneeSelectorProps) {
         <div className="relative">
           <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
           <input
+            autoCorrect="off" autoCapitalize="off" spellCheck={false}
             placeholder="Search by name or email…"
             value={query}
             onChange={(e) => { setQuery(e.target.value); setOpen(true); }}

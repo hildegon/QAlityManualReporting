@@ -109,6 +109,7 @@ export const ExecRow = memo(function ExecRow({
             }}
           >
             <input
+              autoCorrect="off" autoCapitalize="off" spellCheck={false}
               autoFocus
               className="flex-1 rounded border border-slate-300 px-2 py-0.5 text-sm focus:border-slate-500 focus:outline-none dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200"
               value={renameDraft}

@@ -166,6 +166,7 @@ export function CreatePlanDialog({ open, onOpenChange, projectKey }: CreatePlanD
                     <div className="flex items-center gap-2 border-b border-slate-100 px-3 py-2 dark:border-slate-700">
                       <Search className="h-3.5 w-3.5 shrink-0 text-slate-400" />
                       <input
+                        autoCorrect="off" autoCapitalize="off" spellCheck={false}
                         type="text"
                         placeholder="Filter components…"
                         value={componentSearch}
@@ -208,6 +209,7 @@ export function CreatePlanDialog({ open, onOpenChange, projectKey }: CreatePlanD
                             )}
                           >
                             <input
+                              autoCorrect="off" autoCapitalize="off" spellCheck={false}
                               type="radio"
                               checked={component === c.name}
                               onChange={() =>
@@ -257,6 +259,7 @@ export function CreatePlanDialog({ open, onOpenChange, projectKey }: CreatePlanD
                     <div className="flex items-center gap-2 border-b border-slate-100 px-3 py-2 dark:border-slate-700">
                       <Search className="h-3.5 w-3.5 shrink-0 text-slate-400" />
                       <input
+                        autoCorrect="off" autoCapitalize="off" spellCheck={false}
                         type="text"
                         placeholder="Filter versions…"
                         value={versionSearch}
@@ -299,6 +302,7 @@ export function CreatePlanDialog({ open, onOpenChange, projectKey }: CreatePlanD
                             )}
                           >
                             <input
+                              autoCorrect="off" autoCapitalize="off" spellCheck={false}
                               type="radio"
                               checked={fixVersion === v.name}
                               onChange={() =>
