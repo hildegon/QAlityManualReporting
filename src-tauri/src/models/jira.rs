@@ -295,6 +295,22 @@ pub struct JiraCreatedIssue {
     pub key: String,
 }
 
+/// A "Related Work" entry attached to a Jira version (release).
+///
+/// Corresponds to the `GET/POST /rest/api/3/version/{id}/relatedwork` endpoints.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VersionRelatedWork {
+    /// Category of the related work (e.g. "Test Report", "Documentation", "External Link").
+    pub category: String,
+    /// Auto-generated UUID identifying this related-work entry.
+    #[serde(rename = "relatedWorkId")]
+    pub related_work_id: Option<String>,
+    /// Human-readable title.
+    pub title: Option<String>,
+    /// URL of the linked resource.
+    pub url: Option<String>,
+}
+
 /// Response from `POST /rest/api/3/search/jql` (enhanced search, cursor-based).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct JiraSearchResponse {

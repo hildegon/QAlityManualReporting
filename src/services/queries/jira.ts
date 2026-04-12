@@ -9,6 +9,7 @@ import type {
   JiraTransition,
   JiraUser,
   JiraVersion,
+  VersionRelatedWork,
 } from "@/types";
 import * as api from "../tauri";
 import { queryKeys } from "./queryKeys";
@@ -270,6 +271,87 @@ export function useSetVersionProperty(versionId: string, propertyKey: string) {
     onSuccess: () => {
       void queryClient.invalidateQueries({
         queryKey: queryKeys.versionProperty(versionId, propertyKey),
+      });
+    },
+  });
+}
+
+/** Delete a custom property from a Jira version and invalidate its cache. */
+export function useDeleteVersionProperty(versionId: string, propertyKey: string) {
+  const queryClient = useQueryClient();
+  return useMutation<void, Error, void>({
+    mutationFn: () => api.deleteVersionProperty(versionId, propertyKey),
+    onSuccess: () => {
+      queryClient.setQueryData(
+        queryKeys.versionProperty(versionId, propertyKey),
+        null,
+      );
+    },
+  });
+}
+
+// ── Version related work ──────────────────────────────────────────────────────
+
+/** Fetch all "Related Work" entries for a Jira version. */
+export function useVersionRelatedWork(versionId: string | null) {
+  return useQuery<VersionRelatedWork[]>({
+    queryKey: queryKeys.versionRelatedWork(versionId ?? ""),
+    queryFn: () => api.getVersionRelatedWork(versionId!),
+    enabled: !!versionId,
+    staleTime: 5 * 60 * 1_000,
+    gcTime: Infinity,
+    retry: false,
+  });
+}
+
+/** Create a "Related Work" entry on a Jira version and invalidate its cache. */
+export function useCreateVersionRelatedWork(versionId: string) {
+  const queryClient = useQueryClient();
+  return useMutation<
+    VersionRelatedWork,
+    Error,
+    { category: string; title: string; url: string }
+  >({
+    mutationFn: ({ category, title, url }) =>
+      api.createVersionRelatedWork(versionId, category, title, url),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.versionRelatedWork(versionId),
+      });
+    },
+  });
+}
+
+/** Delete a "Related Work" entry from a Jira version and invalidate its cache. */
+export function useDeleteVersionRelatedWork(versionId: string) {
+  const queryClient = useQueryClient();
+  return useMutation<void, Error, string, VersionRelatedWork[] | undefined>({
+    mutationFn: (relatedWorkId) =>
+      api.deleteVersionRelatedWork(versionId, relatedWorkId),
+    onMutate: async (relatedWorkId) => {
+      await queryClient.cancelQueries({
+        queryKey: queryKeys.versionRelatedWork(versionId),
+      });
+      const previous = queryClient.getQueryData<VersionRelatedWork[]>(
+        queryKeys.versionRelatedWork(versionId),
+      );
+      queryClient.setQueryData<VersionRelatedWork[]>(
+        queryKeys.versionRelatedWork(versionId),
+        (old) => old?.filter((rw) => rw.relatedWorkId !== relatedWorkId) ?? [],
+      );
+      return previous;
+    },
+    onError: (_err, _vars, previous) => {
+      if (previous !== undefined) {
+        queryClient.setQueryData(
+          queryKeys.versionRelatedWork(versionId),
+          previous,
+        );
+      }
+    },
+    onSettled: () => {
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.versionRelatedWork(versionId),
       });
     },
   });

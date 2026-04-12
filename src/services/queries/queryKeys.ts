@@ -49,6 +49,8 @@ export const queryKeys = {
   stepStatuses: (projectId: string) => ["xray", "step-statuses", projectId] as const,
   versionProperty: (versionId: string, propertyKey: string) =>
     ["jira", "version-property", versionId, propertyKey] as const,
+  versionRelatedWork: (versionId: string) =>
+    ["jira", "version-related-work", versionId] as const,
   bugsByVersion: (projectKey: string, versionName: string) =>
     ["jira", "bugs-by-version", projectKey, versionName] as const,
   versionIssues: (projectKey: string, versionName: string) =>

@@ -29,8 +29,12 @@ import {
   useConfluenceAttachments,
   useConfluenceAttachmentFile,
   useSearchUsers,
+  useVersionRelatedWork,
+  useCreateVersionRelatedWork,
+  useDeleteVersionRelatedWork,
 } from "@/services/queries";
 import { useConfluenceStore } from "@/stores/confluenceStore";
+import type { ConfluencePageMapping } from "@/stores/confluenceStore";
 import { needsTranscode, transcodeToMp4 } from "@/services/videoTranscoder";
 import { ConfluencePagePicker } from "./ConfluencePagePicker";
 import { Button } from "@/components/ui/button";
@@ -266,9 +270,40 @@ interface FeedbackPanelProps {
   projectKey: string;
 }
 
+const RELATED_WORK_TITLE_PREFIX = "QAlity Feedback";
+const RELATED_WORK_CATEGORY = "Documentation";
+
 export function FeedbackPanel({ version }: FeedbackPanelProps) {
   const { getVersionPage, setVersionPage, removeVersionPage } = useConfluenceStore();
-  const mapping = getVersionPage(version.id);
+
+  // ── Source of truth: Jira version Related Work entries ─────────────────────
+  const {
+    data: relatedWork,
+    isLoading: relatedWorkLoading,
+  } = useVersionRelatedWork(version.id);
+  const createRelatedWork = useCreateVersionRelatedWork(version.id);
+  const deleteRelatedWork = useDeleteVersionRelatedWork(version.id);
+
+  // Derive the mapping from the QAlity Related Work entry
+  const relatedWorkMapping: ConfluencePageMapping | null = useMemo(() => {
+    if (!relatedWork) return null;
+    const entry = relatedWork.find((rw) =>
+      rw.title?.startsWith(RELATED_WORK_TITLE_PREFIX),
+    );
+    if (!entry?.url) return null;
+    const idMatch = entry.url.match(/\/pages\/(\d+)/);
+    if (!idMatch?.[1]) return null;
+    return { pageId: idMatch[1], spaceId: "", parentId: null };
+  }, [relatedWork]);
+
+  // Local mapping (optimistic cache only — speeds up UI after creation)
+  const localMapping = getVersionPage(version.id);
+
+  // Related Work is the source of truth; fall back to local for optimistic UX
+  const mapping = relatedWorkMapping ?? localMapping ?? null;
+
+  // Guard: prevent self-healing from re-linking right after an unlink
+  const unlinkingRef = useRef(false);
 
   const [showPicker, setShowPicker] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -296,11 +331,26 @@ export function FeedbackPanel({ version }: FeedbackPanelProps) {
   const { data: attachments } = useConfluenceAttachments(mapping?.pageId);
 
   const handleCreated = useCallback(
-    (pageId: string, spaceId: string, parentId: string | null) => {
+    (
+      pageId: string,
+      spaceId: string,
+      parentId: string | null,
+      webUrl: string | null,
+      pageTitle: string,
+    ) => {
+      // Save locally for instant UI response
       setVersionPage(version.id, { pageId, spaceId, parentId });
       setShowPicker(false);
+      // Create the Related Work entry on the Jira version (source of truth)
+      if (webUrl) {
+        createRelatedWork.mutate({
+          category: RELATED_WORK_CATEGORY,
+          title: `${RELATED_WORK_TITLE_PREFIX} — ${pageTitle}`,
+          url: webUrl,
+        });
+      }
     },
-    [version.id, setVersionPage],
+    [version.id, setVersionPage, createRelatedWork],
   );
 
   const startEditing = () => {
@@ -331,9 +381,17 @@ export function FeedbackPanel({ version }: FeedbackPanelProps) {
   };
 
   const handleUnlink = () => {
+    unlinkingRef.current = true;
     removeVersionPage(version.id);
     setEditing(false);
     setDraftBody("");
+    // Delete the QAlity Related Work entry (source of truth)
+    const entry = relatedWork?.find((rw) =>
+      rw.title?.startsWith(RELATED_WORK_TITLE_PREFIX),
+    );
+    if (entry?.relatedWorkId) {
+      deleteRelatedWork.mutate(entry.relatedWorkId);
+    }
   };
 
   const handleAddIssue = async () => {
@@ -412,6 +470,31 @@ export function FeedbackPanel({ version }: FeedbackPanelProps) {
     [page?.body_storage],
   );
 
+  // Migration: if a local mapping exists but no Related Work entry yet, create
+  // one once the page loads (so the URL is available). This migrates legacy
+  // local-only links into the shared Related Work source of truth.
+  useEffect(() => {
+    if (unlinkingRef.current) return;
+    if (createRelatedWork.isPending || createRelatedWork.isSuccess) return;
+    if (!localMapping || relatedWorkMapping) return;
+    if (!page?.web_url) return;
+    createRelatedWork.mutate({
+      category: RELATED_WORK_CATEGORY,
+      title: `${RELATED_WORK_TITLE_PREFIX} — ${page.title}`,
+      url: page.web_url,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [localMapping, relatedWorkMapping, page?.web_url]);
+
+  // ── Loading state while Related Work is being fetched ──────────────────────
+  if (relatedWorkLoading && !localMapping) {
+    return (
+      <div className="flex h-48 items-center justify-center gap-2 text-slate-400">
+        <Loader2 className="h-4 w-4 animate-spin" />
+        <span className="text-sm">Loading feedback link…</span>
+      </div>
+    );
+  }
   // ── No page linked ─────────────────────────────────────────────────────────
   if (!mapping) {
     if (showPicker) {

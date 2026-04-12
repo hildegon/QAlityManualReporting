@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 
 use crate::api::common::{check_rate_limit, escape_jql_string, validate_project_key};
-use crate::models::jira::{JiraBug, JiraSearchResponse, JiraVersion};
+use crate::models::jira::{JiraBug, JiraSearchResponse, JiraVersion, VersionRelatedWork};
 
 use super::JiraClient;
 
@@ -304,6 +304,130 @@ impl JiraClient {
         )?
         .error_for_status()
         .context("Set-version-property request returned error status")?;
+        Ok(())
+    }
+
+    /// Delete a custom property from a Jira version.
+    ///
+    /// Uses `DELETE /rest/api/3/version/{id}/properties/{propertyKey}`.
+    pub async fn delete_version_property(
+        &self,
+        version_id: &str,
+        property_key: &str,
+    ) -> Result<()> {
+        let url = format!(
+            "{}/rest/api/3/version/{}/properties/{}",
+            self.base_url,
+            version_id.trim(),
+            property_key.trim(),
+        );
+        let resp = self
+            .client
+            .delete(&url)
+            .header("Authorization", &self.auth_header)
+            .send()
+            .await
+            .context("Failed to send delete-version-property request")?;
+        // 404 is fine — property was already deleted
+        if resp.status() == reqwest::StatusCode::NOT_FOUND {
+            return Ok(());
+        }
+        check_rate_limit(resp)?
+            .error_for_status()
+            .context("Delete-version-property request returned error status")?;
+        Ok(())
+    }
+
+    /// Fetch all "Related Work" entries for a Jira version.
+    ///
+    /// Uses `GET /rest/api/3/version/{id}/relatedwork`.
+    pub async fn get_version_related_work(
+        &self,
+        version_id: &str,
+    ) -> Result<Vec<VersionRelatedWork>> {
+        let url = format!(
+            "{}/rest/api/3/version/{}/relatedwork",
+            self.base_url,
+            version_id.trim(),
+        );
+        check_rate_limit(
+            self.client
+                .get(&url)
+                .header("Authorization", &self.auth_header)
+                .header("Accept", "application/json")
+                .send()
+                .await
+                .context("Failed to send get-version-related-work request")?,
+        )?
+        .error_for_status()
+        .context("Get-version-related-work request returned error status")?
+        .json()
+        .await
+        .context("Failed to parse get-version-related-work response")
+    }
+
+    /// Create a "Related Work" entry on a Jira version.
+    ///
+    /// Uses `POST /rest/api/3/version/{id}/relatedwork`.
+    pub async fn create_version_related_work(
+        &self,
+        version_id: &str,
+        category: &str,
+        title: &str,
+        url_value: &str,
+    ) -> Result<VersionRelatedWork> {
+        let url = format!(
+            "{}/rest/api/3/version/{}/relatedwork",
+            self.base_url,
+            version_id.trim(),
+        );
+        let body = serde_json::json!({
+            "category": category,
+            "title": title,
+            "url": url_value,
+        });
+        check_rate_limit(
+            self.client
+                .post(&url)
+                .header("Authorization", &self.auth_header)
+                .header("Content-Type", "application/json")
+                .header("Accept", "application/json")
+                .json(&body)
+                .send()
+                .await
+                .context("Failed to send create-version-related-work request")?,
+        )?
+        .error_for_status()
+        .context("Create-version-related-work request returned error status")?
+        .json()
+        .await
+        .context("Failed to parse create-version-related-work response")
+    }
+
+    /// Delete a "Related Work" entry from a Jira version.
+    ///
+    /// Uses `DELETE /rest/api/3/version/{versionId}/relatedwork/{relatedWorkId}`.
+    pub async fn delete_version_related_work(
+        &self,
+        version_id: &str,
+        related_work_id: &str,
+    ) -> Result<()> {
+        let url = format!(
+            "{}/rest/api/3/version/{}/relatedwork/{}",
+            self.base_url,
+            version_id.trim(),
+            related_work_id.trim(),
+        );
+        check_rate_limit(
+            self.client
+                .delete(&url)
+                .header("Authorization", &self.auth_header)
+                .send()
+                .await
+                .context("Failed to send delete-version-related-work request")?,
+        )?
+        .error_for_status()
+        .context("Delete-version-related-work request returned error status")?;
         Ok(())
     }
 }
