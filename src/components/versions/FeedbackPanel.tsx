@@ -1,4 +1,5 @@
 import { useState, useCallback, useMemo, useRef, useEffect, memo } from "react";
+import { useQueries } from "@tanstack/react-query";
 import {
   BookOpen,
   AlertTriangle,
@@ -7,6 +8,7 @@ import {
   Circle,
   Edit3,
   ExternalLink,
+  Filter,
   Link2Off,
   Loader2,
   Paperclip,
@@ -16,11 +18,13 @@ import {
   Search,
   Undo2,
   Upload,
+  User,
   X,
 } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { open as openFilePicker } from "@tauri-apps/plugin-dialog";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
+import { cn } from "@/components/ui/utils";
 
 import {
   useConfluencePage,
@@ -33,6 +37,8 @@ import {
   useCreateVersionRelatedWork,
   useDeleteVersionRelatedWork,
 } from "@/services/queries";
+import { queryKeys } from "@/services/queries/queryKeys";
+import { getUserDisplayName } from "@/services/tauri";
 import { useConfluenceStore } from "@/stores/confluenceStore";
 import type { ConfluencePageMapping } from "@/stores/confluenceStore";
 import { needsTranscode, transcodeToMp4 } from "@/services/videoTranscoder";
@@ -51,6 +57,7 @@ export interface IssueRow {
   assignedDeveloper: string;
   developerAccountId: string;
   isDone: boolean;
+  isInProgress: boolean;
   /** Filenames of images/videos attached to the description cell. */
   descriptionAttachments: string[];
   /** Filenames of images/videos attached to the comment cell. */
@@ -112,10 +119,12 @@ export function parseIssueRows(html: string): IssueRow[] {
 
   while ((trMatch = trRegex.exec(tbodyMatch[1])) !== null) {
     const rawCells: string[] = [];
-    const tdRegex = /<td[^>]*>([\s\S]*?)<\/td>/gi;
+    const rawTdAttrs: string[] = [];
+    const tdRegex = /<td([^>]*)>([\s\S]*?)<\/td>/gi;
     let tdMatch: RegExpExecArray | null;
     while ((tdMatch = tdRegex.exec(trMatch[1]!)) !== null) {
-      rawCells.push(tdMatch[1] ?? "");
+      rawTdAttrs.push(tdMatch[1] ?? "");
+      rawCells.push(tdMatch[2] ?? "");
     }
     if (rawCells.length < 6) continue;
 
@@ -131,10 +140,13 @@ export function parseIssueRows(html: string): IssueRow[] {
 
     const devRaw = rawCells[4] ?? "";
     const mentionMatch = devRaw.match(
-      /<ri:user\s+ri:account-id="([^"]+)"\s*\/>/i,
+      /<ri:user\s+[^>]*ri:account-id="([^"]+)"[^>]*\/?>/i,
     );
     const developerAccountId = mentionMatch?.[1] ?? "";
-    const dev = stripHtml(devRaw);
+    // Primary: data-dev-name attribute on <td>; fallback: stripped text content
+    const devNameFromAttr =
+      rawTdAttrs[4]?.match(/data-dev-name="([^"]*)"/)?.[1] ?? "";
+    const dev = devNameFromAttr || stripHtml(devRaw);
 
     const status = stripHtml(rawCells[5] ?? "");
 
@@ -147,10 +159,15 @@ export function parseIssueRows(html: string): IssueRow[] {
       statusLower === "closed" ||
       statusLower === "resolved" ||
       statusLower.includes("✅");
+    const isInProgress =
+      statusLower === "in progress" ||
+      statusLower === "in-progress" ||
+      statusLower === "inprogress" ||
+      statusLower.includes("🔧");
 
     rows.push({
       status, jiraTicket, priority, description, comment,
-      assignedDeveloper: dev, developerAccountId, isDone,
+      assignedDeveloper: dev, developerAccountId, isDone, isInProgress,
       descriptionAttachments, commentAttachments,
     });
   }
@@ -158,10 +175,11 @@ export function parseIssueRows(html: string): IssueRow[] {
   return rows;
 }
 
-/** Build the developer cell content — Confluence user mention if accountId is available. */
+/** Build the developer cell content — Confluence user mention + plain-text name for round-tripping. */
 function buildDevCell(name: string, accountId: string): string {
   if (accountId) {
-    return `<ac:link><ri:user ri:account-id="${escHtml(accountId)}" /></ac:link>`;
+    // Write both the mention and the plain-text name so parseIssueRows can always recover it
+    return `<ac:link><ri:user ri:account-id="${escHtml(accountId)}" /></ac:link> ${escHtml(name)}`;
   }
   return escHtml(name);
 }
@@ -192,7 +210,7 @@ function injectIssueRow(
     `<td><p>${escHtml(fields.comment)}</p>${commentImages}</td>` +
     `<td><p>${escHtml(fields.priority)}</p></td>` +
     `<td><p>${escHtml(fields.jiraTicket)}</p></td>` +
-    `<td><p>${devContent}</p></td>` +
+    `<td data-dev-name="${escHtml(fields.developer)}"><p>${devContent}</p></td>` +
     `<td><p>Open</p></td>` +
     `</tr>`;
 
@@ -245,7 +263,7 @@ function replaceIssueRow(
     `<td><p>${escHtml(fields.comment)}</p>${commentImages}</td>` +
     `<td><p>${escHtml(fields.priority)}</p></td>` +
     `<td><p>${escHtml(fields.jiraTicket)}</p></td>` +
-    `<td><p>${devContent}</p></td>` +
+    `<td data-dev-name="${escHtml(fields.developer)}"><p>${devContent}</p></td>` +
     `<td><p>${escHtml(fields.status)}</p></td>` +
     `</tr>`;
 
@@ -309,6 +327,8 @@ export function FeedbackPanel({ version }: FeedbackPanelProps) {
   const [editing, setEditing] = useState(false);
   const [draftBody, setDraftBody] = useState("");
   const [showAddForm, setShowAddForm] = useState(false);
+  const [filterPriority, setFilterPriority] = useState<string>("all");
+  const [filterDeveloper, setFilterDeveloper] = useState<string>("all");
   const [addForm, setAddForm] = useState<AddIssueForm>({
     jiraTicket: "",
     priority: "",
@@ -448,7 +468,8 @@ export function FeedbackPanel({ version }: FeedbackPanelProps) {
 
   const handleToggleIssue = useCallback(
     async (rowIndex: number, row: IssueRow) => {
-      const newStatus = row.isDone ? "Open" : "Done";
+      // Cycle: Open → In Progress → Done → Open
+      const newStatus = row.isDone ? "Open" : row.isInProgress ? "Done" : "In Progress";
       await handleEditIssue(rowIndex, {
         status: newStatus,
         jiraTicket: row.jiraTicket,
@@ -465,10 +486,90 @@ export function FeedbackPanel({ version }: FeedbackPanelProps) {
   );
 
   // Parse issue rows — must be above early returns to satisfy Rules of Hooks
-  const issueRows = useMemo(
+  const rawIssueRows = useMemo(
     () => parseIssueRows(page?.body_storage ?? ""),
     [page?.body_storage],
   );
+
+  // Collect unique account IDs that need name resolution
+  const accountIdsToResolve = useMemo(() => {
+    const ids = new Set<string>();
+    for (const r of rawIssueRows) {
+      if (r.developerAccountId && !r.assignedDeveloper) {
+        ids.add(r.developerAccountId);
+      }
+    }
+    return Array.from(ids);
+  }, [rawIssueRows]);
+
+  // Resolve account IDs → display names via Jira API (cached forever)
+  const nameQueries = useQueries({
+    queries: accountIdsToResolve.map((id) => ({
+      queryKey: queryKeys.userDisplayName(id),
+      queryFn: () => getUserDisplayName(id),
+      staleTime: Infinity,
+      gcTime: Infinity,
+      retry: 1,
+    })),
+  });
+
+  // Build a map of accountId → resolved display name
+  const resolvedNames = useMemo(() => {
+    const map = new Map<string, string>();
+    accountIdsToResolve.forEach((id, i) => {
+      const result = nameQueries[i];
+      if (result?.data) map.set(id, result.data);
+    });
+    return map;
+  }, [accountIdsToResolve, nameQueries]);
+
+  // Enrich rows: fill in assignedDeveloper from resolved names when missing
+  const issueRows = useMemo(() => {
+    return rawIssueRows.map((row) => {
+      if (!row.assignedDeveloper && row.developerAccountId) {
+        const resolved = resolvedNames.get(row.developerAccountId);
+        if (resolved) {
+          return { ...row, assignedDeveloper: resolved };
+        }
+      }
+      return row;
+    });
+  }, [rawIssueRows, resolvedNames]);
+
+  // Unique priorities and developers for filter dropdowns
+  const uniquePriorities = useMemo(() => {
+    const set = new Set<string>();
+    for (const r of issueRows) {
+      if (r.priority) set.add(r.priority);
+    }
+    return Array.from(set).sort();
+  }, [issueRows]);
+
+  const uniqueDevelopers = useMemo(() => {
+    const map = new Map<string, string>(); // accountId|name → display name
+    for (const r of issueRows) {
+      if (r.assignedDeveloper) {
+        const key = r.developerAccountId || r.assignedDeveloper;
+        if (!map.has(key)) map.set(key, r.assignedDeveloper);
+      }
+    }
+    return Array.from(map.entries()).sort(([, a], [, b]) => a.localeCompare(b));
+  }, [issueRows]);
+
+  const filteredRows = useMemo(() => {
+    return issueRows.filter((r) => {
+      if (filterPriority !== "all" && r.priority.toLowerCase() !== filterPriority.toLowerCase()) {
+        return false;
+      }
+      if (filterDeveloper !== "all") {
+        const key = r.developerAccountId || r.assignedDeveloper;
+        if (key !== filterDeveloper) return false;
+      }
+      return true;
+    });
+  }, [issueRows, filterPriority, filterDeveloper]);
+
+  const hasActiveFilters = filterPriority !== "all" || filterDeveloper !== "all";
 
   // Migration: if a local mapping exists but no Related Work entry yet, create
   // one once the page loads (so the URL is available). This migrates legacy
@@ -645,7 +746,9 @@ export function FeedbackPanel({ version }: FeedbackPanelProps) {
             <div className="flex items-center gap-2">
               {issueRows.length > 0 && (
                 <span className="text-xs text-slate-400">
-                  {issueRows.filter((r) => r.isDone).length}/{issueRows.length} done
+                  {hasActiveFilters
+                    ? `${filteredRows.length}/${issueRows.length} shown`
+                    : `${issueRows.filter((r) => r.isDone).length}/${issueRows.length} done`}
                 </span>
               )}
               {!showAddForm && (
@@ -662,10 +765,76 @@ export function FeedbackPanel({ version }: FeedbackPanelProps) {
             </div>
           </div>
 
+          {/* Filters */}
+          {issueRows.length > 0 && (
+            <div className="flex items-center gap-3 rounded-lg border border-slate-100 bg-slate-50/50
+              px-3 py-2 dark:border-slate-800 dark:bg-slate-900/40">
+              <Filter className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+
+              {/* Priority chips */}
+              <div className="flex flex-wrap items-center gap-1.5">
+                <PriorityChip
+                  label="All"
+                  active={filterPriority === "all"}
+                  onClick={() => setFilterPriority("all")}
+                />
+                {uniquePriorities.map((p) => (
+                  <PriorityChip
+                    key={p}
+                    label={p}
+                    active={filterPriority.toLowerCase() === p.toLowerCase()}
+                    onClick={() => setFilterPriority(filterPriority.toLowerCase() === p.toLowerCase() ? "all" : p)}
+                  />
+                ))}
+              </div>
+
+              {/* Divider */}
+              {uniqueDevelopers.length > 0 && (
+                <div className="h-4 w-px shrink-0 bg-slate-200 dark:bg-slate-700" />
+              )}
+
+              {/* Developer dropdown */}
+              {uniqueDevelopers.length > 0 && (
+                <div className="flex items-center gap-1.5">
+                  <User className="h-3 w-3 text-slate-400" />
+                  <select
+                    value={filterDeveloper}
+                    onChange={(e) => setFilterDeveloper(e.target.value)}
+                    className={cn(
+                      "rounded-md border px-2 py-0.5 text-xs transition-colors",
+                      "focus:outline-none focus:ring-1 focus:ring-indigo-400",
+                      filterDeveloper !== "all"
+                        ? "border-indigo-300 bg-indigo-50 text-indigo-700 dark:border-indigo-700 dark:bg-indigo-950/50 dark:text-indigo-300"
+                        : "border-slate-200 bg-white text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300",
+                    )}
+                  >
+                    <option value="all">All developers</option>
+                    {uniqueDevelopers.map(([key, name]) => (
+                      <option key={key} value={key}>{name}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {/* Clear all */}
+              {hasActiveFilters && (
+                <button
+                  onClick={() => { setFilterPriority("all"); setFilterDeveloper("all"); }}
+                  className="ml-auto flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs
+                    text-slate-400 transition-colors hover:bg-red-50 hover:text-red-500
+                    dark:hover:bg-red-950/30 dark:hover:text-red-400"
+                >
+                  <X className="h-3 w-3" />
+                  Clear
+                </button>
+              )}
+            </div>
+          )}
+
           {/* Add issue form */}
           {showAddForm && (
             <div className="rounded-lg border border-blue-200 bg-blue-50/50 p-3 dark:border-blue-800 dark:bg-blue-950/30">
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-3 gap-2">
                 <input
                   type="text"
                   placeholder="Jira Ticket (e.g. PROJ-123)"
@@ -691,6 +860,14 @@ export function FeedbackPanel({ version }: FeedbackPanelProps) {
                   <option value="Low">Low</option>
                   <option value="Trivial">Trivial</option>
                 </select>
+                <UserSearchInput
+                  value={addForm.developer}
+                  onChange={(name, accountId) =>
+                    setAddForm((f) => ({ ...f, developer: name, developerAccountId: accountId }))
+                  }
+                  disabled={updatePage.isPending}
+                  placeholder="Assigned Developer"
+                />
                 {mapping && (
                   <>
                     <MediaTextArea
@@ -703,7 +880,7 @@ export function FeedbackPanel({ version }: FeedbackPanelProps) {
                       allAttachments={attachments ?? []}
                       disabled={updatePage.isPending}
                       label="Description"
-                      className="col-span-2"
+                      className="col-span-3"
                     />
                     <MediaTextArea
                       value={addForm.comment}
@@ -715,18 +892,10 @@ export function FeedbackPanel({ version }: FeedbackPanelProps) {
                       allAttachments={attachments ?? []}
                       disabled={updatePage.isPending}
                       label="Comment"
-                      className="col-span-2"
+                      className="col-span-3"
                     />
                   </>
                 )}
-                <UserSearchInput
-                  value={addForm.developer}
-                  onChange={(name, accountId) =>
-                    setAddForm((f) => ({ ...f, developer: name, developerAccountId: accountId }))
-                  }
-                  disabled={updatePage.isPending}
-                  placeholder="Assigned Developer"
-                />
               </div>
               <div className="mt-2.5 flex justify-end gap-2">
                 <Button
@@ -762,25 +931,91 @@ export function FeedbackPanel({ version }: FeedbackPanelProps) {
               <Circle className="h-6 w-6 text-slate-300 dark:text-slate-600" />
               <p className="text-xs text-slate-400">No issues yet. Click &ldquo;Add Issue&rdquo; to get started.</p>
             </div>
+          ) : filteredRows.length === 0 ? (
+            <div className="flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-slate-200 py-8 dark:border-slate-700">
+              <Search className="h-5 w-5 text-slate-300 dark:text-slate-600" />
+              <p className="text-xs text-slate-400">No issues match the current filters.</p>
+              <button
+                onClick={() => { setFilterPriority("all"); setFilterDeveloper("all"); }}
+                className="text-xs text-indigo-500 hover:text-indigo-700 dark:text-indigo-400"
+              >
+                Clear filters
+              </button>
+            </div>
           ) : (
             <div className="flex flex-col gap-2">
-              {issueRows.map((row, idx) => (
-                <IssueCard
-                  key={idx}
-                  row={row}
-                  rowIndex={idx}
-                  isSaving={updatePage.isPending}
-                  pageId={mapping!.pageId}
-                  allAttachments={attachments ?? []}
-                  onToggle={() => void handleToggleIssue(idx, row)}
-                  onEdit={(fields) => void handleEditIssue(idx, fields)}
-                />
-              ))}
+              {filteredRows.map((row) => {
+                const idx = issueRows.indexOf(row);
+                return (
+                  <IssueCard
+                    key={idx}
+                    row={row}
+                    rowIndex={idx}
+                    isSaving={updatePage.isPending}
+                    pageId={mapping!.pageId}
+                    allAttachments={attachments ?? []}
+                    onToggle={() => void handleToggleIssue(idx, row)}
+                    onEdit={(fields) => void handleEditIssue(idx, fields)}
+                  />
+                );
+              })}
             </div>
           )}
         </div>
       )}
     </div>
+  );
+}
+
+// ── Priority chip for filter bar ──────────────────────────────────────────────
+
+const PRIORITY_CHIP_COLORS: Record<string, { active: string; dot: string }> = {
+  blocker: {
+    active: "border-red-300 bg-red-50 text-red-700 dark:border-red-700 dark:bg-red-950/50 dark:text-red-300",
+    dot: "bg-red-500",
+  },
+  critical: {
+    active: "border-red-300 bg-red-50 text-red-700 dark:border-red-700 dark:bg-red-950/50 dark:text-red-300",
+    dot: "bg-red-500",
+  },
+  high: {
+    active: "border-orange-300 bg-orange-50 text-orange-700 dark:border-orange-700 dark:bg-orange-950/50 dark:text-orange-300",
+    dot: "bg-orange-500",
+  },
+  medium: {
+    active: "border-yellow-300 bg-yellow-50 text-yellow-700 dark:border-yellow-700 dark:bg-yellow-950/50 dark:text-yellow-300",
+    dot: "bg-yellow-500",
+  },
+  low: {
+    active: "border-blue-300 bg-blue-50 text-blue-700 dark:border-blue-700 dark:bg-blue-950/50 dark:text-blue-300",
+    dot: "bg-blue-400",
+  },
+  trivial: {
+    active: "border-slate-300 bg-slate-100 text-slate-600 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300",
+    dot: "bg-slate-400",
+  },
+};
+
+function PriorityChip({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
+  const key = label.toLowerCase();
+  const colors = PRIORITY_CHIP_COLORS[key];
+  const isAll = key === "all";
+
+  return (
+    <button
+      onClick={onClick}
+      className={cn(
+        "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium transition-all",
+        active
+          ? isAll
+            ? "border-indigo-300 bg-indigo-50 text-indigo-700 dark:border-indigo-700 dark:bg-indigo-950/50 dark:text-indigo-300"
+            : colors?.active ?? "border-slate-300 bg-slate-100 text-slate-600 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300"
+          : "border-transparent bg-transparent text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 dark:text-slate-500",
+      )}
+    >
+      {!isAll && <span className={cn("h-1.5 w-1.5 rounded-full", colors?.dot ?? "bg-slate-400")} />}
+      {label}
+    </button>
   );
 }
 
@@ -1506,7 +1741,7 @@ function IssueCard({ row, rowIndex: _rowIndex, isSaving, pageId, allAttachments,
             </button>
           </div>
         </div>
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-3 gap-2">
           <input
             type="text"
             placeholder="Jira Ticket"
@@ -1532,6 +1767,17 @@ function IssueCard({ row, rowIndex: _rowIndex, isSaving, pageId, allAttachments,
             <option value="Low">Low</option>
             <option value="Trivial">Trivial</option>
           </select>
+          <select
+            value={draft.status}
+            onChange={(e) => setDraft((d) => ({ ...d, status: e.target.value }))}
+            className="rounded border border-slate-200 bg-white px-2.5 py-1.5 text-xs
+              text-slate-700 focus:border-blue-400 focus:outline-none
+              dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+          >
+            <option value="Open">Open</option>
+            <option value="In Progress">In Progress</option>
+            <option value="Done">Done</option>
+          </select>
           <MediaTextArea
             value={draft.description}
             onChange={(v) => setDraft((d) => ({ ...d, description: v }))}
@@ -1542,7 +1788,7 @@ function IssueCard({ row, rowIndex: _rowIndex, isSaving, pageId, allAttachments,
             allAttachments={allAttachments}
             disabled={isSaving}
             label="Description"
-            className="col-span-2"
+            className="col-span-3"
           />
           <MediaTextArea
             value={draft.comment}
@@ -1554,7 +1800,7 @@ function IssueCard({ row, rowIndex: _rowIndex, isSaving, pageId, allAttachments,
             allAttachments={allAttachments}
             disabled={isSaving}
             label="Comment"
-            className="col-span-2"
+            className="col-span-3"
           />
           <UserSearchInput
             value={draft.developer}
@@ -1571,25 +1817,30 @@ function IssueCard({ row, rowIndex: _rowIndex, isSaving, pageId, allAttachments,
 
   return (
     <div
-      className={`group rounded-lg border px-4 py-3 transition-colors ${
+      className={cn(
+        "group rounded-lg border px-4 py-3 transition-colors",
         row.isDone
           ? "border-green-200 bg-green-50 dark:border-green-800/50 dark:bg-green-950/30"
-          : "border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900"
-      }`}
+          : row.isInProgress
+            ? "border-blue-200 bg-blue-50/50 dark:border-blue-800/50 dark:bg-blue-950/20"
+            : "border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900",
+      )}
     >
       <div className="flex items-start gap-3">
-        {/* Status toggle */}
+        {/* Status toggle — cycles Open → In Progress → Done → Open */}
         <button
           onClick={onToggle}
           disabled={isSaving}
-          title={row.isDone ? "Mark as open" : "Mark as done"}
+          title={row.isDone ? "Back to open" : row.isInProgress ? "Mark as done" : "Start progress"}
           className="mt-0.5 shrink-0 transition-transform hover:scale-110 disabled:opacity-50"
         >
           {row.isDone ? (
             <CheckCircle2 className="h-4 w-4 text-green-500" />
+          ) : row.isInProgress ? (
+            <Loader2 className="h-4 w-4 text-blue-500" />
           ) : (
-            <Circle className="h-4 w-4 text-slate-300 hover:text-green-400
-              dark:text-slate-600 dark:hover:text-green-500" />
+            <Circle className="h-4 w-4 text-slate-300 hover:text-blue-400
+              dark:text-slate-600 dark:hover:text-blue-500" />
           )}
         </button>
 
@@ -1606,12 +1857,14 @@ function IssueCard({ row, rowIndex: _rowIndex, isSaving, pageId, allAttachments,
             )}
             {row.priority && <PriorityBadge priority={row.priority} />}
             <span
-              className={`ml-auto rounded-full px-2 py-0.5 text-[10px] font-semibold
-                uppercase tracking-wide ${
-                  row.isDone
-                    ? "bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-300"
-                    : "bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400"
-                }`}
+              className={cn(
+                "ml-auto rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
+                row.isDone
+                  ? "bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-300"
+                  : row.isInProgress
+                    ? "bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300"
+                    : "bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400",
+              )}
             >
               {row.status || "Open"}
             </span>
@@ -1660,20 +1913,29 @@ function IssueCard({ row, rowIndex: _rowIndex, isSaving, pageId, allAttachments,
             />
           )}
 
-          {/* Assigned developer */}
-          {row.assignedDeveloper && (
-            <div className="mt-2 flex items-center gap-1.5">
-              <div className="flex h-5 w-5 items-center justify-center rounded-full
-                bg-slate-200 text-[10px] font-bold uppercase text-slate-600
-                dark:bg-slate-700 dark:text-slate-300"
-              >
-                {row.assignedDeveloper.charAt(0)}
-              </div>
-              <span className="text-xs text-slate-500 dark:text-slate-400">
-                {row.assignedDeveloper}
-              </span>
-            </div>
-          )}
+          {/* Assigned developer — always visible */}
+          <div className="mt-2 flex items-center gap-1.5">
+            {row.assignedDeveloper ? (
+              <>
+                <div className="flex h-5 w-5 items-center justify-center rounded-full
+                  bg-indigo-100 text-[10px] font-bold uppercase text-indigo-600
+                  dark:bg-indigo-900/50 dark:text-indigo-300"
+                >
+                  {row.assignedDeveloper.charAt(0)}
+                </div>
+                <span className="text-xs text-slate-600 dark:text-slate-300">
+                  {row.assignedDeveloper}
+                </span>
+              </>
+            ) : (
+              <>
+                <User className="h-3.5 w-3.5 text-amber-400 dark:text-amber-500" />
+                <span className="text-xs italic text-amber-500 dark:text-amber-400">
+                  Unassigned
+                </span>
+              </>
+            )}
+          </div>
         </div>
       </div>
     </div>

@@ -73,8 +73,9 @@ export function FeedbackSummary({ version }: FeedbackSummaryProps) {
     [page?.body_storage],
   );
 
-  const openItems = useMemo(() => rows.filter((r) => !r.isDone), [rows]);
-  const doneCount = rows.length - openItems.length;
+  const openItems = useMemo(() => rows.filter((r) => !r.isDone && !r.isInProgress), [rows]);
+  const inProgressItems = useMemo(() => rows.filter((r) => r.isInProgress), [rows]);
+  const doneCount = rows.filter((r) => r.isDone).length;
   const total = rows.length;
 
   const priorityCounts = useMemo(() => {
@@ -143,6 +144,13 @@ export function FeedbackSummary({ version }: FeedbackSummaryProps) {
     percent: (count / total) * 100,
     color: (PRIORITY_META[p] ?? DEFAULT_PRIORITY_META).dot,
   }));
+  if (inProgressItems.length > 0) {
+    barSegments.push({
+      key: "in-progress",
+      percent: (inProgressItems.length / total) * 100,
+      color: "bg-blue-500",
+    });
+  }
   barSegments.push({
     key: "done",
     percent: (doneCount / total) * 100,
@@ -204,7 +212,7 @@ export function FeedbackSummary({ version }: FeedbackSummaryProps) {
         <div className="mt-1 flex items-center justify-between">
           <span className="text-[10px] text-slate-400">{donePercent}% resolved</span>
           <span className="text-[10px] text-slate-400">
-            {openItems.length} open · {doneCount} done
+            {openItems.length} open{inProgressItems.length > 0 ? ` · ${inProgressItems.length} in progress` : ""} · {doneCount} done
           </span>
         </div>
       </div>
@@ -279,6 +287,21 @@ export function FeedbackSummary({ version }: FeedbackSummaryProps) {
             </div>
           );
         })}
+
+        {/* In Progress tile */}
+        {inProgressItems.length > 0 && (
+          <div className="flex flex-1 flex-col items-center rounded-lg bg-blue-50 py-2 ring-1 ring-blue-200 dark:bg-blue-950/40 dark:ring-blue-800">
+            <div className="flex items-center gap-1">
+              <Loader2 className="h-3.5 w-3.5 text-blue-500" />
+              <span className="text-lg font-bold leading-none text-blue-700 dark:text-blue-300">
+                {inProgressItems.length}
+              </span>
+            </div>
+            <span className="mt-0.5 text-[10px] font-medium uppercase tracking-wider text-blue-500 dark:text-blue-400">
+              In Progress
+            </span>
+          </div>
+        )}
 
         {/* Done tile */}
         <div className="flex flex-1 flex-col items-center rounded-lg bg-emerald-50 py-2 ring-1 ring-emerald-200 dark:bg-emerald-950/40 dark:ring-emerald-800">
