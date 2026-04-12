@@ -9,6 +9,7 @@ import { VersionDashboard } from "./VersionDashboard";
 import { BugsPanel } from "./BugsPanel";
 import { VersionIssuesPanel } from "./VersionIssuesPanel";
 import { ExecutionRow } from "./ExecutionRow";
+import { FeedbackSummary } from "./FeedbackSummary";
 import { buildVersionReportHTML } from "./htmlVersionReportBuilder";
 import * as api from "@/services/tauri";
 import type { JiraVersion, TestExecution } from "@/types";
@@ -93,6 +94,8 @@ export function VersionContent({
           Export PDF
         </button>
       </div>
+
+      <FeedbackSummary version={version} />
 
       {executions.length > 0 && (
         <div className="mb-4 space-y-3">

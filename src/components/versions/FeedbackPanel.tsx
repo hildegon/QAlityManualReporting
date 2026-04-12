@@ -42,7 +42,7 @@ import type { JiraVersion, JiraUser, ConfluenceAttachment } from "@/types";
 
 // ── Issue row parsed from the Confluence table ──────────────────────────────
 
-interface IssueRow {
+export interface IssueRow {
   status: string;
   jiraTicket: string;
   priority: string;
@@ -96,7 +96,7 @@ function buildImageTags(filenames: string[]): string {
     .join("");
 }
 
-function parseIssueRows(html: string): IssueRow[] {
+export function parseIssueRows(html: string): IssueRow[] {
   const issuesMatch = html.match(
     /<h2[^>]*>\s*Issues\s*<\/h2>\s*<table[^>]*>([\s\S]*?)<\/table>/i,
   );
@@ -270,7 +270,7 @@ interface FeedbackPanelProps {
   projectKey: string;
 }
 
-const RELATED_WORK_TITLE_PREFIX = "QAlity Feedback";
+export const RELATED_WORK_TITLE_PREFIX = "QAlity Feedback";
 const RELATED_WORK_CATEGORY = "Documentation";
 
 export function FeedbackPanel({ version }: FeedbackPanelProps) {
