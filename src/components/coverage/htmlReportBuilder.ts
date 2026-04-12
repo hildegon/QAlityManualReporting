@@ -161,12 +161,13 @@ export function buildCoverageHTML(
   const overallSlices = buildReportSlices(allTests);
   const passed = overallSlices.find((s) => s.key === "PASS")?.count ?? 0;
   const failed = overallSlices.find((s) => s.key === "FAIL")?.count ?? 0;
+  const blocked = overallSlices.find((s) => s.key === "BLOCKED")?.count ?? 0;
   const notRun = overallSlices.find((s) => s.key === "TODO")?.count ?? 0;
   const ran = total - notRun;
   const coveragePct = total > 0 ? Math.round((ran / total) * 100) : 0;
   const passRatePct = total > 0 ? Math.round((passed / total) * 100) : 0;
 
-  // ── Charts row ──────────────────────────────────────────────────────────────
+  // ── Charts ──────────────────────────────────────────────────────────────────
   const donutSvg = buildSvgDonut(overallSlices, 140);
   const gaugeSvg = buildSvgGauge(coveragePct, 110);
   const overallBarSvg = buildSvgMiniBar(overallSlices, 300, 14);
@@ -183,51 +184,99 @@ export function buildCoverageHTML(
     )
     .join("");
 
-  // ── Sets summary table ──────────────────────────────────────────────────────
-  const setsSummaryRows = sets
-    .map((ts) => {
-      const tests = queryBySetId.get(ts.issue_id)?.tests ?? [];
-      const slices = buildReportSlices(tests);
-      const setPassed = slices.find((s) => s.key === "PASS")?.count ?? 0;
-      const setFailed = slices.find((s) => s.key === "FAIL")?.count ?? 0;
-      const setNotRun = slices.find((s) => s.key === "TODO")?.count ?? 0;
-      const setCovPct =
-        tests.length > 0 ? Math.round(((tests.length - setNotRun) / tests.length) * 100) : 0;
-      const setPassPct = tests.length > 0 ? Math.round((setPassed / tests.length) * 100) : 0;
-      const miniBar = buildSvgMiniBar(slices, 120, 8);
+  // ── Per-set data computation ────────────────────────────────────────────────
+  interface SetData {
+    ts: XrayTestSet;
+    tests: XrayTestWithStatus[];
+    slices: ReportSlice[];
+    passed: number;
+    failed: number;
+    blocked: number;
+    notRun: number;
+    coveragePct: number;
+    passRatePct: number;
+  }
+
+  const setDataArr: SetData[] = sets.map((ts) => {
+    const tests = queryBySetId.get(ts.issue_id)?.tests ?? [];
+    const slices = buildReportSlices(tests);
+    const setPassed = slices.find((s) => s.key === "PASS")?.count ?? 0;
+    const setFailed = slices.find((s) => s.key === "FAIL")?.count ?? 0;
+    const setBlocked = slices.find((s) => s.key === "BLOCKED")?.count ?? 0;
+    const setNotRun = slices.find((s) => s.key === "TODO")?.count ?? 0;
+    const setCovPct =
+      tests.length > 0 ? Math.round(((tests.length - setNotRun) / tests.length) * 100) : 0;
+    const setPassPct = tests.length > 0 ? Math.round((setPassed / tests.length) * 100) : 0;
+    return {
+      ts,
+      tests,
+      slices,
+      passed: setPassed,
+      failed: setFailed,
+      blocked: setBlocked,
+      notRun: setNotRun,
+      coveragePct: setCovPct,
+      passRatePct: setPassPct,
+    };
+  });
+
+  // ── Summary table rows ──────────────────────────────────────────────────────
+  const setsSummaryRows = setDataArr
+    .map((sd) => {
+      const miniBar = buildSvgMiniBar(sd.slices, 120, 8);
       const covColor =
-        setCovPct >= 80 ? "#059669" : setCovPct >= 50 ? "#d97706" : "#dc2626";
+        sd.coveragePct >= 80 ? "#059669" : sd.coveragePct >= 50 ? "#d97706" : "#dc2626";
       const passColor =
-        setPassPct >= 80 ? "#059669" : setPassPct >= 50 ? "#d97706" : "#dc2626";
-      const hasFail = setFailed > 0;
-      return `<tr style="${hasFail ? "background:#fff5f5;" : ""}">
-        <td style="white-space:nowrap;font-family:monospace;font-size:11px;color:#475569;">${esc(ts.jira.key)}</td>
-        <td style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(ts.jira.summary)}</td>
-        <td style="text-align:center;font-weight:600;">${tests.length}</td>
+        sd.passRatePct >= 80 ? "#059669" : sd.passRatePct >= 50 ? "#d97706" : "#dc2626";
+      const hasFail = sd.failed > 0;
+      const healthTag = hasFail
+        ? "fail"
+        : sd.notRun > 0
+          ? "partial"
+          : "pass";
+      return `<tr class="set-summary-row" data-health="${healthTag}" style="${hasFail ? "background:#fff5f5;" : ""}">
+        <td style="white-space:nowrap;font-family:monospace;font-size:11px;color:#475569;">
+          <a href="#set-${esc(sd.ts.issue_id)}" style="color:#475569;text-decoration:none">${esc(sd.ts.jira.key)}</a>
+        </td>
+        <td style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(sd.ts.jira.summary)}</td>
+        <td style="text-align:center;font-weight:600;">${sd.tests.length}</td>
         <td>${miniBar}</td>
-        <td style="text-align:center;font-weight:700;color:${covColor}">${setCovPct}%</td>
-        <td style="text-align:center;font-weight:700;color:${passColor}">${setPassPct}%</td>
-        <td style="text-align:center;font-weight:600;color:#059669">${setPassed}</td>
-        <td style="text-align:center;font-weight:600;color:${setFailed > 0 ? "#dc2626" : "#94a3b8"}">${setFailed}</td>
-        <td style="text-align:center;font-weight:600;color:#94a3b8">${setNotRun}</td>
+        <td style="text-align:center;font-weight:700;color:${covColor}">${sd.coveragePct}%</td>
+        <td style="text-align:center;font-weight:700;color:${passColor}">${sd.passRatePct}%</td>
+        <td style="text-align:center;font-weight:600;color:#059669">${sd.passed}</td>
+        <td style="text-align:center;font-weight:600;color:${sd.failed > 0 ? "#dc2626" : "#94a3b8"}">${sd.failed}</td>
+        <td style="text-align:center;font-weight:600;color:#94a3b8">${sd.notRun}</td>
       </tr>`;
     })
     .join("");
 
-  // ── Per-set detail sections ─────────────────────────────────────────────────
-  const setsHtml = sets
-    .map((ts) => {
-      const tests = queryBySetId.get(ts.issue_id)?.tests ?? [];
-      const slices = buildReportSlices(tests);
-      const setNotRun = slices.find((s) => s.key === "TODO")?.count ?? 0;
-      const setCovPct =
-        tests.length > 0 ? Math.round(((tests.length - setNotRun) / tests.length) * 100) : 0;
-      const setPassed = slices.find((s) => s.key === "PASS")?.count ?? 0;
-      const setFailed = slices.find((s) => s.key === "FAIL")?.count ?? 0;
+  // Health filter chips for summary table
+  const healthCounts = {
+    all: setDataArr.length,
+    pass: setDataArr.filter((sd) => sd.failed === 0 && sd.notRun === 0).length,
+    partial: setDataArr.filter((sd) => sd.failed === 0 && sd.notRun > 0).length,
+    fail: setDataArr.filter((sd) => sd.failed > 0).length,
+  };
 
-      const setDonut = tests.length > 0 ? buildSvgDonut(slices, 80) : "";
-      const setBar = tests.length > 0 ? buildSvgMiniBar(slices, 180, 8) : "";
-      const setLegend = slices
+  const healthChips = [
+    { label: "All", value: "all", color: "#475569", count: healthCounts.all },
+    { label: "✓ Passing", value: "pass", color: "#059669", count: healthCounts.pass },
+    { label: "⏳ Partial", value: "partial", color: "#d97706", count: healthCounts.partial },
+    { label: "✗ Failing", value: "fail", color: "#dc2626", count: healthCounts.fail },
+  ]
+    .filter((c) => c.value === "all" || c.count > 0)
+    .map(
+      (c) =>
+        `<button class="health-chip${c.value === "all" ? " active" : ""}" data-health="${c.value}" onclick="filterSummary(this)" style="border-radius:999px;padding:2px 8px;font-size:10px;font-weight:600;border:1px solid ${c.value === "all" ? c.color : "#e2e8f0"};background:${c.value === "all" ? c.color + "12" : "#fff"};color:${c.color};cursor:pointer;transition:all .15s">${c.label} <span style="font-weight:400">(${c.count})</span></button>`,
+    )
+    .join(" ");
+
+  // ── Per-set detail sections ─────────────────────────────────────────────────
+  const setsHtml = setDataArr
+    .map((sd, setIdx) => {
+      const setDonut = sd.tests.length > 0 ? buildSvgDonut(sd.slices, 80) : "";
+      const setBar = sd.tests.length > 0 ? buildSvgMiniBar(sd.slices, 180, 8) : "";
+      const setLegend = sd.slices
         .map(
           (s) =>
             `<span style="display:inline-flex;align-items:center;gap:5px;margin-right:12px;font-size:11px;color:#64748b">
@@ -237,16 +286,32 @@ export function buildCoverageHTML(
         )
         .join("");
 
+      // Status filter chips for test rows
+      const setStatuses = [...new Set(sd.tests.map((t) => normalizeStatusKey(t.latest_status?.name ?? "TODO")))].sort();
+      const statusFilterChips = setStatuses.length > 1
+        ? `<div style="display:flex;gap:4px;flex-wrap:wrap;align-items:center;padding:6px 20px;border-bottom:1px solid #f1f5f9">
+            <span style="font-size:10px;font-weight:600;color:#94a3b8;text-transform:uppercase;margin-right:4px">Filter:</span>
+            <button class="test-status-chip active" data-set="${setIdx}" data-status="ALL" onclick="filterTests(this)" style="border-radius:999px;padding:1px 7px;font-size:10px;font-weight:600;border:1px solid #475569;background:#47556912;color:#475569;cursor:pointer">All</button>
+            ${setStatuses
+              .map(
+                (s) =>
+                  `<button class="test-status-chip" data-set="${setIdx}" data-status="${s}" onclick="filterTests(this)" style="border-radius:999px;padding:1px 7px;font-size:10px;font-weight:600;border:1px solid #e2e8f0;background:#fff;color:${REPORT_STATUS_COLORS[s] ?? "#94a3b8"};cursor:pointer">${s}</button>`,
+              )
+              .join(" ")}
+          </div>`
+        : "";
+
       const rowsHtml =
-        tests.length === 0
+        sd.tests.length === 0
           ? `<tr><td colspan="3" style="text-align:center;color:#94a3b8;padding:20px;">No tests in this set.</td></tr>`
-          : tests
+          : sd.tests
               .map((t) => {
                 const statusName = t.latest_status?.name ?? "NOT RUN";
+                const statusKey = normalizeStatusKey(statusName);
                 const pillClass = statusPillClass(t.latest_status?.name);
                 const rowBg =
                   pillClass === "fail" || pillClass === "aborted" ? "background:#fff5f5;" : "";
-                return `<tr style="${rowBg}">
+                return `<tr class="test-row" data-set="${setIdx}" data-status="${statusKey}" style="${rowBg}">
               <td class="key-cell">${esc(t.jira.key)}</td>
               <td>${esc(t.jira.summary)}</td>
               <td><span class="status-pill ${pillClass}">${esc(statusName)}</span></td>
@@ -254,41 +319,74 @@ export function buildCoverageHTML(
               })
               .join("");
 
+      // Health badge for section header
+      const healthLabel = sd.failed > 0
+        ? `<span class="badge fail">✗ ${sd.failed} failed</span>`
+        : sd.notRun > 0
+          ? `<span class="badge todo">⏳ ${sd.notRun} not run</span>`
+          : `<span class="badge pass">✓ All passing</span>`;
+
       return `
-      <div class="section">
-        <div class="section-header">
-          <div style="display:flex;align-items:center;gap:10px;min-width:0;flex:1">
-            <span class="key">${esc(ts.jira.key)}</span>
-            <h2 style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(ts.jira.summary)}</h2>
-          </div>
-          <div class="badges">
-            <span class="badge total">${tests.length} tests</span>
-            ${setPassed > 0 ? `<span class="badge pass">✓ ${setPassed} passed</span>` : ""}
-            ${setFailed > 0 ? `<span class="badge fail">✗ ${setFailed} failed</span>` : ""}
-            ${setNotRun > 0 ? `<span class="badge todo">⏳ ${setNotRun} not run</span>` : ""}
-          </div>
-        </div>
-        ${
-          tests.length > 0
-            ? `<div style="display:flex;align-items:center;gap:20px;padding:14px 20px;background:#fafafa;border-bottom:1px solid #f1f5f9">
-            <div style="flex-shrink:0">${setDonut}</div>
-            <div style="flex:1">
-              <div style="margin-bottom:8px">${setLegend}</div>
-              ${setBar}
-              <div style="display:flex;justify-content:space-between;margin-top:8px;font-size:11px;color:#64748b">
-                <span>Coverage: <strong style="color:${setCovPct >= 80 ? "#059669" : setCovPct >= 50 ? "#d97706" : "#dc2626"}">${setCovPct}%</strong></span>
-                <span>Pass rate: <strong style="color:${setPassed / (tests.length || 1) >= 0.8 ? "#059669" : "#d97706"}">${Math.round((setPassed / (tests.length || 1)) * 100)}%</strong></span>
-              </div>
+      <div class="section" id="set-${esc(sd.ts.issue_id)}">
+        <details${sd.tests.length <= 30 ? " open" : ""}>
+          <summary class="section-header" style="cursor:pointer;user-select:none">
+            <div style="display:flex;align-items:center;gap:10px;min-width:0;flex:1">
+              <span style="font-size:12px;color:#94a3b8;transition:transform .15s">▸</span>
+              <span class="key">${esc(sd.ts.jira.key)}</span>
+              <h2 style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(sd.ts.jira.summary)}</h2>
             </div>
-          </div>`
-            : ""
-        }
-        <table>
-          <thead><tr><th style="width:110px;">Key</th><th>Summary</th><th style="width:120px;">Status</th></tr></thead>
-          <tbody>${rowsHtml}</tbody>
-        </table>
+            <div class="badges">
+              <span class="badge total">${sd.tests.length} tests</span>
+              ${healthLabel}
+              <span style="font-size:10px;font-weight:700;color:${sd.coveragePct >= 80 ? "#059669" : sd.coveragePct >= 50 ? "#d97706" : "#dc2626"}">${sd.coveragePct}% cov</span>
+            </div>
+          </summary>
+          ${
+            sd.tests.length > 0
+              ? `<div style="display:flex;align-items:center;gap:20px;padding:14px 20px;background:#fafafa;border-bottom:1px solid #f1f5f9">
+              <div style="flex-shrink:0">${setDonut}</div>
+              <div style="flex:1">
+                <div style="margin-bottom:8px">${setLegend}</div>
+                ${setBar}
+                <div style="display:flex;justify-content:space-between;margin-top:8px;font-size:11px;color:#64748b">
+                  <span>Coverage: <strong style="color:${sd.coveragePct >= 80 ? "#059669" : sd.coveragePct >= 50 ? "#d97706" : "#dc2626"}">${sd.coveragePct}%</strong></span>
+                  <span>Pass rate: <strong style="color:${sd.passRatePct >= 80 ? "#059669" : "#d97706"}">${sd.passRatePct}%</strong></span>
+                </div>
+              </div>
+            </div>`
+              : ""
+          }
+          ${statusFilterChips}
+          <table>
+            <thead>
+              <tr>
+                <th style="width:110px;cursor:pointer" onclick="sortSetTable(${setIdx},'key')">Key <span class="sort-arrow" id="sort-${setIdx}-key"></span></th>
+                <th style="cursor:pointer" onclick="sortSetTable(${setIdx},'name')">Summary <span class="sort-arrow" id="sort-${setIdx}-name"></span></th>
+                <th style="width:120px;cursor:pointer" onclick="sortSetTable(${setIdx},'status')">Status <span class="sort-arrow" id="sort-${setIdx}-status"></span></th>
+              </tr>
+            </thead>
+            <tbody class="set-tbody" data-set="${setIdx}">${rowsHtml}</tbody>
+          </table>
+        </details>
       </div>`;
     })
+    .join("");
+
+  // ── Analysis section ────────────────────────────────────────────────────────
+  const analysisHtml = buildAnalysisSection(setDataArr, total, passed, failed, blocked, notRun, coveragePct, passRatePct);
+
+  // ── Navigation ──────────────────────────────────────────────────────────────
+  const navItems = [
+    { label: "Overview", href: "#sec-overview" },
+    { label: "Summary", href: "#sec-summary" },
+    { label: `Sets (${sets.length})`, href: "#sec-sets" },
+    { label: "Analysis", href: "#sec-analysis" },
+  ];
+  const navLinks = navItems
+    .map(
+      (n) =>
+        `<a href="${n.href}" style="padding:4px 10px;border-radius:999px;font-size:11px;font-weight:600;color:#e2e8f0;text-decoration:none;white-space:nowrap;transition:background .15s" onmouseover="this.style.background='rgba(255,255,255,.15)'" onmouseout="this.style.background='transparent'">${esc(n.label)}</a>`,
+    )
     .join("");
 
   return `<!DOCTYPE html>
@@ -299,7 +397,9 @@ export function buildCoverageHTML(
   <title>Coverage Report – ${esc(projectKey)}</title>
   <style>
     *{box-sizing:border-box;margin:0;padding:0}
-    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:#1e293b;background:#fff;font-size:13px}
+    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:#1e293b;background:#fff;font-size:13px;padding-top:38px}
+    .sticky-nav{position:fixed;top:0;left:0;right:0;z-index:100;background:linear-gradient(135deg,#0f172a 0%,#1e3a5f 100%);padding:8px 24px;display:flex;align-items:center;gap:2px;flex-wrap:wrap}
+    .sticky-nav .nav-title{font-size:12px;font-weight:700;color:#6366f1;margin-right:12px;letter-spacing:.5px}
     .header{background:linear-gradient(135deg,#0f172a 0%,#1e3a5f 100%);color:#fff;padding:28px 48px;display:flex;justify-content:space-between;align-items:flex-end}
     .header-left h1{font-size:22px;font-weight:700;letter-spacing:-0.5px}
     .header-left .sub{font-size:12px;color:#94a3b8;margin-top:3px}
@@ -348,16 +448,34 @@ export function buildCoverageHTML(
     .status-pill.aborted{background:#fce7f3;color:#9d174d}
     .status-pill.todo{background:#f1f5f9;color:#64748b}
     .status-pill.other{background:#e2e8f0;color:#475569}
+    .sort-arrow{font-size:9px;color:#94a3b8}
+    .health-chip.active,.test-status-chip.active{border-color:currentColor!important;box-shadow:0 0 0 1px currentColor}
+    details>summary{list-style:none}
+    details>summary::-webkit-details-marker{display:none}
+    details[open]>summary span:first-child{transform:rotate(90deg);display:inline-block}
+    .finding-card{display:flex;align-items:flex-start;gap:8px;padding:8px 12px;border-radius:8px;margin-bottom:6px;font-size:12px}
+    .finding-card.critical{background:#fef2f2;border:1px solid #fecaca;color:#991b1b}
+    .finding-card.warn{background:#fffbeb;border:1px solid #fde68a;color:#92400e}
+    .finding-card.ok{background:#f0fdf4;border:1px solid #bbf7d0;color:#166534}
+    .finding-card.info{background:#f8fafc;border:1px solid #e2e8f0;color:#475569}
     .footer{padding:16px 48px;border-top:1px solid #e2e8f0;display:flex;justify-content:space-between;color:#94a3b8;font-size:11px}
     @media print{
-      body{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+      body{-webkit-print-color-adjust:exact;print-color-adjust:exact;padding-top:0}
+      .sticky-nav{display:none!important}
       .section{page-break-inside:avoid}
       .charts-row,.summary-section{page-break-inside:avoid}
+      details[open]>summary~*{display:block!important}
       @page{margin:0.6in 0.5in}
     }
   </style>
 </head>
 <body>
+  <!-- Sticky Nav -->
+  <nav class="sticky-nav">
+    <span class="nav-title">QAlity Coverage</span>
+    ${navLinks}
+  </nav>
+
   <div class="header">
     <div class="header-left">
       <h1>QAlity · Coverage Report</h1>
@@ -370,7 +488,7 @@ export function buildCoverageHTML(
     </div>
   </div>
 
-  <div class="charts-row">
+  <div class="charts-row" id="sec-overview">
     <!-- Left: Donut + legend -->
     <div class="chart-cell">
       ${donutSvg}
@@ -412,9 +530,12 @@ export function buildCoverageHTML(
     </div>
   </div>
 
-  <div class="summary-section">
-    <h3>Test Sets Summary</h3>
-    <table class="summary-table">
+  <div class="summary-section" id="sec-summary">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+      <h3 style="margin-bottom:0">Test Sets Summary</h3>
+      <div style="display:flex;gap:4px;align-items:center">${healthChips}</div>
+    </div>
+    <table class="summary-table" id="summary-table">
       <thead>
         <tr>
           <th style="width:90px">Key</th>
@@ -432,122 +553,19 @@ export function buildCoverageHTML(
     </table>
   </div>
 
-  <div class="content">
+  <div class="content" id="sec-sets">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+      <h3 style="font-size:13px;font-weight:700;color:#0f172a">Test Set Details</h3>
+      <div style="display:flex;gap:6px">
+        <button onclick="toggleAllDetails(true)" style="font-size:10px;color:#6366f1;background:none;border:1px solid #e2e8f0;border-radius:6px;padding:3px 10px;cursor:pointer">Expand All</button>
+        <button onclick="toggleAllDetails(false)" style="font-size:10px;color:#6366f1;background:none;border:1px solid #e2e8f0;border-radius:6px;padding:3px 10px;cursor:pointer">Collapse All</button>
+      </div>
+    </div>
     ${setsHtml}
   </div>
 
-  <div class="summary-section" style="page-break-before:always">
-    <h3>Analysis</h3>
-
-    <!-- Insights -->
-    <div style="margin-bottom:20px">
-      <h4 style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#64748b;margin-bottom:10px">Key Findings</h4>
-      <ul style="list-style:none;display:flex;flex-direction:column;gap:7px">
-        ${(() => {
-          const neverRun = allTests.filter((t) => t.latest_status?.is_final !== true);
-          const runAtLeastOnce = total - neverRun.length;
-          const coveragePct2 = total > 0 ? Math.round((runAtLeastOnce / total) * 100) : 0;
-          const passRatePct2 = total > 0 ? Math.round((passed / total) * 100) : 0;
-          const failRatePct2 = total > 0 ? Math.round((failed / total) * 100) : 0;
-
-          const highFailSets = sets.filter((ts) => {
-            const t = queryBySetId.get(ts.issue_id)?.tests ?? [];
-            if (t.length === 0) return false;
-            const f = t.filter((x) => {
-              const sl = buildReportSlices([x]);
-              return sl.find((s) => s.key === "FAIL")?.count ?? 0 > 0;
-            }).length;
-            return f / t.length >= 0.5;
-          });
-
-          const findings: string[] = [
-            `<li style="display:flex;align-items:flex-start;gap:8px;font-size:12px"><span style="color:#3b82f6;font-size:10px;margin-top:2px">●</span><span style="color:#475569">${coveragePct2}% coverage — ${runAtLeastOnce} of ${total} tests run at least once</span></li>`,
-            `<li style="display:flex;align-items:flex-start;gap:8px;font-size:12px"><span style="color:${passRatePct2 >= 80 ? "#059669" : passRatePct2 >= 50 ? "#d97706" : "#dc2626"};font-size:10px;margin-top:2px">●</span><span style="color:#475569">${passRatePct2}% overall pass rate — ${passed} passed, ${failed} failed</span></li>`,
-          ];
-          if (failed > 0) findings.push(`<li style="display:flex;align-items:flex-start;gap:8px;font-size:12px"><span style="color:#f59e0b;font-size:10px;margin-top:2px">▲</span><span style="color:#92400e">${failed} test${failed !== 1 ? "s" : ""} failing (${failRatePct2}% of total)</span></li>`);
-          if (highFailSets.length > 0) findings.push(`<li style="display:flex;align-items:flex-start;gap:8px;font-size:12px"><span style="color:#dc2626;font-size:10px;margin-top:2px">▲</span><span style="color:#991b1b">${highFailSets.length} set${highFailSets.length !== 1 ? "s have" : " has"} &gt;50% failure rate: ${highFailSets.map((ts) => esc(ts.jira.key)).join(", ")}</span></li>`);
-          if (neverRun.length > 0) findings.push(`<li style="display:flex;align-items:flex-start;gap:8px;font-size:12px"><span style="color:#94a3b8;font-size:10px;margin-top:2px">●</span><span style="color:#475569">${neverRun.length} test${neverRun.length !== 1 ? "s" : ""} never executed (${100 - coveragePct2}% gap)</span></li>`);
-          return findings.join("");
-        })()}
-      </ul>
-    </div>
-
-    <!-- Failure concentration -->
-    ${(() => {
-      const withFails = sets
-        .map((ts) => {
-          const t = queryBySetId.get(ts.issue_id)?.tests ?? [];
-          const slices = buildReportSlices(t);
-          const f = slices.find((s) => s.key === "FAIL")?.count ?? 0;
-          return { ts, failCount: f, total: t.length };
-        })
-        .filter((r) => r.failCount > 0)
-        .sort((a, b) => b.failCount - a.failCount);
-      if (withFails.length === 0) return "";
-      const maxF = withFails[0]!.failCount;
-      const rows = withFails
-        .map(({ ts, failCount, total: t }) => {
-          const pct = t > 0 ? Math.round((failCount / t) * 100) : 0;
-          const barW = maxF > 0 ? Math.round((failCount / maxF) * 100) : 0;
-          return `<tr>
-            <td style="white-space:nowrap;font-family:monospace;font-size:11px;color:#475569">${esc(ts.jira.key)}</td>
-            <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(ts.jira.summary)}</td>
-            <td style="text-align:center;font-weight:700;color:#dc2626">${failCount}</td>
-            <td style="text-align:center;color:#dc2626">${pct}%</td>
-            <td style="width:120px">
-              <div style="background:#fee2e2;border-radius:4px;height:8px;overflow:hidden">
-                <div style="background:#dc2626;height:100%;width:${barW}%;border-radius:4px"></div>
-              </div>
-            </td>
-          </tr>`;
-        })
-        .join("");
-      return `<div style="margin-bottom:20px">
-        <h4 style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#64748b;margin-bottom:10px">Failure Concentration</h4>
-        <table class="summary-table">
-          <thead><tr><th style="width:90px">Key</th><th>Set Name</th><th style="width:70px;text-align:center">Failures</th><th style="width:60px;text-align:center">Rate</th><th style="width:130px">Bar</th></tr></thead>
-          <tbody>${rows}</tbody>
-        </table>
-      </div>`;
-    })()}
-
-    <!-- Never-run tests -->
-    ${(() => {
-      const withNeverRun = sets
-        .map((ts) => {
-          const t = queryBySetId.get(ts.issue_id)?.tests ?? [];
-          const nr = t.filter((x) => x.latest_status?.is_final !== true).length;
-          return { ts, neverRun: nr, total: t.length };
-        })
-        .filter((r) => r.neverRun > 0)
-        .sort((a, b) => b.neverRun - a.neverRun);
-      if (withNeverRun.length === 0) return "";
-      const maxNR = withNeverRun[0]!.neverRun;
-      const rows = withNeverRun
-        .map(({ ts, neverRun: nr, total: t }) => {
-          const pct = t > 0 ? Math.round((nr / t) * 100) : 0;
-          const barW = maxNR > 0 ? Math.round((nr / maxNR) * 100) : 0;
-          return `<tr>
-            <td style="white-space:nowrap;font-family:monospace;font-size:11px;color:#475569">${esc(ts.jira.key)}</td>
-            <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(ts.jira.summary)}</td>
-            <td style="text-align:center;font-weight:700;color:#d97706">${nr}</td>
-            <td style="text-align:center;color:#d97706">${pct}%</td>
-            <td style="width:120px">
-              <div style="background:#fef3c7;border-radius:4px;height:8px;overflow:hidden">
-                <div style="background:#f59e0b;height:100%;width:${barW}%;border-radius:4px"></div>
-              </div>
-            </td>
-          </tr>`;
-        })
-        .join("");
-      return `<div>
-        <h4 style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#64748b;margin-bottom:10px">Never-Run Tests by Set</h4>
-        <table class="summary-table">
-          <thead><tr><th style="width:90px">Key</th><th>Set Name</th><th style="width:80px;text-align:center">Never Run</th><th style="width:60px;text-align:center">Rate</th><th style="width:130px">Bar</th></tr></thead>
-          <tbody>${rows}</tbody>
-        </table>
-      </div>`;
-    })()}
+  <div class="summary-section" id="sec-analysis" style="page-break-before:always">
+    ${analysisHtml}
   </div>
 
   <div class="footer">
@@ -555,7 +573,263 @@ export function buildCoverageHTML(
     <span>${esc(date)} at ${esc(time)}</span>
   </div>
 
-  <script>window.onload = () => { window.print(); }</script>
+  <script>
+    // Health filter for summary table
+    function filterSummary(chip) {
+      var value = chip.getAttribute('data-health');
+      document.querySelectorAll('.health-chip').forEach(function(c) { c.classList.remove('active'); c.style.borderColor = '#e2e8f0'; c.style.background = '#fff'; });
+      chip.classList.add('active');
+      chip.style.borderColor = 'currentColor';
+      chip.style.background = chip.style.color + '12';
+      document.querySelectorAll('.set-summary-row').forEach(function(row) {
+        if (value === 'all' || row.getAttribute('data-health') === value) {
+          row.style.display = '';
+        } else {
+          row.style.display = 'none';
+        }
+      });
+    }
+
+    // Per-set test status filter
+    function filterTests(chip) {
+      var setIdx = chip.getAttribute('data-set');
+      var status = chip.getAttribute('data-status');
+      document.querySelectorAll('.test-status-chip[data-set="' + setIdx + '"]').forEach(function(c) {
+        c.classList.remove('active');
+        c.style.borderColor = '#e2e8f0';
+        c.style.background = '#fff';
+      });
+      chip.classList.add('active');
+      chip.style.borderColor = 'currentColor';
+      chip.style.background = chip.style.color + '12';
+      document.querySelectorAll('.test-row[data-set="' + setIdx + '"]').forEach(function(row) {
+        if (status === 'ALL' || row.getAttribute('data-status') === status) {
+          row.style.display = '';
+        } else {
+          row.style.display = 'none';
+        }
+      });
+    }
+
+    // Sorting for set tables
+    var sortState = {};
+    function sortSetTable(setIdx, col) {
+      var key = setIdx + '-' + col;
+      var asc = sortState[key] !== 'asc';
+      sortState[key] = asc ? 'asc' : 'desc';
+      // Reset arrows
+      ['key','name','status'].forEach(function(c) {
+        var el = document.getElementById('sort-' + setIdx + '-' + c);
+        if (el) el.textContent = '';
+      });
+      var arrow = document.getElementById('sort-' + setIdx + '-' + col);
+      if (arrow) arrow.textContent = asc ? '▲' : '▼';
+      var tbody = document.querySelector('.set-tbody[data-set="' + setIdx + '"]');
+      if (!tbody) return;
+      var rows = Array.from(tbody.querySelectorAll('.test-row'));
+      rows.sort(function(a, b) {
+        var va, vb;
+        if (col === 'key') { va = a.children[0].textContent; vb = b.children[0].textContent; }
+        else if (col === 'name') { va = a.children[1].textContent; vb = b.children[1].textContent; }
+        else { va = a.getAttribute('data-status'); vb = b.getAttribute('data-status'); }
+        var cmp = (va || '').localeCompare(vb || '');
+        return asc ? cmp : -cmp;
+      });
+      rows.forEach(function(r) { tbody.appendChild(r); });
+    }
+
+    // Expand/Collapse all details
+    function toggleAllDetails(open) {
+      document.querySelectorAll('.section details').forEach(function(d) {
+        d.open = open;
+      });
+    }
+  </script>
 </body>
 </html>`;
+}
+
+// ── Analysis section builder ────────────────────────────────────────────────
+
+function buildAnalysisSection(
+  setDataArr: Array<{
+    ts: XrayTestSet;
+    tests: XrayTestWithStatus[];
+    slices: ReportSlice[];
+    passed: number;
+    failed: number;
+    blocked: number;
+    notRun: number;
+    coveragePct: number;
+    passRatePct: number;
+  }>,
+  total: number,
+  passed: number,
+  failed: number,
+  blocked: number,
+  notRun: number,
+  coveragePct: number,
+  passRatePct: number,
+): string {
+  // ── Algorithmic findings ──────────────────────────────────────────────────
+  const findings: string[] = [];
+
+  // Critical findings
+  const highFailSets = setDataArr.filter(
+    (sd) => sd.tests.length > 0 && sd.failed / sd.tests.length >= 0.5,
+  );
+  const zeroCoverageSets = setDataArr.filter(
+    (sd) => sd.tests.length > 0 && sd.coveragePct === 0,
+  );
+  if (highFailSets.length > 0) {
+    findings.push(
+      `<div class="finding-card critical"><span style="font-size:14px">🔴</span><span>${highFailSets.length} set${highFailSets.length !== 1 ? "s have" : " has"} &gt;50% failure rate: ${highFailSets.map((sd) => `<strong>${esc(sd.ts.jira.key)}</strong>`).join(", ")}</span></div>`,
+    );
+  }
+  if (zeroCoverageSets.length > 0) {
+    findings.push(
+      `<div class="finding-card critical"><span style="font-size:14px">🔴</span><span>${zeroCoverageSets.length} set${zeroCoverageSets.length !== 1 ? "s have" : " has"} 0% coverage: ${zeroCoverageSets.map((sd) => `<strong>${esc(sd.ts.jira.key)}</strong>`).join(", ")}</span></div>`,
+    );
+  }
+
+  // Warnings
+  if (failed > 0) {
+    const failRatePct = total > 0 ? Math.round((failed / total) * 100) : 0;
+    findings.push(
+      `<div class="finding-card warn"><span style="font-size:14px">⚠️</span><span>${failed} test${failed !== 1 ? "s" : ""} failing (${failRatePct}% of total)</span></div>`,
+    );
+  }
+  if (blocked > 0) {
+    findings.push(
+      `<div class="finding-card warn"><span style="font-size:14px">⚠️</span><span>${blocked} test${blocked !== 1 ? "s" : ""} blocked — dependencies or environment issues may exist</span></div>`,
+    );
+  }
+  const mostFailSet = setDataArr.filter((sd) => sd.failed > 0).sort((a, b) => b.failed - a.failed)[0];
+  if (mostFailSet && mostFailSet.failed > 1) {
+    findings.push(
+      `<div class="finding-card warn"><span style="font-size:14px">⚠️</span><span>Most failures concentrated in <strong>${esc(mostFailSet.ts.jira.key)}</strong> (${mostFailSet.failed} failures)</span></div>`,
+    );
+  }
+
+  // Positive findings
+  const fullyPassingSets = setDataArr.filter(
+    (sd) => sd.tests.length > 0 && sd.failed === 0 && sd.notRun === 0,
+  );
+  if (fullyPassingSets.length > 0) {
+    findings.push(
+      `<div class="finding-card ok"><span style="font-size:14px">✅</span><span>${fullyPassingSets.length} of ${setDataArr.length} set${fullyPassingSets.length !== 1 ? "s" : ""} fully passing</span></div>`,
+    );
+  }
+  if (coveragePct === 100) {
+    findings.push(
+      `<div class="finding-card ok"><span style="font-size:14px">✅</span><span>Full coverage achieved — all tests have been executed at least once</span></div>`,
+    );
+  }
+
+  // Info
+  if (notRun > 0) {
+    const gapPct = total > 0 ? Math.round((notRun / total) * 100) : 0;
+    findings.push(
+      `<div class="finding-card info"><span style="font-size:14px">ℹ️</span><span>${notRun} test${notRun !== 1 ? "s" : ""} never executed (${gapPct}% coverage gap)</span></div>`,
+    );
+  }
+
+  // ── KPI tiles ─────────────────────────────────────────────────────────────
+  const kpiTile = (label: string, value: string, sub: string, color: string, bg: string) =>
+    `<div style="border:1px solid #e2e8f0;border-radius:10px;padding:14px 18px;background:${bg};min-width:130px;flex:1">
+      <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#94a3b8;margin-bottom:6px">${esc(label)}</div>
+      <div style="font-size:24px;font-weight:800;color:${color};line-height:1.1">${value}</div>
+      <div style="font-size:11px;color:#64748b;margin-top:4px">${esc(sub)}</div>
+    </div>`;
+
+  const covColor = coveragePct >= 80 ? "#059669" : coveragePct >= 50 ? "#d97706" : "#dc2626";
+  const passColor = passRatePct >= 80 ? "#059669" : passRatePct >= 50 ? "#d97706" : "#dc2626";
+
+  const kpis = `<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:20px">
+    ${kpiTile("Coverage", `${coveragePct}%`, `${total - notRun} of ${total} run`, covColor, coveragePct >= 80 ? "#f0fdf4" : coveragePct >= 50 ? "#fffbeb" : "#fef2f2")}
+    ${kpiTile("Pass Rate", `${passRatePct}%`, `${passed} passed`, passColor, passRatePct >= 80 ? "#f0fdf4" : passRatePct >= 50 ? "#fffbeb" : "#fef2f2")}
+    ${kpiTile("Failures", String(failed), failed === 0 ? "All clear" : `${Math.round((failed / total) * 100)}% of total`, failed === 0 ? "#059669" : "#dc2626", failed === 0 ? "#f0fdf4" : "#fef2f2")}
+    ${kpiTile("Not Run", String(notRun), notRun === 0 ? "Full coverage" : `${100 - coveragePct}% gap`, notRun === 0 ? "#059669" : "#d97706", notRun === 0 ? "#f0fdf4" : "#fffbeb")}
+  </div>`;
+
+  // ── Failure concentration table ───────────────────────────────────────────
+  const withFails = setDataArr
+    .filter((sd) => sd.failed > 0)
+    .sort((a, b) => b.failed - a.failed);
+  const maxF = withFails.length > 0 ? withFails[0]!.failed : 0;
+
+  let failConcentration = "";
+  if (withFails.length > 0) {
+    const failRows = withFails
+      .map((sd) => {
+        const pct = sd.tests.length > 0 ? Math.round((sd.failed / sd.tests.length) * 100) : 0;
+        const barW = maxF > 0 ? Math.round((sd.failed / maxF) * 100) : 0;
+        return `<tr>
+          <td style="white-space:nowrap;font-family:monospace;font-size:11px;color:#475569">${esc(sd.ts.jira.key)}</td>
+          <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(sd.ts.jira.summary)}</td>
+          <td style="text-align:center;font-weight:700;color:#dc2626">${sd.failed}</td>
+          <td style="text-align:center;color:#dc2626">${pct}%</td>
+          <td style="width:120px">
+            <div style="background:#fee2e2;border-radius:4px;height:8px;overflow:hidden">
+              <div style="background:#dc2626;height:100%;width:${barW}%;border-radius:4px"></div>
+            </div>
+          </td>
+        </tr>`;
+      })
+      .join("");
+    failConcentration = `<details open style="margin-bottom:20px">
+      <summary style="cursor:pointer;user-select:none;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#dc2626;margin-bottom:10px;display:flex;align-items:center;gap:6px">
+        <span style="font-size:12px;color:#94a3b8">▸</span> Failure Concentration <span style="font-weight:400;color:#64748b">(${withFails.length} set${withFails.length !== 1 ? "s" : ""})</span>
+      </summary>
+      <table class="summary-table">
+        <thead><tr><th style="width:90px">Key</th><th>Set Name</th><th style="width:70px;text-align:center">Failures</th><th style="width:60px;text-align:center">Rate</th><th style="width:130px">Bar</th></tr></thead>
+        <tbody>${failRows}</tbody>
+      </table>
+    </details>`;
+  }
+
+  // ── Never-run table ───────────────────────────────────────────────────────
+  const withNeverRun = setDataArr
+    .filter((sd) => sd.notRun > 0)
+    .sort((a, b) => b.notRun - a.notRun);
+  const maxNR = withNeverRun.length > 0 ? withNeverRun[0]!.notRun : 0;
+
+  let neverRunSection = "";
+  if (withNeverRun.length > 0) {
+    const nrRows = withNeverRun
+      .map((sd) => {
+        const pct = sd.tests.length > 0 ? Math.round((sd.notRun / sd.tests.length) * 100) : 0;
+        const barW = maxNR > 0 ? Math.round((sd.notRun / maxNR) * 100) : 0;
+        return `<tr>
+          <td style="white-space:nowrap;font-family:monospace;font-size:11px;color:#475569">${esc(sd.ts.jira.key)}</td>
+          <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(sd.ts.jira.summary)}</td>
+          <td style="text-align:center;font-weight:700;color:#d97706">${sd.notRun}</td>
+          <td style="text-align:center;color:#d97706">${pct}%</td>
+          <td style="width:120px">
+            <div style="background:#fef3c7;border-radius:4px;height:8px;overflow:hidden">
+              <div style="background:#f59e0b;height:100%;width:${barW}%;border-radius:4px"></div>
+            </div>
+          </td>
+        </tr>`;
+      })
+      .join("");
+    neverRunSection = `<details open style="margin-bottom:20px">
+      <summary style="cursor:pointer;user-select:none;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#d97706;margin-bottom:10px;display:flex;align-items:center;gap:6px">
+        <span style="font-size:12px;color:#94a3b8">▸</span> Never-Run Tests by Set <span style="font-weight:400;color:#64748b">(${withNeverRun.length} set${withNeverRun.length !== 1 ? "s" : ""})</span>
+      </summary>
+      <table class="summary-table">
+        <thead><tr><th style="width:90px">Key</th><th>Set Name</th><th style="width:80px;text-align:center">Never Run</th><th style="width:60px;text-align:center">Rate</th><th style="width:130px">Bar</th></tr></thead>
+        <tbody>${nrRows}</tbody>
+      </table>
+    </details>`;
+  }
+
+  return `<h3>Analysis</h3>
+    ${kpis}
+    <div style="margin-bottom:20px">
+      <h4 style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#64748b;margin-bottom:10px">Key Findings</h4>
+      ${findings.length > 0 ? findings.join("") : `<div class="finding-card ok"><span style="font-size:14px">✅</span><span>No issues detected</span></div>`}
+    </div>
+    ${failConcentration}
+    ${neverRunSection}`;
 }

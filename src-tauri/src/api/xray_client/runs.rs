@@ -383,6 +383,41 @@ impl XrayClient {
         .await
     }
 
+    /// Fetches status + test identity for each test run in an execution.
+    ///
+    /// Lighter than `get_test_runs` (no steps, iterations, Gherkin, evidence, or
+    /// parameters) but includes the test issue ID and Jira key/summary so that
+    /// version-stats aggregation can track per-test history across executions.
+    /// Page size 100 covers the vast majority of executions in a single call.
+    pub async fn get_test_run_stats(
+        &self,
+        test_execution_issue_id: &str,
+        limit: u32,
+        start: u32,
+    ) -> Result<crate::models::xray::TestRunStatsResult> {
+        let query = r#"
+            query GetTestRunStats($issueId: String!, $limit: Int!, $start: Int) {
+                getTestRuns(testExecIssueIds: [$issueId], limit: $limit, start: $start) {
+                    total
+                    start
+                    limit
+                    results {
+                        status { name }
+                        test {
+                            issueId
+                            jira(fields: ["key", "summary"])
+                        }
+                    }
+                }
+            }
+        "#;
+        self.graphql(
+            query,
+            serde_json::json!({ "issueId": test_execution_issue_id, "limit": limit, "start": start }),
+        )
+        .await
+    }
+
     // ── Get Iteration Step Results (lazy, per test run) ───────────────────────
 
     /// Fetch step results for all iterations of a single test run.

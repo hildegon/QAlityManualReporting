@@ -1,9 +1,19 @@
 import { useMemo, useRef } from "react";
 import { useQueries, useQuery } from "@tanstack/react-query";
-import type { JiraBug, TestExecution, TestRunsPage, TestRunStatusesPage } from "@/types";
+import type { JiraBug, TestExecution, TestRunStatsPage, TestRunStatusesPage } from "@/types";
 import * as api from "../tauri";
 import { FAIL_STATUSES, PASS_STATUSES } from "@/constants/statuses";
-import { queryKeys, STATS_PAGE_SIZE, EXEC_SUMMARY_PAGE_SIZE } from "./queryKeys";
+import { queryKeys, EXEC_SUMMARY_PAGE_SIZE } from "./queryKeys";
+
+// ── Version run statistics ────────────────────────────────────────────────────
+
+/**
+ * Page size for version-stats aggregation. Uses the lightweight
+ * `get_test_run_stats` command (status + test identity only — no steps,
+ * iterations, Gherkin, or evidence), so 100 results per page is fast and
+ * covers most executions in a single call.
+ */
+const VERSION_STATS_PAGE_SIZE = 100;
 
 // ── Version run statistics ────────────────────────────────────────────────────
 
@@ -79,75 +89,69 @@ function classifyHistory(history: TestRunHistory["history"]): TestRunHistory["cl
  * Aggregates test-run status counts AND per-test failure history across all
  * executions in a version.
  *
- * Cache-key safety: phase 1 uses the prefix "version-run-stats" to avoid
- * colliding with the `useInfiniteQuery` cache entries written by `useTestRuns`
- * (which uses `queryKeys.testRuns`). Both hooks call the same Rust command but
- * write incompatible data shapes — regular `TestRunsPage` vs `InfiniteData`.
+ * Cache-key safety: uses the prefix "version-run-stats" to avoid colliding with
+ * the `useInfiniteQuery` cache entries written by `useTestRuns` (which uses
+ * `queryKeys.testRuns`). Both hooks call similar Rust commands but write
+ * incompatible data shapes.
  *
- * Strategy (two-phase parallel fetch):
- *   Phase 1 — fetch page 0 for every execution simultaneously. Each page 0
- *              response carries `total`, letting us compute extra pages needed.
- *   Phase 2 — fire all remaining pages in parallel.
- *   Aggregate — counts and per-test histories are built from every resolved page.
+ * Strategy (single-phase windowed fetch):
+ *   Uses the lightweight `get_test_run_stats` command (status + test identity
+ *   only — no steps, iterations, or Gherkin) with page size 100.  Most
+ *   executions fit in a single page. For larger executions the extra pages are
+ *   derived once the first page settles, added to the same windowed queue, and
+ *   fetched with the same concurrency cap.
  */
 export function useVersionRunStats(executions: TestExecution[], bugs?: JiraBug[]): RunStats {
-  const PAGE_SIZE = STATS_PAGE_SIZE;
-  /** Max parallel API calls per phase to avoid 429 rate-limit errors. */
-  const MAX_CONCURRENT = 4;
+  const PAGE_SIZE = VERSION_STATS_PAGE_SIZE;
+  /** Max parallel API calls to avoid 429 rate-limit errors. */
+  const MAX_CONCURRENT = 6;
 
-  // ── Phase 1: page 0 per execution (windowed) ────────────────────────────────
-  // NOTE: key prefix "version-run-stats" avoids colliding with the InfiniteQuery
-  // cache entries that useTestRuns writes under ["xray", "test-runs", issueId].
-  //
-  // Windowing: only the first (settled + MAX_CONCURRENT) queries are enabled.
-  // As queries settle, the component re-renders and the window advances.
-  const phase1 = useQueries({
-    queries: executions.map((ex) => ({
+  // ── Build the full list of page requests ──────────────────────────────────
+  // Start with page 0 for every execution.  As page-0 results arrive and
+  // reveal `total`, we dynamically expand the list with extra pages.
+  const settledRef = useRef(0);
+
+  // Phase 1: one query per execution (page 0)
+  const page0Queries = useQueries({
+    queries: executions.map((ex, i) => ({
       queryKey: ["version-run-stats", ex.issue_id, 0] as const,
-      queryFn: () => api.getTestRuns(ex.issue_id, PAGE_SIZE, 0),
+      queryFn: () => api.getTestRunStats(ex.issue_id, PAGE_SIZE, 0),
       staleTime: 5 * 60 * 1_000,
       gcTime: Infinity,
-      enabled: executions.length > 0,
+      enabled: executions.length > 0 && i < settledRef.current + MAX_CONCURRENT,
       meta: { persist: true },
     })),
   });
 
-  // Count settled (success | error) phase-1 queries to gate phase 2.
-  const phase1Settled = phase1.filter((q) => q.isSuccess || q.isError).length;
-  const allPhase1Done = phase1Settled === executions.length && executions.length > 0;
+  settledRef.current = page0Queries.filter((q) => q.isSuccess || q.isError).length;
 
-  // ── Phase 2: extra pages derived from phase 1 totals (windowed) ──────────────
+  // Derive extra pages from settled page-0 results
   const extraPageQueries = useMemo(() => {
-    if (!allPhase1Done) return [];
     const queries: { issueId: string; start: number }[] = [];
     for (let i = 0; i < executions.length; i++) {
-      const ex = executions[i];
-      const page0 = phase1[i]?.data;
-      if (!page0 || !ex) continue;
+      const page0 = page0Queries[i]?.data;
+      if (!page0 || !executions[i]) continue;
       for (let start = PAGE_SIZE; start < page0.total; start += PAGE_SIZE) {
-        queries.push({ issueId: ex.issue_id, start });
+        queries.push({ issueId: executions[i]!.issue_id, start });
       }
     }
     return queries;
-  }, [allPhase1Done, executions, PAGE_SIZE, phase1]);
+  }, [executions, PAGE_SIZE, page0Queries]);
 
-  // Track settled count in a ref to avoid dependency cycles while still
-  // advancing the concurrency window on each render.
-  const phase2SettledRef = useRef(0);
+  const extraSettledRef = useRef(0);
 
-  const phase2 = useQueries({
+  const extraQueries = useQueries({
     queries: extraPageQueries.map(({ issueId, start }, i) => ({
       queryKey: ["version-run-stats", issueId, start] as const,
-      queryFn: () => api.getTestRuns(issueId, PAGE_SIZE, start),
+      queryFn: () => api.getTestRunStats(issueId, PAGE_SIZE, start),
       staleTime: 5 * 60 * 1_000,
       gcTime: Infinity,
-      enabled: extraPageQueries.length > 0 && i < phase2SettledRef.current + MAX_CONCURRENT,
+      enabled: extraPageQueries.length > 0 && i < extraSettledRef.current + MAX_CONCURRENT,
       meta: { persist: true },
     })),
   });
 
-  // Update settled count for the next render cycle.
-  phase2SettledRef.current = phase2.filter((q) => q.isSuccess || q.isError).length;
+  extraSettledRef.current = extraQueries.filter((q) => q.isSuccess || q.isError).length;
 
   // ── Aggregate ────────────────────────────────────────────────────────────────
   return useMemo(() => {
@@ -155,14 +159,12 @@ export function useVersionRunStats(executions: TestExecution[], bugs?: JiraBug[]
     const pagesExpected = executions.length + extraPageQueries.length;
 
     // Map from testIssueId → { meta, status per execution (all statuses tracked) }
-    // Storing ALL statuses (not just PASS/FAIL) so the donut chart reflects
-    // every unique test, not just the ones that passed or failed.
     const testMap = new Map<
       string,
       { testKey: string; testSummary: string; byExec: Map<string, string> }
     >();
 
-    const processPage = (page: TestRunsPage | undefined, executionIssueId: string) => {
+    const processPage = (page: TestRunStatsPage | undefined, executionIssueId: string) => {
       if (!page) return;
       pagesLoaded += 1;
       for (const run of page.results) {
@@ -174,17 +176,15 @@ export function useVersionRunStats(executions: TestExecution[], bugs?: JiraBug[]
             byExec: new Map(),
           });
         }
-        // Last write wins if the same test appears on multiple pages of the same
-        // execution (shouldn't happen, but defensive).
         testMap.get(tid)!.byExec.set(executionIssueId, run.status.name);
       }
     };
 
     for (let i = 0; i < executions.length; i++) {
-      processPage(phase1[i]?.data, executions[i]?.issue_id ?? "");
+      processPage(page0Queries[i]?.data, executions[i]?.issue_id ?? "");
     }
     for (let i = 0; i < extraPageQueries.length; i++) {
-      processPage(phase2[i]?.data, extraPageQueries[i]?.issueId ?? "");
+      processPage(extraQueries[i]?.data, extraPageQueries[i]?.issueId ?? "");
     }
 
     // Sort executions by Jira key (ascending = chronological) so that
@@ -199,11 +199,10 @@ export function useVersionRunStats(executions: TestExecution[], bugs?: JiraBug[]
     let total = 0;
 
     for (const [, meta] of testMap) {
-      // Pick the status from the latest execution that contains this test.
       let latestStatus: string | undefined;
       for (const ex of sortedExecs) {
         const s = meta.byExec.get(ex.issue_id);
-        if (s !== undefined) latestStatus = s; // later exec overwrites earlier
+        if (s !== undefined) latestStatus = s;
       }
       if (latestStatus === undefined) continue;
 
@@ -213,12 +212,10 @@ export function useVersionRunStats(executions: TestExecution[], bugs?: JiraBug[]
     }
 
     // Build TestRunHistory only for tests that had at least one failure/block.
-    // The history spans all executions (unchanged behaviour).
     const allLoaded = pagesLoaded >= pagesExpected && pagesExpected > 0;
     const failedTests: TestRunHistory[] = [];
 
     if (allLoaded) {
-      // Build a map: testKey → bug keys that link to it (via Jira issuelinks).
       const testKeyToBugKeys = new Map<string, string[]>();
       for (const bug of bugs ?? []) {
         for (const link of bug.fields.issue_links ?? []) {
@@ -234,8 +231,6 @@ export function useVersionRunStats(executions: TestExecution[], bugs?: JiraBug[]
       }
 
       for (const [testIssueId, meta] of testMap) {
-        // Only include tests whose byExec map contains a PASS or FAIL status
-        // (same gate as before — TODO/EXECUTING tests are excluded from history).
         const hasPassOrFail = [...meta.byExec.values()].some(
           (s) => FAIL_STATUSES.has(s.toUpperCase()) || PASS_STATUSES.has(s.toUpperCase()),
         );
@@ -264,7 +259,6 @@ export function useVersionRunStats(executions: TestExecution[], bugs?: JiraBug[]
         });
       }
 
-      // Sort: still failing first, then flaky, then fixed, then never-passed
       const ORDER: Record<TestRunHistory["classification"], number> = {
         failing: 0,
         flaky: 1,
@@ -275,7 +269,7 @@ export function useVersionRunStats(executions: TestExecution[], bugs?: JiraBug[]
     }
 
     return { counts, total, pagesLoaded, pagesExpected, failedTests };
-  }, [executions, extraPageQueries, phase1, phase2, bugs]);
+  }, [executions, extraPageQueries, page0Queries, extraQueries, bugs]);
 }
 
 // ── Execution run summary ─────────────────────────────────────────────────────

@@ -1,8 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Download, FileText } from "lucide-react";
 import { save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { openPath } from "@tauri-apps/plugin-opener";
-import { useBugsByVersion, useVersionIssues, useVersionRunStats } from "@/services/queries";
+import { useBugsByVersion, useVersionIssues, useVersionRunStats, useVersionRelatedWork, useConfluencePage } from "@/services/queries";
 import { VersionKpiStrip } from "./KpiStrip";
 import { ReleaseReadinessChecklist } from "./ReleaseReadinessChecklist";
 import { VersionDashboard } from "./VersionDashboard";
@@ -10,6 +10,7 @@ import { BugsPanel } from "./BugsPanel";
 import { VersionIssuesPanel } from "./VersionIssuesPanel";
 import { ExecutionRow } from "./ExecutionRow";
 import { FeedbackSummary } from "./FeedbackSummary";
+import { RELATED_WORK_TITLE_PREFIX, parseIssueRows } from "./FeedbackPanel";
 import { buildVersionReportHTML } from "./htmlVersionReportBuilder";
 import * as api from "@/services/tauri";
 import type { JiraVersion, TestExecution } from "@/types";
@@ -38,6 +39,22 @@ export function VersionContent({
   const { data: versionIssues } = useVersionIssues(projectKey, version.name);
   const stats = useVersionRunStats(executions, bugs);
 
+  // Feedback data (mirrors FeedbackSummary pipeline)
+  const { data: relatedWork } = useVersionRelatedWork(version.id);
+  const feedbackEntry = useMemo(
+    () => relatedWork?.find((rw) => rw.title?.startsWith(RELATED_WORK_TITLE_PREFIX)),
+    [relatedWork],
+  );
+  const feedbackPageId = useMemo(() => {
+    if (!feedbackEntry?.url) return undefined;
+    return feedbackEntry.url.match(/\/pages\/(\d+)/)?.[1];
+  }, [feedbackEntry?.url]);
+  const { data: feedbackPage } = useConfluencePage(feedbackPageId);
+  const feedbackRows = useMemo(
+    () => parseIssueRows(feedbackPage?.body_storage ?? ""),
+    [feedbackPage?.body_storage],
+  );
+
   const [isExporting, setIsExporting] = useState(false);
 
   const allLoaded = stats.pagesLoaded >= stats.pagesExpected && stats.pagesExpected > 0;
@@ -51,14 +68,19 @@ export function VersionContent({
     if (!path) return;
     setIsExporting(true);
     try {
-      const html = buildVersionReportHTML({
+      const feedbackData = feedbackRows.length > 0
+        ? { rows: feedbackRows, ...(feedbackEntry?.url ? { confluenceUrl: feedbackEntry.url } : {}) }
+        : undefined;
+      const reportParams: Parameters<typeof buildVersionReportHTML>[0] = {
         version,
         projectKey,
         stats,
         bugs: bugs ?? [],
         versionIssues: versionIssues ?? [],
         executions,
-      });
+      };
+      if (feedbackData) reportParams.feedback = feedbackData;
+      const html = buildVersionReportHTML(reportParams);
       await api.writeTextFile(path, html);
       await openPath(path);
     } finally {

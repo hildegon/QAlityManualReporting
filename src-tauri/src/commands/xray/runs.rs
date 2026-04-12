@@ -2,8 +2,8 @@ use tauri::{AppHandle, State};
 
 use crate::{
     models::xray::{
-        TestRunIteration, TestRunStatusesPage, TestRunsPage, UpdateTestRunStatusInput,
-        UpdateTestRunStepData,
+        TestRunIteration, TestRunStatsPage, TestRunStatusesPage, TestRunsPage,
+        UpdateTestRunStatusInput, UpdateTestRunStepData,
     },
     state::XrayClientState,
 };
@@ -68,6 +68,31 @@ pub async fn get_test_run_statuses(
     let client = get_xray_client(&app, &state).await?;
     let result = client
         .get_test_run_statuses(
+            &test_execution_issue_id,
+            limit.unwrap_or(100),
+            start.unwrap_or(0),
+        )
+        .await
+        .map_err(format_err)?;
+    Ok(result.test_runs)
+}
+
+/// Fetch status + test identity for each run in an execution (version stats).
+///
+/// Lighter than `get_test_runs` (no steps, iterations, Gherkin, or evidence)
+/// but includes the test issue ID and Jira key/summary needed for per-test
+/// history aggregation on the version dashboard.
+#[tauri::command]
+pub async fn get_test_run_stats(
+    app: AppHandle,
+    state: State<'_, XrayClientState>,
+    test_execution_issue_id: String,
+    limit: Option<u32>,
+    start: Option<u32>,
+) -> Result<TestRunStatsPage, String> {
+    let client = get_xray_client(&app, &state).await?;
+    let result = client
+        .get_test_run_stats(
             &test_execution_issue_id,
             limit.unwrap_or(100),
             start.unwrap_or(0),

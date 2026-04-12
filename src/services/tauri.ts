@@ -28,6 +28,7 @@ import type {
   TestRunIteration,
   TestPlan,
   TestRunsPage,
+  TestRunStatsPage,
   TestRunStatusesPage,
   TestSetMembershipsResponse,
   VersionRelatedWork,
@@ -217,6 +218,13 @@ export const getTestRunStatuses = (
   start?: number,
 ): Promise<TestRunStatusesPage> =>
   invoke("get_test_run_statuses", { testExecutionIssueId, limit, start });
+
+export const getTestRunStats = (
+  testExecutionIssueId: string,
+  limit?: number,
+  start?: number,
+): Promise<TestRunStatsPage> =>
+  invoke("get_test_run_stats", { testExecutionIssueId, limit, start });
 
 export const getIterationStepResults = (testRunId: string): Promise<TestRunIteration[]> =>
   invoke("get_iteration_step_results", { testRunId });

@@ -324,6 +324,28 @@ pub struct TestRunStatusesResult {
     pub test_runs: TestRunStatusesPage,
 }
 
+/// Lightweight test-run projection for version-stats aggregation.
+/// Returns only status + test identity — no steps, iterations, or Gherkin.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TestRunStatEntry {
+    pub status: TestRunStatus,
+    pub test: TestRunTest,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TestRunStatsPage {
+    pub total: u32,
+    pub start: Option<u32>,
+    pub limit: Option<u32>,
+    pub results: Vec<TestRunStatEntry>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TestRunStatsResult {
+    #[serde(rename(deserialize = "getTestRuns"))]
+    pub test_runs: TestRunStatsPage,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TestRunIterationsResponse {
     pub iterations: Option<TestRunIterationsPage>,

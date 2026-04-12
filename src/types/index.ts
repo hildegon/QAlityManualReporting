@@ -521,6 +521,22 @@ export interface TestRunStatusesPage {
   results: TestRunStatusEntry[];
 }
 
+/** Lightweight test-run entry for version-stats aggregation (status + test identity). */
+export interface TestRunStatEntry {
+  status: TestRunStatus;
+  test: {
+    issue_id: string;
+    jira: { key: string; summary: string };
+  };
+}
+
+export interface TestRunStatsPage {
+  total: number;
+  start?: number;
+  limit?: number;
+  results: TestRunStatEntry[];
+}
+
 // ── Xray Test Detail ──────────────────────────────────────────────────────────
 
 export interface XrayTestStepDefinition {
