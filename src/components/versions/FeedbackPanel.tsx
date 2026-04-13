@@ -14,6 +14,7 @@ import {
   Paperclip,
   Pencil,
   Plus,
+  Trash2,
   Save,
   Search,
   Undo2,
@@ -48,10 +49,15 @@ import type { JiraVersion, JiraUser, ConfluenceAttachment } from "@/types";
 
 // ── Issue row parsed from the Confluence table ──────────────────────────────
 
+export type IssueStatus = "Open" | "In Progress" | "Done";
+export type IssuePriority = "" | "Blocker" | "Critical" | "High" | "Medium" | "Low" | "Trivial";
+
 export interface IssueRow {
-  status: string;
+  /** Position of this row's `<tr>` in the raw HTML tbody (0-based). */
+  rawIndex: number;
+  status: IssueStatus;
   jiraTicket: string;
-  priority: string;
+  priority: IssuePriority;
   description: string;
   comment: string;
   assignedDeveloper: string;
@@ -82,6 +88,109 @@ function escHtml(s: string): string {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
+}
+
+/**
+ * Normalise a raw status cell value to one of the three canonical statuses.
+ * Handles common typos and casing variants. Anything unrecognised → "Open".
+ */
+function normalizeStatus(raw: string): IssueStatus {
+  const s = raw.toLowerCase().trim();
+
+  // ── Done ────────────────────────────────────────────────────────────────────
+  if (
+    s === "done" ||
+    s === "closed" ||
+    s === "resolved" ||
+    s.includes("✅") ||
+    s.startsWith("complet") ||
+    s.startsWith("finish")
+  )
+    return "Done";
+
+  // ── In Progress ─────────────────────────────────────────────────────────────
+  // Exact & common hyphenated/spaceless forms
+  if (s === "in progress" || s === "in-progress" || s === "inprogress") return "In Progress";
+  // Common typos
+  if (
+    s === "in progres" ||      // missing final s
+    s === "in proggress" ||    // double g
+    s === "in prgress" ||      // missing o
+    s === "in progrss" ||      // missing e
+    s === "in progresss" ||    // extra s
+    s === "inprogres" ||       // no space + missing s
+    s === "in progress"        // already covered above, kept for symmetry
+  )
+    return "In Progress";
+  // Emoji shorthand
+  if (s.includes("🔧")) return "In Progress";
+  // Fuzzy catch-all: strip spaces / hyphens / underscores and check prefix
+  const compact = s.replace(/[\s\-_]/g, "");
+  if (compact.startsWith("inprog")) return "In Progress";
+
+  // ── Open (default) ──────────────────────────────────────────────────────────
+  return "Open";
+}
+
+/**
+ * Normalise a raw priority cell value to one of the canonical priorities.
+ * Handles common typos, aliases, and casing variants.
+ * Returns "" (no priority) for empty or unrecognised values.
+ */
+function normalizePriority(raw: string): IssuePriority {
+  const s = raw.toLowerCase().trim();
+  if (!s) return "";
+
+  // ── Blocker ──────────────────────────────────────────────────────────────────
+  if (s === "blocker" || s === "blocking" || s === "block" || s === "blokcer" || s === "blocekr")
+    return "Blocker";
+
+  // ── Critical ─────────────────────────────────────────────────────────────────
+  if (
+    s === "critical" ||
+    s === "crit" ||
+    s === "critica" ||    // missing l
+    s === "critcal" ||    // transposed i/c
+    s === "criticl" ||    // missing a
+    s === "critial"       // missing c
+  )
+    return "Critical";
+
+  // ── High ─────────────────────────────────────────────────────────────────────
+  if (s === "high" || s === "hi" || s === "hgh" || s === "major" || s === "hight")
+    return "High";
+
+  // ── Medium ───────────────────────────────────────────────────────────────────
+  if (
+    s === "medium" ||
+    s === "med" ||
+    s === "normal" ||
+    s === "moderate" ||
+    s === "mid" ||
+    s === "mdium" ||      // missing e
+    s === "medum" ||      // missing i
+    s === "medim" ||      // missing u
+    s === "mediun"        // m→n
+  )
+    return "Medium";
+
+  // ── Low ──────────────────────────────────────────────────────────────────────
+  if (s === "low" || s === "lo" || s === "lw" || s === "minor")
+    return "Low";
+
+  // ── Trivial ──────────────────────────────────────────────────────────────────
+  if (
+    s === "trivial" ||
+    s === "triv" ||
+    s === "trivil" ||     // missing a
+    s === "trivail" ||    // transposed a/i
+    s === "negligible" ||
+    s === "negligble"
+  )
+    return "Trivial";
+
+  // ── Unrecognised → no priority ───────────────────────────────────────────────
+  return "";
 }
 
 /** Extract attachment filenames from `<ac:image>` / `<ri:attachment>` tags in raw HTML. */
@@ -116,8 +225,10 @@ export function parseIssueRows(html: string): IssueRow[] {
   const rows: IssueRow[] = [];
   const trRegex = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
   let trMatch: RegExpExecArray | null;
+  let trIndex = 0;
 
   while ((trMatch = trRegex.exec(tbodyMatch[1])) !== null) {
+    const currentTrIndex = trIndex++;
     const rawCells: string[] = [];
     const rawTdAttrs: string[] = [];
     const tdRegex = /<td([^>]*)>([\s\S]*?)<\/td>/gi;
@@ -135,7 +246,7 @@ export function parseIssueRows(html: string): IssueRow[] {
     const comment = stripHtml(commentRaw);
     const descriptionAttachments = extractAttachmentFilenames(descRaw);
     const commentAttachments = extractAttachmentFilenames(commentRaw);
-    const priority = stripHtml(rawCells[2] ?? "");
+    const priority = normalizePriority(stripHtml(rawCells[2] ?? ""));
     const jiraTicket = stripHtml(rawCells[3] ?? "");
 
     const devRaw = rawCells[4] ?? "";
@@ -143,29 +254,23 @@ export function parseIssueRows(html: string): IssueRow[] {
       /<ri:user\s+[^>]*ri:account-id="([^"]+)"[^>]*\/?>/i,
     );
     const developerAccountId = mentionMatch?.[1] ?? "";
-    // Primary: data-dev-name attribute on <td>; fallback: stripped text content
-    const devNameFromAttr =
-      rawTdAttrs[4]?.match(/data-dev-name="([^"]*)"/)?.[1] ?? "";
+    // Primary: data-dev-name attribute on <td>; fallback: stripped text content.
+    // Run through stripHtml to decode any HTML entities (e.g. &amp; → &) that
+    // were introduced by escHtml when the row was originally written.
+    const devNameFromAttr = stripHtml(
+      rawTdAttrs[4]?.match(/data-dev-name="([^"]*)"/)?.[1] ?? "",
+    );
     const dev = devNameFromAttr || stripHtml(devRaw);
 
-    const status = stripHtml(rawCells[5] ?? "");
+    const status = normalizeStatus(stripHtml(rawCells[5] ?? ""));
+    const isDone = status === "Done";
+    const isInProgress = status === "In Progress";
 
     const hasContent = jiraTicket || priority || description || comment || dev;
     if (!hasContent) continue;
 
-    const statusLower = status.toLowerCase().trim();
-    const isDone =
-      statusLower === "done" ||
-      statusLower === "closed" ||
-      statusLower === "resolved" ||
-      statusLower.includes("✅");
-    const isInProgress =
-      statusLower === "in progress" ||
-      statusLower === "in-progress" ||
-      statusLower === "inprogress" ||
-      statusLower.includes("🔧");
-
     rows.push({
+      rawIndex: currentTrIndex,
       status, jiraTicket, priority, description, comment,
       assignedDeveloper: dev, developerAccountId, isDone, isInProgress,
       descriptionAttachments, commentAttachments,
@@ -192,7 +297,7 @@ function injectIssueRow(
   html: string,
   fields: {
     jiraTicket: string;
-    priority: string;
+    priority: IssuePriority;
     description: string;
     comment: string;
     developer: string;
@@ -214,9 +319,12 @@ function injectIssueRow(
     `<td><p>Open</p></td>` +
     `</tr>`;
 
-  // Find the Issues table's </tbody> and insert before it
+  // Find the Issues table's </tbody> and insert before it.
+  // Use a replacer function to avoid $ special-character interpretation in row content.
   const pattern = /(<h2[^>]*>\s*Issues\s*<\/h2>\s*<table[^>]*>[\s\S]*?<tbody>)([\s\S]*?)(<\/tbody>)/i;
-  return html.replace(pattern, `$1$2${row}\n  $3`);
+  return html.replace(pattern, (_m, before: string, content: string, after: string) =>
+    `${before}${content}${row}\n  ${after}`,
+  );
 }
 
 /**
@@ -227,9 +335,9 @@ function replaceIssueRow(
   html: string,
   rowIndex: number,
   fields: {
-    status: string;
+    status: IssueStatus;
     jiraTicket: string;
-    priority: string;
+    priority: IssuePriority;
     description: string;
     comment: string;
     developer: string;
@@ -267,12 +375,39 @@ function replaceIssueRow(
     `<td><p>${escHtml(fields.status)}</p></td>` +
     `</tr>`;
 
-  return html.replace(pattern, `${prefix}${rows.join("\n  ")}${suffix}`);
+  // Use a replacer function to avoid $ special-character interpretation
+  return html.replace(pattern, () => `${prefix}${rows.join("\n  ")}${suffix}`);
+}
+
+/**
+ * Remove the Nth `<tr>` inside the Issues `<tbody>`.
+ * `rowIndex` is 0-based (the raw `<tr>` position). Returns the updated HTML string.
+ */
+function deleteIssueRow(html: string, rowIndex: number): string {
+  const pattern =
+    /(<h2[^>]*>\s*Issues\s*<\/h2>\s*<table[^>]*>[\s\S]*?<tbody>)([\s\S]*?)(<\/tbody>)/i;
+  const match = html.match(pattern);
+  if (!match) return html;
+
+  const prefix = match[1]!;
+  const tbody = match[2]!;
+  const suffix = match[3]!;
+
+  const rows: string[] = [];
+  const trRegex = /<tr[^>]*>[\s\S]*?<\/tr>/gi;
+  let m: RegExpExecArray | null;
+  while ((m = trRegex.exec(tbody)) !== null) rows.push(m[0]);
+
+  if (rowIndex < 0 || rowIndex >= rows.length) return html;
+
+  rows.splice(rowIndex, 1);
+
+  return html.replace(pattern, () => `${prefix}${rows.join("\n  ")}${suffix}`);
 }
 
 interface AddIssueForm {
   jiraTicket: string;
-  priority: string;
+  priority: IssuePriority;
   description: string;
   comment: string;
   developer: string;
@@ -439,9 +574,9 @@ export function FeedbackPanel({ version }: FeedbackPanelProps) {
     async (
       rowIndex: number,
       fields: {
-        status: string;
+        status: IssueStatus;
         jiraTicket: string;
-        priority: string;
+        priority: IssuePriority;
         description: string;
         comment: string;
         developer: string;
@@ -483,6 +618,20 @@ export function FeedbackPanel({ version }: FeedbackPanelProps) {
       });
     },
     [handleEditIssue],
+  );
+
+  const handleDeleteIssue = useCallback(
+    async (rowIndex: number) => {
+      if (!page || page.version_number == null) return;
+      const updatedHtml = deleteIssueRow(page.body_storage ?? "", rowIndex);
+      await updatePage.mutateAsync({
+        pageId: page.id,
+        versionNumber: page.version_number,
+        title: page.title,
+        body: updatedHtml,
+      });
+    },
+    [page, updatePage],
   );
 
   // Parse issue rows — must be above early returns to satisfy Rules of Hooks
@@ -558,7 +707,7 @@ export function FeedbackPanel({ version }: FeedbackPanelProps) {
 
   const filteredRows = useMemo(() => {
     return issueRows.filter((r) => {
-      if (filterPriority !== "all" && r.priority.toLowerCase() !== filterPriority.toLowerCase()) {
+      if (filterPriority !== "all" && r.priority !== filterPriority) {
         return false;
       }
       if (filterDeveloper !== "all") {
@@ -782,8 +931,8 @@ export function FeedbackPanel({ version }: FeedbackPanelProps) {
                   <PriorityChip
                     key={p}
                     label={p}
-                    active={filterPriority.toLowerCase() === p.toLowerCase()}
-                    onClick={() => setFilterPriority(filterPriority.toLowerCase() === p.toLowerCase() ? "all" : p)}
+                    active={filterPriority === p}
+                    onClick={() => setFilterPriority(filterPriority === p ? "all" : p)}
                   />
                 ))}
               </div>
@@ -848,7 +997,7 @@ export function FeedbackPanel({ version }: FeedbackPanelProps) {
                 />
                 <select
                   value={addForm.priority}
-                  onChange={(e) => setAddForm((f) => ({ ...f, priority: e.target.value }))}
+                  onChange={(e) => setAddForm((f) => ({ ...f, priority: e.target.value as IssuePriority }))}
                   className="rounded border border-slate-200 bg-white px-2.5 py-1.5 text-xs
                     text-slate-700 focus:border-blue-400 focus:outline-none
                     dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
@@ -946,17 +1095,17 @@ export function FeedbackPanel({ version }: FeedbackPanelProps) {
           ) : (
             <div className="flex flex-col gap-2">
               {filteredRows.map((row) => {
-                const idx = issueRows.indexOf(row);
                 return (
                   <IssueCard
-                    key={idx}
+                    key={row.rawIndex}
                     row={row}
-                    rowIndex={idx}
+                    rowIndex={row.rawIndex}
                     isSaving={updatePage.isPending}
                     pageId={mapping!.pageId}
                     allAttachments={attachments ?? []}
-                    onToggle={() => void handleToggleIssue(idx, row)}
-                    onEdit={(fields) => void handleEditIssue(idx, fields)}
+                    onToggle={() => void handleToggleIssue(row.rawIndex, row)}
+                    onEdit={(fields) => void handleEditIssue(row.rawIndex, fields)}
+                    onDelete={() => void handleDeleteIssue(row.rawIndex)}
                   />
                 );
               })}
@@ -1657,9 +1806,9 @@ interface IssueCardProps {
   allAttachments: ConfluenceAttachment[];
   onToggle: () => void;
   onEdit: (fields: {
-    status: string;
+    status: IssueStatus;
     jiraTicket: string;
-    priority: string;
+    priority: IssuePriority;
     description: string;
     comment: string;
     developer: string;
@@ -1667,14 +1816,16 @@ interface IssueCardProps {
     descriptionAttachments?: string[];
     commentAttachments?: string[];
   }) => void;
+  onDelete: () => void;
 }
 
-function IssueCard({ row, rowIndex: _rowIndex, isSaving, pageId, allAttachments, onToggle, onEdit }: IssueCardProps) {
+function IssueCard({ row, rowIndex: _rowIndex, isSaving, pageId, allAttachments, onToggle, onEdit, onDelete }: IssueCardProps) {
   const [isEditing, setIsEditing] = useState(false);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [draftDescAttachments, setDraftDescAttachments] = useState<string[]>(row.descriptionAttachments);
   const [draftCommentAttachments, setDraftCommentAttachments] = useState<string[]>(row.commentAttachments);
   const [draft, setDraft] = useState({
-    status: row.status || "Open",
+    status: row.status,
     jiraTicket: row.jiraTicket,
     priority: row.priority,
     description: row.description,
@@ -1685,7 +1836,7 @@ function IssueCard({ row, rowIndex: _rowIndex, isSaving, pageId, allAttachments,
 
   const startEdit = () => {
     setDraft({
-      status: row.status || "Open",
+      status: row.status,
       jiraTicket: row.jiraTicket,
       priority: row.priority,
       description: row.description,
@@ -1703,6 +1854,8 @@ function IssueCard({ row, rowIndex: _rowIndex, isSaving, pageId, allAttachments,
   const saveEdit = () => {
     onEdit({
       ...draft,
+      status: normalizeStatus(draft.status),
+      priority: normalizePriority(draft.priority),
       descriptionAttachments: draftDescAttachments,
       commentAttachments: draftCommentAttachments,
     });
@@ -1757,7 +1910,7 @@ function IssueCard({ row, rowIndex: _rowIndex, isSaving, pageId, allAttachments,
           />
           <select
             value={draft.priority}
-            onChange={(e) => setDraft((d) => ({ ...d, priority: e.target.value }))}
+            onChange={(e) => setDraft((d) => ({ ...d, priority: e.target.value as IssuePriority }))}
             className="rounded border border-slate-200 bg-white px-2.5 py-1.5 text-xs
               text-slate-700 focus:border-blue-400 focus:outline-none
               dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
@@ -1772,7 +1925,7 @@ function IssueCard({ row, rowIndex: _rowIndex, isSaving, pageId, allAttachments,
           </select>
           <select
             value={draft.status}
-            onChange={(e) => setDraft((d) => ({ ...d, status: e.target.value }))}
+            onChange={(e) => setDraft((d) => ({ ...d, status: e.target.value as IssueStatus }))}
             className="rounded border border-slate-200 bg-white px-2.5 py-1.5 text-xs
               text-slate-700 focus:border-blue-400 focus:outline-none
               dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
@@ -1869,7 +2022,7 @@ function IssueCard({ row, rowIndex: _rowIndex, isSaving, pageId, allAttachments,
                     : "bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400",
               )}
             >
-              {row.status || "Open"}
+              {row.status}
             </span>
             <button
               onClick={startEdit}
@@ -1882,6 +2035,40 @@ function IssueCard({ row, rowIndex: _rowIndex, isSaving, pageId, allAttachments,
             >
               <Pencil className="h-3 w-3" />
             </button>
+            {confirmingDelete ? (
+              <span className="flex items-center gap-1 opacity-100">
+                <span className="text-[10px] text-red-500">Delete?</span>
+                <button
+                  onClick={() => { onDelete(); setConfirmingDelete(false); }}
+                  disabled={isSaving}
+                  title="Confirm delete"
+                  className="rounded p-1 text-red-500 hover:bg-red-50 hover:text-red-700
+                    dark:hover:bg-red-950 dark:hover:text-red-300"
+                >
+                  <Check className="h-3 w-3" />
+                </button>
+                <button
+                  onClick={() => setConfirmingDelete(false)}
+                  title="Cancel"
+                  className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600
+                    dark:hover:bg-slate-700 dark:hover:text-slate-300"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </span>
+            ) : (
+              <button
+                onClick={() => setConfirmingDelete(true)}
+                disabled={isSaving}
+                title="Delete issue"
+                className="rounded p-1 text-slate-400 opacity-0 transition-opacity
+                  hover:bg-red-50 hover:text-red-500
+                  group-hover:opacity-100
+                  dark:hover:bg-red-950 dark:hover:text-red-400"
+              >
+                <Trash2 className="h-3 w-3" />
+              </button>
+            )}
           </div>
 
           {/* Description */}
@@ -1947,17 +2134,15 @@ function IssueCard({ row, rowIndex: _rowIndex, isSaving, pageId, allAttachments,
 
 // ── Priority badge ───────────────────────────────────────────────────────────
 
-function PriorityBadge({ priority }: { priority: string }) {
-  const lower = priority.toLowerCase();
-  let color =
-    "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400";
-  if (lower.includes("critical") || lower.includes("blocker")) {
+function PriorityBadge({ priority }: { priority: IssuePriority }) {
+  let color = "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400";
+  if (priority === "Blocker" || priority === "Critical") {
     color = "bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300";
-  } else if (lower.includes("high") || lower.includes("major")) {
+  } else if (priority === "High") {
     color = "bg-orange-100 text-orange-700 dark:bg-orange-950 dark:text-orange-300";
-  } else if (lower.includes("medium") || lower.includes("normal")) {
+  } else if (priority === "Medium") {
     color = "bg-yellow-100 text-yellow-700 dark:bg-yellow-950 dark:text-yellow-300";
-  } else if (lower.includes("low") || lower.includes("minor") || lower.includes("trivial")) {
+  } else if (priority === "Low" || priority === "Trivial") {
     color = "bg-blue-100 text-blue-600 dark:bg-blue-950 dark:text-blue-300";
   }
 

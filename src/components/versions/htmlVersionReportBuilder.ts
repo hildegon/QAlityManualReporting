@@ -635,14 +635,16 @@ function buildExecutionsSection(executions: TestExecution[]): string {
 // ── Feedback section ──────────────────────────────────────────────────────────
 
 const FEEDBACK_PRIORITY_COLORS: Record<string, { dot: string; bg: string; fg: string }> = {
-  critical: { dot: "#ef4444", bg: "#fef2f2", fg: "#dc2626" },
-  high:     { dot: "#f97316", bg: "#fff7ed", fg: "#c2410c" },
-  medium:   { dot: "#eab308", bg: "#fefce8", fg: "#a16207" },
-  low:      { dot: "#3b82f6", bg: "#eff6ff", fg: "#1d4ed8" },
+  Blocker:  { dot: "#ef4444", bg: "#fef2f2", fg: "#dc2626" },
+  Critical: { dot: "#ef4444", bg: "#fef2f2", fg: "#dc2626" },
+  High:     { dot: "#f97316", bg: "#fff7ed", fg: "#c2410c" },
+  Medium:   { dot: "#eab308", bg: "#fefce8", fg: "#a16207" },
+  Low:      { dot: "#3b82f6", bg: "#eff6ff", fg: "#1d4ed8" },
+  Trivial:  { dot: "#3b82f6", bg: "#eff6ff", fg: "#1d4ed8" },
 };
 
 function feedbackPriorityStyle(priority: string): { dot: string; bg: string; fg: string } {
-  return FEEDBACK_PRIORITY_COLORS[priority.toLowerCase()] ?? { dot: "#94a3b8", bg: "#f8fafc", fg: "#475569" };
+  return FEEDBACK_PRIORITY_COLORS[priority] ?? { dot: "#94a3b8", bg: "#f8fafc", fg: "#475569" };
 }
 
 function buildFeedbackSection(feedback: FeedbackReportData | undefined): string {
@@ -657,11 +659,11 @@ function buildFeedbackSection(feedback: FeedbackReportData | undefined): string 
 
   const priorityCounts: Record<string, number> = {};
   for (const r of openItems) {
-    const key = (r.priority || "unset").toLowerCase();
+    const key = r.priority || "unset";
     priorityCounts[key] = (priorityCounts[key] ?? 0) + 1;
   }
 
-  const PRIO_ORDER = ["critical", "high", "medium", "low"];
+  const PRIO_ORDER = ["Blocker", "Critical", "High", "Medium", "Low", "Trivial"];
   const sortedPriorities = Object.entries(priorityCounts).sort(([a], [b]) => {
     const ai = PRIO_ORDER.indexOf(a);
     const bi = PRIO_ORDER.indexOf(b);
@@ -730,7 +732,7 @@ function buildFeedbackSection(feedback: FeedbackReportData | undefined): string 
         ? `<span style="border-radius:4px;background:${prioStyle.bg};color:${prioStyle.fg};padding:2px 6px;font-size:10px;font-weight:600">${esc(r.priority)}</span>`
         : `<span style="color:#94a3b8;font-size:10px">—</span>`;
 
-      const statusIcon = r.isDone ? "✅" : r.isInProgress ? "🔄" : r.status === "⚠" ? "⚠️" : "⬜";
+      const statusIcon = r.isDone ? "✅" : r.isInProgress ? "🔄" : "⬜";
 
       const descTrunc = r.description.length > 80 ? r.description.slice(0, 80) + "…" : r.description;
       const commentTrunc = r.comment.length > 80 ? r.comment.slice(0, 80) + "…" : r.comment;
