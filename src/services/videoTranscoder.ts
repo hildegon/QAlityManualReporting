@@ -6,7 +6,7 @@
 import { FFmpeg } from "@ffmpeg/ffmpeg";
 import { toBlobURL } from "@ffmpeg/util";
 
-const NEEDS_TRANSCODE = new Set(["avi", "mkv"]);
+const NEEDS_TRANSCODE = new Set(["avi", "mkv", "webm", "mov"]);
 
 let ffmpeg: FFmpeg | null = null;
 let loadPromise: Promise<void> | null = null;
@@ -25,22 +25,23 @@ async function ensureLoaded(): Promise<FFmpeg> {
   if (!loadPromise) {
     ffmpeg = new FFmpeg();
     loadPromise = (async () => {
-      const baseURL = "https://unpkg.com/@ffmpeg/core@0.12.10/dist/esm";
-      console.log("[FFmpeg] Loading WASM core from CDN…");
+      // Try local bundled files first — always works in production (no network needed)
       try {
+        console.log("[FFmpeg] Loading WASM core from local bundle…");
+        await ffmpeg!.load({
+          coreURL: await toBlobURL("/ffmpeg/ffmpeg-core.js", "text/javascript"),
+          wasmURL: await toBlobURL("/ffmpeg/ffmpeg-core.wasm", "application/wasm"),
+        });
+        console.log("[FFmpeg] WASM core loaded from local bundle");
+      } catch (localErr) {
+        // Local files not available (e.g. unit-test environment) — fall back to CDN
+        console.warn("[FFmpeg] Local bundle failed, trying CDN fallback…", localErr);
+        const baseURL = "https://unpkg.com/@ffmpeg/core@0.12.10/dist/esm";
         await ffmpeg!.load({
           coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, "text/javascript"),
           wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, "application/wasm"),
         });
-        console.log("[FFmpeg] WASM core loaded successfully");
-      } catch (err) {
-        console.error("[FFmpeg] WASM core FAILED to load from CDN, trying local fallback…", err);
-        // Fallback: load from bundled public/ files
-        await ffmpeg!.load({
-          coreURL: "/ffmpeg/ffmpeg-core.js",
-          wasmURL: "/ffmpeg/ffmpeg-core.wasm",
-        });
-        console.log("[FFmpeg] WASM core loaded from local fallback");
+        console.log("[FFmpeg] WASM core loaded from CDN fallback");
       }
     })();
   }
