@@ -223,7 +223,7 @@ impl XrayClient {
                     > = std::collections::HashMap::new();
                     for run in fb.get_test_runs.results {
                         let entry = best.entry(run.test.issue_id).or_insert((None, None));
-                        if run.finished_on > entry.0 {
+                        if run.finished_on >= entry.0 {
                             *entry = (run.finished_on, run.status);
                         }
                     }
@@ -237,8 +237,10 @@ impl XrayClient {
                         if entry.finished_on.is_none() {
                             if let Some((finished_on, status)) = best.get(&entry.test_issue_id) {
                                 entry.finished_on = finished_on.clone();
-                                if entry.status.is_none() {
-                                    entry.status = status.clone();
+                                // Always override the aggregated status with the
+                                // actual run status from the fallback query.
+                                if let Some(real_status) = status {
+                                    entry.status = Some(real_status.clone());
                                 }
                             }
                         }

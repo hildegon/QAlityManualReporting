@@ -15,7 +15,7 @@ import { showToast } from "@/components/ui/toast-utils";
 import type { ToastMessage } from "@/components/ui/toast-utils";
 import { EmptyState } from "@/components/common/EmptyState";
 import { Button } from "@/components/ui/button";
-import { AlertTriangle, FlaskConical, Layers, RefreshCw, Plus, Activity, ShieldAlert } from "lucide-react";
+import { AlertTriangle, FlaskConical, Layers, RefreshCw, Plus, Activity, ShieldAlert, Archive } from "lucide-react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { cn } from "@/components/ui/utils";
 import { useHealthStore } from "@/stores/healthStore";
@@ -28,6 +28,7 @@ import { TestSetsPanel } from "@/components/tests/TestSetsPanel";
 import { CreateTestSetDialog } from "@/components/tests/CreateTestSetDialog";
 import { TestSetsHealthPanel } from "@/components/tests/TestSetsHealthPanel";
 import { TestHealthPanel } from "@/components/tests/TestHealthPanel";
+import { DeprecatedTestsPanel } from "@/components/tests/DeprecatedTestsPanel";
 
 export function TestsPage() {
   const projectKey = useContentProjectKey();
@@ -50,7 +51,7 @@ export function TestsPage() {
       setLoadConfirmed(true);
     }
   }, [confirmedLoadProjects, projectKey, loadConfirmed]);
-  const [activeTab, setActiveTab] = useState<"tests" | "health" | "sets-health">("tests");
+  const [activeTab, setActiveTab] = useState<"tests" | "health" | "sets-health" | "deprecated">("tests");
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [pendingSetId, setPendingSetId] = useState<string | null>(null);
@@ -327,6 +328,21 @@ export function TestsPage() {
           <ShieldAlert className="h-4 w-4" />
           Sets Health
         </button>
+        <button
+          onClick={() => {
+            setActiveTab("deprecated");
+            if (loadConfirmed === null) setLoadConfirmed(false);
+          }}
+          className={cn(
+            "flex items-center gap-1.5 border-b-2 px-3 pb-2 text-sm font-medium transition-colors",
+            activeTab === "deprecated"
+              ? "border-blue-500 text-blue-600 dark:border-blue-400 dark:text-blue-400"
+              : "border-transparent text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-300",
+          )}
+        >
+          <Archive className="h-4 w-4" />
+          Deprecated
+        </button>
       </div>
 
       {/* Tab content */}
@@ -425,6 +441,16 @@ export function TestsPage() {
       {activeTab === "sets-health" && (
         <div className="h-[calc(100vh-13rem)]">
           <TestSetsHealthPanel projectKey={projectKey} onToast={handleToast} />
+        </div>
+      )}
+
+      {activeTab === "deprecated" && (
+        <div className="h-[calc(100vh-13rem)]">
+          <DeprecatedTestsPanel
+            projectKey={projectKey}
+            enabled={loadConfirmed === true}
+            onToast={handleToast}
+          />
         </div>
       )}
 
