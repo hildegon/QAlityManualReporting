@@ -70,6 +70,8 @@ impl XrayClient {
         let total = test_issue_ids.len() as u32;
         let chunks: Vec<&[String]> = test_issue_ids.chunks(BATCH_SIZE).collect();
         let num_chunks = chunks.len();
+        #[cfg(not(debug_assertions))]
+        let _ = num_chunks;
 
         #[cfg(debug_assertions)]
         eprintln!(
@@ -119,6 +121,8 @@ impl XrayClient {
         while let Some(join_result) = join_set.join_next().await {
             let (idx, chunk_len, batch_result, app_handle) = join_result
                 .expect("health batch task should not panic");
+            #[cfg(not(debug_assertions))]
+            let _ = idx;
 
             processed += chunk_len;
             let done = processed >= total;
@@ -215,6 +219,8 @@ impl XrayClient {
                 Err(e) => {
                     #[cfg(debug_assertions)]
                     eprintln!("[health] fallback query error (non-fatal): {:#}", e);
+                    #[cfg(not(debug_assertions))]
+                    let _ = e;
                 }
                 Ok(fb) => {
                     let mut best: std::collections::HashMap<

@@ -73,15 +73,23 @@ export interface IssueRow {
 }
 
 function stripHtml(html: string): string {
-  return html
-    .replace(/<[^>]*>/g, "")
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/&nbsp;/g, " ")
-    .trim();
+  // DOMParser decodes ALL HTML entity types: named (&eacute;), decimal (&#233;), hex (&#xE9;).
+  // This handles accented chars and other Unicode names that Confluence encodes as entities.
+  try {
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    return (doc.body.textContent ?? "").trim();
+  } catch {
+    // Fallback for non-browser environments (e.g. unit tests)
+    return html
+      .replace(/<[^>]*>/g, "")
+      .replace(/&amp;/g, "&")
+      .replace(/&lt;/g, "<")
+      .replace(/&gt;/g, ">")
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'")
+      .replace(/&nbsp;/g, " ")
+      .trim();
+  }
 }
 
 function escHtml(s: string): string {
@@ -1614,6 +1622,11 @@ const MediaPreviewItem = memo(function MediaPreviewItem({
   const [transcoding, setTranscoding] = useState(false);
   const [transcodeError, setTranscodeError] = useState(false);
   const [videoBlobUrl, setVideoBlobUrl] = useState<string | null>(null);
+  // Fallback: if WKWebView rejects a non-transcoded video (e.g. HEVC/H.265 MP4),
+  // we attempt an FFmpeg transcode on the fly.
+  const [fallbackTranscoding, setFallbackTranscoding] = useState(false);
+  const [fallbackTranscodedUri, setFallbackTranscodedUri] = useState<string | null>(null);
+  const fallbackAttempted = useRef(false);
   const isVideo = isVideoFile(filename);
   const requiresTranscode = isVideo && needsTranscode(filename);
 
@@ -1641,8 +1654,9 @@ const MediaPreviewItem = memo(function MediaPreviewItem({
     return () => { cancelled = true; };
   }, [dataUri, requiresTranscode, attachment?.downloadUrl, filename]);
 
-  // WKWebView blocks data: URIs for <video> — convert to Blob URL
-  const videoDataUri = requiresTranscode ? transcodedUri : dataUri;
+  // WKWebView blocks data: URIs for <video> — convert to Blob URL.
+  // If a fallback transcode happened, prefer that result.
+  const videoDataUri = requiresTranscode ? transcodedUri : (fallbackTranscodedUri ?? dataUri);
   useEffect(() => {
     if (!isVideo || !videoDataUri) return;
     let url: string | null = null;
@@ -1666,9 +1680,11 @@ const MediaPreviewItem = memo(function MediaPreviewItem({
   const effectiveUri = isVideo ? videoBlobUrl : dataUri;
   const isMedia = !isError && !!effectiveUri && !transcodeError;
   const canPlay = isVideo && isMedia && !videoError;
-  const showTranscoding = requiresTranscode && transcoding && !!dataUri;
+  const showTranscoding = (transcoding || fallbackTranscoding) && !!dataUri;
 
-  // Only flag unsupported format (code 4), not transient network/decode errors.
+  // When WKWebView reports MEDIA_ERR_SRC_NOT_SUPPORTED (code 4), try FFmpeg as a
+  // fallback before showing the error — handles HEVC/H.265 MP4s and similar codecs
+  // that WKWebView can't decode natively.
   const handleVideoError = useCallback((e: React.SyntheticEvent<HTMLVideoElement>) => {
     const code = e.currentTarget.error?.code;
     const msg = e.currentTarget.error?.message ?? "unknown";
@@ -1676,9 +1692,30 @@ const MediaPreviewItem = memo(function MediaPreviewItem({
       `[MediaPreview] Video error for "${filename}" — code=${code}, message="${msg}", ` +
       `extension="${filename.split(".").pop()}", requiresTranscode=${requiresTranscode}`,
     );
-    // MEDIA_ERR_SRC_NOT_SUPPORTED = 4
-    if (code === 4) setVideoError(true);
-  }, [filename, requiresTranscode]);
+    if (code !== 4) return; // Only handle unsupported format errors
+
+    // If we haven't tried a fallback transcode yet and we have the raw data, attempt it.
+    if (!fallbackAttempted.current && dataUri && !requiresTranscode) {
+      fallbackAttempted.current = true;
+      setFallbackTranscoding(true);
+      console.log(`[MediaPreview] Attempting fallback transcode for "${filename}"…`);
+      transcodeToMp4(dataUri, `fallback::${attachment?.downloadUrl || filename}`)
+        .then((mp4Uri) => {
+          console.log(`[MediaPreview] Fallback transcode succeeded for "${filename}"`);
+          setFallbackTranscodedUri(mp4Uri);
+          setFallbackTranscoding(false);
+          // Clear the video error so the new blob URL can be used
+          setVideoError(false);
+        })
+        .catch((err) => {
+          console.error(`[MediaPreview] Fallback transcode FAILED for "${filename}":`, err);
+          setFallbackTranscoding(false);
+          setVideoError(true);
+        });
+    } else {
+      setVideoError(true);
+    }
+  }, [filename, requiresTranscode, dataUri, attachment?.downloadUrl]);
 
   return (
     <div className="relative">
