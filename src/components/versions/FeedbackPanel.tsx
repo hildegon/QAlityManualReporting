@@ -1847,13 +1847,16 @@ function MediaPreviews({
 
   return (
     <div className="mt-1.5 flex flex-wrap gap-1.5">
-      {filenames.map((f) => (
-        <MediaPreviewItem
-          key={f}
-          filename={f}
-          attachment={allAttachments.find((a) => a.title === f)}
-        />
-      ))}
+      {filenames.map((f) => {
+        const att = allAttachments.find((a) => a.title === f);
+        return (
+          <MediaPreviewItem
+            key={att?.id ?? f}
+            filename={f}
+            attachment={att}
+          />
+        );
+      })}
     </div>
   );
 }

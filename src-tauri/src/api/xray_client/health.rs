@@ -229,7 +229,9 @@ impl XrayClient {
                     > = std::collections::HashMap::new();
                     for run in fb.get_test_runs.results {
                         let entry = best.entry(run.test.issue_id).or_insert((None, None));
-                        if run.finished_on >= entry.0 {
+                        // Prefer runs that have a finished_on timestamp. A run without a
+                        // timestamp only sets the status if no timestamped run has been seen yet.
+                        if run.finished_on.is_some() || entry.0.is_none() {
                             *entry = (run.finished_on, run.status);
                         }
                     }

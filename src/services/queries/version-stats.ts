@@ -125,7 +125,10 @@ export function useVersionRunStats(executions: TestExecution[], bugs?: JiraBug[]
 
   settledRef.current = page0Queries.filter((q) => q.isSuccess || q.isError).length;
 
-  // Derive extra pages from settled page-0 results
+  // Derive extra pages from settled page-0 results.
+  // We use the count of successfully-settled page-0 queries as a stable scalar dep instead of
+  // the page0Queries array itself (which gets a new reference every render from useQueries).
+  const page0SuccessCount = page0Queries.filter((q) => q.isSuccess).length;
   const extraPageQueries = useMemo(() => {
     const queries: { issueId: string; start: number }[] = [];
     for (let i = 0; i < executions.length; i++) {
@@ -136,7 +139,8 @@ export function useVersionRunStats(executions: TestExecution[], bugs?: JiraBug[]
       }
     }
     return queries;
-  }, [executions, PAGE_SIZE, page0Queries]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [executions, PAGE_SIZE, page0SuccessCount]);
 
   const extraSettledRef = useRef(0);
 

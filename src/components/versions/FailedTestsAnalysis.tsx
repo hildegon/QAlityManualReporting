@@ -108,7 +108,7 @@ function FailedTestRow({
 
   function handleLinkBug(bugKey: string) {
     setPickerOpen(false);
-    linkBug.mutate({ bugKey, testKey: test.testKey, linkTypeName, projectKey, versionName });
+    linkBug.mutate({ bugKey, testKey: test.testKey, testSummary: test.testSummary, linkTypeName, projectKey, versionName });
   }
 
   return (

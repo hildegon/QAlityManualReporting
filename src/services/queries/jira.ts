@@ -432,6 +432,8 @@ export function useVersionIssues(projectKey: string | null, versionName: string 
 interface LinkBugToTestVars {
   bugKey: string;
   testKey: string;
+  /** Optional test summary shown in the optimistic linked-issue row. */
+  testSummary?: string;
   linkTypeName: string;
   projectKey: string;
   versionName: string;
@@ -442,7 +444,7 @@ export function useLinkBugToTest() {
   return useMutation<void, string, LinkBugToTestVars>({
     mutationFn: ({ bugKey, testKey, linkTypeName }) =>
       api.createIssueLink(bugKey, testKey, linkTypeName),
-    onMutate: async ({ bugKey, testKey, linkTypeName, projectKey, versionName }) => {
+    onMutate: async ({ bugKey, testKey, testSummary, linkTypeName, projectKey, versionName }) => {
       const queryKey = queryKeys.bugsByVersion(projectKey, versionName);
       await queryClient.cancelQueries({ queryKey });
       const previous = queryClient.getQueryData<JiraBug[]>(queryKey);
@@ -459,7 +461,7 @@ export function useLinkBugToTest() {
             outward_issue: {
               id: testKey,
               key: testKey,
-              fields: { summary: testKey, issue_type: { name: "Test" } },
+              fields: { summary: testSummary ?? testKey, issue_type: { name: "Test" } },
             },
           };
           return {

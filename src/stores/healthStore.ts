@@ -61,6 +61,9 @@ const DEFAULT_HEALTH: ProjectHealthData = {
 
 // ── Store ──────────────────────────────────────────────────────────────────────
 
+/** Tracks the unlisten functions for any in-flight fetch, keyed by project key. */
+const activeListeners = new Map<string, () => void>();
+
 export const useHealthStore = create<HealthState>()((set, get) => {
   /** Internal helper: update a single project's health data. */
   function updateProject(
@@ -81,6 +84,10 @@ export const useHealthStore = create<HealthState>()((set, get) => {
 
   /** Internal helper: run the actual fetch pipeline. */
   async function runFetch(projectKey: string, testIssueIds: string[], toastFn?: ToastFn) {
+    // Terminate any in-flight listeners for this project before starting a new fetch.
+    activeListeners.get(projectKey)?.();
+    activeListeners.delete(projectKey);
+
     // Mark loading
     updateProject(projectKey, () => ({
       loading: true,
@@ -101,17 +108,23 @@ export const useHealthStore = create<HealthState>()((set, get) => {
       // No cache — fine, start empty.
     }
 
-    // 2) Listen for batch events
-    const unlistenError = await listen<string>("tests:health:error", (event) => {
-      if (import.meta.env.DEV) console.error("[health] error from backend:", event.payload);
-      toastFn?.(`Health check failed: ${event.payload}`, "error");
-      updateProject(projectKey, () => ({ loading: false }));
+    function cleanup() {
+      unlistenError();
+      unlisten();
+      activeListeners.delete(projectKey);
       set((state) => {
         const next = new Set(state.activeFetches);
         next.delete(projectKey);
         return { activeFetches: next };
       });
-      unlistenError();
+    }
+
+    // 2) Listen for batch events
+    const unlistenError = await listen<string>("tests:health:error", (event) => {
+      if (import.meta.env.DEV) console.error("[health] error from backend:", event.payload);
+      toastFn?.(`Health check failed: ${event.payload}`, "error");
+      updateProject(projectKey, () => ({ loading: false }));
+      cleanup();
     });
 
     const unlisten = await listen<{
@@ -133,15 +146,9 @@ export const useHealthStore = create<HealthState>()((set, get) => {
           loading: false,
           fetched: true,
         }));
-        unlisten();
-        unlistenError();
-        set((state) => {
-          const next = new Set(state.activeFetches);
-          next.delete(projectKey);
-          return { activeFetches: next };
-        });
-        // Persist to backend cache
+        // Persist to backend cache before cleaning up listeners.
         void api.saveHealthCache(projectKey, [...acc.values()]);
+        cleanup();
       } else {
         updateProject(projectKey, () => ({
           ...(entries.length > 0 ? { healthMap: new Map(acc) } : {}),
@@ -150,19 +157,16 @@ export const useHealthStore = create<HealthState>()((set, get) => {
       }
     });
 
+    // Register the combined cleanup so resetAndRefetch can call it if needed.
+    activeListeners.set(projectKey, cleanup);
+
     // 3) Invoke the Rust command
     try {
       await api.getTestsHealthData(testIssueIds);
     } catch (e) {
       if (import.meta.env.DEV) console.error("[health] invoke error:", e);
       updateProject(projectKey, () => ({ loading: false }));
-      unlisten();
-      unlistenError();
-      set((state) => {
-        const next = new Set(state.activeFetches);
-        next.delete(projectKey);
-        return { activeFetches: next };
-      });
+      cleanup();
     }
   }
 
@@ -192,14 +196,12 @@ export const useHealthStore = create<HealthState>()((set, get) => {
     },
 
     resetAndRefetch: (projectKey, testIssueIds, toastFn) => {
-      // Clear existing data and re-trigger.
+      // Clear existing data and re-trigger. Any in-flight listeners are terminated
+      // at the start of runFetch via activeListeners.
       set((state) => {
         const nextData = { ...state.data };
         delete nextData[projectKey];
         const nextActive = new Set(state.activeFetches);
-        // Note: if a fetch is already running, the old listeners will still
-        // fire, but since we deleted the project data they'll just re-populate.
-        // The guard prevents a *second* concurrent invoke call.
         nextActive.delete(projectKey);
         return { data: nextData, activeFetches: nextActive };
       });
