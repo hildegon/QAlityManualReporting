@@ -8,6 +8,7 @@ import { useContentProjectKey, useExecutionProjectKey } from "@/hooks/useProject
 import { parseRateLimitError } from "@/stores/uiStore";
 import { useVersionsStore } from "@/stores/versionsStore";
 import { EmptyState } from "@/components/common/EmptyState";
+import { PageHelpButton } from "@/components/common/PageHelpModal";
 import { Spinner } from "@/components/ui/spinner";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
@@ -228,6 +229,7 @@ export function TestExecutionsPage() {
           </span>
         </h1>
         <div className="flex items-center gap-2">
+          <PageHelpButton pageId="executions" />
           <Button variant="outline" size="sm" onClick={() => void refetch()} disabled={isFetching}>
             <RefreshCw className={`h-4 w-4 ${isFetching ? "animate-spin" : ""}`} />
             Reload

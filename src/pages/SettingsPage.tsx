@@ -10,6 +10,7 @@ import { CheckCircle, ExternalLink, XCircle } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { getVersion } from "@tauri-apps/api/app";
 import type { AppConfig } from "@/types";
+import { PageHelpButton } from "@/components/common/PageHelpModal";
 
 const EMPTY_CONFIG: AppConfig = {
   jira_url: "",
@@ -101,7 +102,10 @@ export function SettingsPage() {
 
   return (
     <div className="mx-auto max-w-xl">
-      <h1 className="mb-6 text-xl font-semibold">Settings</h1>
+      <div className="mb-6 flex items-center gap-2">
+        <h1 className="text-xl font-semibold">Settings</h1>
+        <PageHelpButton pageId="settings" />
+      </div>
 
       {/* Jira section */}
       <section className="mb-8 rounded-lg border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
@@ -281,3 +285,4 @@ function ValidationIndicator({
 }
 
 export default SettingsPage;
+

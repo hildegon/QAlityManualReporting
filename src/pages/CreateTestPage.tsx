@@ -6,6 +6,7 @@ import { cn } from "@/components/ui/utils";
 import { ManualTestCreationForm } from "@/components/create-test/ManualTestCreationForm";
 import { BulkTestCreationPanel } from "@/components/create-test/BulkTestCreationPanel";
 import { UpdateManualTestPanel } from "@/components/create-test/UpdateManualTestPanel";
+import { PageHelpButton } from "@/components/common/PageHelpModal";
 
 export function CreateTestPage() {
   const projectKey = useContentProjectKey();
@@ -31,16 +32,19 @@ export function CreateTestPage() {
   return (
     <div className={cn("space-y-6", activeTab !== "update" && "mx-auto max-w-3xl")}>
       {/* Page header */}
-      <div>
-        <h1 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
-          {activeTab === "update" ? "Update Manual Test" : "Create Test"}
-        </h1>
-        <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
-          {activeTab === "update"
-            ? "Edit step definitions for manual tests in Xray project "
-            : "Creates tests in Xray for project "}
-          <span className="font-medium text-slate-700 dark:text-slate-200">{projectKey}</span>.
-        </p>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h1 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
+            {activeTab === "update" ? "Update Manual Test" : "Create Test"}
+          </h1>
+          <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
+            {activeTab === "update"
+              ? "Edit step definitions for manual tests in Xray project "
+              : "Creates tests in Xray for project "}
+            <span className="font-medium text-slate-700 dark:text-slate-200">{projectKey}</span>.
+          </p>
+        </div>
+        <PageHelpButton pageId="create-test" />
       </div>
 
       {/* Tabs */}

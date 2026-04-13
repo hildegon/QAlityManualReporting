@@ -267,6 +267,20 @@ function buildImageTags(filenames: string[]): string {
     .join("");
 }
 
+/**
+ * Build the Confluence HTML content for the Jira ticket cell.
+ * When `jiraBaseUrl` is provided and the ticket key is non-empty, renders a
+ * clickable anchor so the user can navigate directly from Confluence.
+ */
+function buildJiraTicketCell(ticket: string, jiraBaseUrl: string): string {
+  if (!ticket) return "";
+  if (jiraBaseUrl) {
+    const href = `${jiraBaseUrl}/browse/${ticket}`;
+    return `<a href="${escHtml(href)}">${escHtml(ticket)}</a>`;
+  }
+  return escHtml(ticket);
+}
+
 export function parseIssueRows(html: string): IssueRow[] {
   const issuesMatch = html.match(
     /<h2[^>]*>\s*Issues\s*<\/h2>\s*<table[^>]*>([\s\S]*?)<\/table>/i,
@@ -359,16 +373,18 @@ function injectIssueRow(
     descriptionAttachments?: string[];
     commentAttachments?: string[];
   },
+  jiraBaseUrl: string,
 ): string {
   const devContent = buildDevCell(fields.developer, fields.developerAccountId);
   const descImages = buildImageTags(fields.descriptionAttachments ?? []);
   const commentImages = buildImageTags(fields.commentAttachments ?? []);
+  const ticketContent = buildJiraTicketCell(fields.jiraTicket, jiraBaseUrl);
   const row =
     `<tr>` +
     `<td><p>${escHtml(fields.description)}</p>${descImages}</td>` +
     `<td><p>${escHtml(fields.comment)}</p>${commentImages}</td>` +
     `<td><p>${escHtml(fields.priority)}</p></td>` +
-    `<td><p>${escHtml(fields.jiraTicket)}</p></td>` +
+    `<td><p>${ticketContent}</p></td>` +
     `<td data-dev-name="${escHtml(fields.developer)}"><p>${devContent}</p></td>` +
     `<td><p>Open</p></td>` +
     `</tr>`;
@@ -399,6 +415,7 @@ function replaceIssueRow(
     descriptionAttachments?: string[];
     commentAttachments?: string[];
   },
+  jiraBaseUrl: string,
 ): string {
   const pattern =
     /(<h2[^>]*>\s*Issues\s*<\/h2>\s*<table[^>]*>[\s\S]*?<tbody>)([\s\S]*?)(<\/tbody>)/i;
@@ -419,12 +436,13 @@ function replaceIssueRow(
   const devContent = buildDevCell(fields.developer, fields.developerAccountId);
   const descImages = buildImageTags(fields.descriptionAttachments ?? []);
   const commentImages = buildImageTags(fields.commentAttachments ?? []);
+  const ticketContent = buildJiraTicketCell(fields.jiraTicket, jiraBaseUrl);
   rows[rowIndex] =
     `<tr>` +
     `<td><p>${escHtml(fields.description)}</p>${descImages}</td>` +
     `<td><p>${escHtml(fields.comment)}</p>${commentImages}</td>` +
     `<td><p>${escHtml(fields.priority)}</p></td>` +
-    `<td><p>${escHtml(fields.jiraTicket)}</p></td>` +
+    `<td><p>${ticketContent}</p></td>` +
     `<td data-dev-name="${escHtml(fields.developer)}"><p>${devContent}</p></td>` +
     `<td><p>${escHtml(fields.status)}</p></td>` +
     `</tr>`;
@@ -482,6 +500,9 @@ const RELATED_WORK_CATEGORY = "Documentation";
 
 export function FeedbackPanel({ version }: FeedbackPanelProps) {
   const { getVersionPage, setVersionPage, removeVersionPage } = useConfluenceStore();
+
+  const { data: config } = useConfig();
+  const jiraBaseUrl = config?.jira_url?.replace(/\/+$/, "") ?? "";
 
   // ── Source of truth: Jira version Related Work entries ─────────────────────
   const {
@@ -611,7 +632,7 @@ export function FeedbackPanel({ version }: FeedbackPanelProps) {
     if (!addForm.description.trim()) return;
 
     const currentHtml = page.body_storage ?? "";
-    const updatedHtml = injectIssueRow(currentHtml, addForm);
+    const updatedHtml = injectIssueRow(currentHtml, addForm, jiraBaseUrl);
 
     try {
       await updatePage.mutateAsync({
@@ -647,6 +668,7 @@ export function FeedbackPanel({ version }: FeedbackPanelProps) {
         page.body_storage ?? "",
         rowIndex,
         fields,
+        jiraBaseUrl,
       );
       await updatePage.mutateAsync({
         pageId: page.id,

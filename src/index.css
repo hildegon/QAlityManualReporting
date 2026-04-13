@@ -2,6 +2,18 @@
 
 @custom-variant dark (&:where(.dark, .dark *));
 
+/*
+ * Soft light-mode palette — overrides Tailwind's default "pure white" and
+ * lightest greys with slightly warmer, less eye-straining equivalents.
+ * Dark-mode values are untouched.
+ */
+@theme {
+  /* bg-white → warm off-white instead of #ffffff */
+  --color-white: oklch(97.5% 0.006 240);
+  /* slate-50 → one step warmer/darker so it reads as a surface, not blinding */
+  --color-slate-50: oklch(95.5% 0.008 240);
+}
+
 @layer base {
   *,
   *::before,

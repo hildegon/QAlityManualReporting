@@ -21,6 +21,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/components/ui/utils";
 import { TestExecutionDetail } from "@/components/test-execution/TestExecutionDetail";
 import { EmptyState } from "@/components/common/EmptyState";
+import { PageHelpButton } from "@/components/common/PageHelpModal";
 import type { TestExecution } from "@/types";
 
 import { VersionCard } from "@/components/versions/VersionCard";
@@ -268,14 +269,17 @@ export function VersionsPage() {
       <div className="w-72 shrink-0 space-y-1 overflow-y-auto">
         <div className="mb-2 flex items-center justify-between">
           <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">Versions</p>
-          <button
-            onClick={handleReload}
-            disabled={isRefreshing}
-            title="Reload versions and data"
-            className="rounded p-1 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 disabled:opacity-40 dark:hover:bg-slate-700 dark:text-slate-400"
-          >
-            <RefreshCw className={cn("h-3.5 w-3.5", isRefreshing && "animate-spin")} />
-          </button>
+          <div className="flex items-center gap-1">
+            <PageHelpButton pageId="versions" />
+            <button
+              onClick={handleReload}
+              disabled={isRefreshing}
+              title="Reload versions and data"
+              className="rounded p-1 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 disabled:opacity-40 dark:hover:bg-slate-700 dark:text-slate-400"
+            >
+              <RefreshCw className={cn("h-3.5 w-3.5", isRefreshing && "animate-spin")} />
+            </button>
+          </div>
         </div>
 
         <div className="relative mb-3">

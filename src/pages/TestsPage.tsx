@@ -14,6 +14,7 @@ import { Toast } from "@/components/ui/toast";
 import { showToast } from "@/components/ui/toast-utils";
 import type { ToastMessage } from "@/components/ui/toast-utils";
 import { EmptyState } from "@/components/common/EmptyState";
+import { PageHelpButton } from "@/components/common/PageHelpModal";
 import { Button } from "@/components/ui/button";
 import { AlertTriangle, FlaskConical, Layers, RefreshCw, Plus, Activity, ShieldAlert, Archive } from "lucide-react";
 import * as Dialog from "@radix-ui/react-dialog";
@@ -278,6 +279,7 @@ export function TestsPage() {
           </h1>
         </div>
         <div className="flex items-center gap-2">
+          <PageHelpButton pageId="tests" />
           {activeTab === "tests" && (
             <Button size="sm" onClick={() => setCreateSetOpen(true)}>
               <Plus className="h-4 w-4" />

@@ -29,14 +29,14 @@ function navClassName({ isActive }: { isActive: boolean }) {
   return cn(
     "flex items-center gap-1.5 rounded-md px-2 py-1.5 text-sm transition-colors xl:px-3",
     isActive
-      ? "bg-slate-100 font-medium text-slate-900 dark:bg-slate-700 dark:text-slate-100"
-      : "text-slate-500 hover:bg-slate-50 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-slate-700 dark:hover:text-slate-200",
+      ? "bg-slate-200 font-medium text-slate-900 dark:bg-slate-700 dark:text-slate-100"
+      : "text-slate-500 hover:bg-slate-200/60 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-slate-700 dark:hover:text-slate-200",
   );
 }
 
 export function AppShell() {
   return (
-    <div className="flex h-screen flex-col bg-slate-50 text-slate-900 dark:bg-slate-900 dark:text-slate-100">
+    <div className="flex h-screen flex-col bg-slate-100 text-slate-900 dark:bg-slate-900 dark:text-slate-100">
       {/* Top navigation bar */}
       <header className="flex shrink-0 flex-wrap items-center justify-between gap-x-3 gap-y-1 border-b border-slate-200 bg-white px-4 py-1.5 shadow-sm dark:border-slate-700 dark:bg-slate-800">
         {/* Left: branding + project selectors */}

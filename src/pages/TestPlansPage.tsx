@@ -7,6 +7,7 @@ import { Toast } from "@/components/ui/toast";
 import { showToast } from "@/components/ui/toast-utils";
 import type { ToastMessage } from "@/components/ui/toast-utils";
 import { EmptyState } from "@/components/common/EmptyState";
+import { PageHelpButton } from "@/components/common/PageHelpModal";
 import { Button } from "@/components/ui/button";
 import { BookOpen, Plus, RefreshCw } from "lucide-react";
 import { cn } from "@/components/ui/utils";
@@ -159,6 +160,7 @@ export function TestPlansPage() {
           </h1>
         </div>
         <div className="flex items-center gap-2">
+          <PageHelpButton pageId="test-plans" />
           <button
             onClick={() => void handleReload()}
             disabled={isRefreshing}

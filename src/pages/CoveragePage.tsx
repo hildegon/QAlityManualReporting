@@ -19,6 +19,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
 import { EmptyState } from "@/components/common/EmptyState";
+import { PageHelpButton } from "@/components/common/PageHelpModal";
 import { useGetTestSets, queryKeys } from "@/services/queries";
 import { useContentProjectKey } from "@/hooks/useProjectKey";
 import { useCoveragePresetsStore } from "@/stores/coveragePresetsStore";
@@ -407,6 +408,7 @@ export function CoveragePage() {
                 {projectKey}
               </span>
             </h1>
+            <PageHelpButton pageId="coverage" />
           </div>
           {/* Refetch results */}
           {selectedSets.length > 0 && (
