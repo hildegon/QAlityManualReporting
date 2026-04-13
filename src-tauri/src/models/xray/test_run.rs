@@ -29,10 +29,10 @@ pub struct TestRun {
     #[serde(rename(deserialize = "executedById"))]
     pub executed_by_id: Option<String>,
     /// Jira issue keys of defects (bugs) linked to this test run via Xray.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "super::deserialize_null_default")]
     pub defects: Vec<String>,
     /// Parameter names used by this test run (present when a dataset is attached).
-    #[serde(default)]
+    #[serde(default, deserialize_with = "super::deserialize_null_default")]
     pub parameters: Vec<TestRunParameter>,
     /// Iteration results for parametrized manual tests (one entry per dataset row).
     #[serde(default)]
@@ -42,7 +42,7 @@ pub struct TestRun {
     #[serde(default, rename(deserialize = "testExecution"))]
     pub test_execution: Option<TestRunExecution>,
     /// Evidence files (screenshots, logs, etc.) attached to this test run.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "super::deserialize_null_default")]
     pub evidence: Vec<Evidence>,
 }
 
@@ -100,7 +100,7 @@ pub struct TestRunStep {
     pub comment: Option<String>,
     pub defects: Option<Vec<String>>,
     /// Evidence files (screenshots, logs, etc.) attached to this step.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "super::deserialize_null_default")]
     pub evidence: Vec<Evidence>,
 }
 

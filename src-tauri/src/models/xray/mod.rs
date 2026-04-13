@@ -20,6 +20,17 @@ pub use test_set::*;
 
 use serde::Deserializer;
 
+/// Deserialize a sequence that may be `null` in JSON as an empty `Vec`.
+/// `#[serde(default)]` only handles *missing* fields; if the field is present
+/// but explicitly `null`, this helper treats it as an empty collection instead.
+fn deserialize_null_default<'de, D, T>(deserializer: D) -> Result<T, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Default + Deserialize<'de>,
+{
+    Ok(Option::deserialize(deserializer)?.unwrap_or_default())
+}
+
 /// Xray Cloud GraphQL returns the `jira` field as a JSON-encoded string.
 /// This deserializer handles both forms: a raw string that needs parsing,
 /// or an already-parsed object (for forward-compatibility).
