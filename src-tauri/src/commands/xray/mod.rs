@@ -45,7 +45,7 @@ pub(super) async fn get_xray_client(
         *guard = Some(XrayClient::new(
             config.xray_client_id,
             config.xray_client_secret,
-        ));
+        ).with_app_handle(app.clone()));
     }
     // Unwrap is safe: we just ensured it is Some.
     Ok(guard.as_ref().unwrap().clone())

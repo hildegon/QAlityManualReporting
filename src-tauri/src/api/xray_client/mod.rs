@@ -2,6 +2,7 @@ use anyhow::{bail, Context, Result};
 use reqwest::Client;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
+use tauri::Emitter;
 use tokio::sync::Mutex;
 
 use super::common::{rate_limit_until_ms, truncate_body};
@@ -28,6 +29,8 @@ pub struct XrayClient {
     client_secret: String,
     /// Cached bearer token — refreshed on 401 or on explicit call.
     token: Arc<Mutex<Option<String>>>,
+    /// Tauri app handle for emitting events to the frontend.
+    app_handle: Option<tauri::AppHandle>,
 }
 
 impl XrayClient {
@@ -41,7 +44,15 @@ impl XrayClient {
             client_id,
             client_secret,
             token: Arc::new(Mutex::new(None)),
+            app_handle: None,
         }
+    }
+
+    /// Attach a Tauri `AppHandle` so the client can emit events (e.g. rate-limit
+    /// notifications) to the frontend.
+    pub fn with_app_handle(mut self, handle: tauri::AppHandle) -> Self {
+        self.app_handle = Some(handle);
+        self
     }
 
     /// Exchange client_id/client_secret for a Bearer token and cache it.
@@ -125,20 +136,27 @@ impl XrayClient {
                 continue;
             }
 
-            // ── 429: sleep until the rate-limit window resets, then retry ────
+            // ── 429: notify the frontend, then sleep until the window resets ──
             if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
-                let wait_ms = match rate_limit_until_ms(resp.headers()) {
-                    Some(until_ms) => {
-                        let now_ms = SystemTime::now()
-                            .duration_since(UNIX_EPOCH)
-                            .unwrap_or_default()
-                            .as_millis() as u64;
-                        // Add a 1 s buffer so we don't hit the boundary.
-                        until_ms.saturating_sub(now_ms) + 1_000
-                    }
-                    // No header — wait 30 s as a safe default.
-                    None => 30_000,
-                };
+                let until_ms = rate_limit_until_ms(resp.headers()).unwrap_or_else(|| {
+                    let now = SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_millis() as u64;
+                    now + 30_000
+                });
+                // Emit event so the frontend can show the rate-limit banner.
+                if let Some(ref handle) = self.app_handle {
+                    let _ = handle.emit(
+                        "xray:rate-limited",
+                        serde_json::json!({ "until_ms": until_ms }),
+                    );
+                }
+                let now_ms = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_millis() as u64;
+                let wait_ms = until_ms.saturating_sub(now_ms) + 1_000;
                 tokio::time::sleep(tokio::time::Duration::from_millis(wait_ms)).await;
                 continue;
             }

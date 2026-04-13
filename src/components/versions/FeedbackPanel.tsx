@@ -15,6 +15,7 @@ import {
   Paperclip,
   Pencil,
   Plus,
+  RotateCw,
   Trash2,
   Save,
   Search,
@@ -38,6 +39,8 @@ import {
   useVersionRelatedWork,
   useCreateVersionRelatedWork,
   useDeleteVersionRelatedWork,
+  useConfig,
+  useIssueDetail,
 } from "@/services/queries";
 import { queryKeys } from "@/services/queries/queryKeys";
 import { getUserDisplayName } from "@/services/tauri";
@@ -203,6 +206,48 @@ function normalizePriority(raw: string): IssuePriority {
   return "";
 }
 
+/**
+ * Extract a Jira issue key from a raw Confluence table cell.
+ *
+ * Confluence stores Jira smart links as `<ac:structured-macro ac:name="jira">` with
+ * `<ac:parameter ac:name="key">PROJ-123</ac:parameter>`. It can also store plain
+ * `<a href="…/browse/PROJ-123">` links. This function tries structured extraction
+ * first; if nothing matches, it falls back to stripHtml + normalizeJiraTicket.
+ */
+function extractJiraTicket(rawCellHtml: string): string {
+  // 1. Confluence Jira macro: <ac:parameter ac:name="key">PROJ-123</ac:parameter>
+  const macroKey = rawCellHtml.match(
+    /<ac:parameter\s+ac:name="key"\s*>([^<]+)<\/ac:parameter>/i,
+  );
+  if (macroKey?.[1]) return macroKey[1].trim().toUpperCase();
+
+  // 2. Anchor tag with /browse/PROJ-123
+  const hrefMatch = rawCellHtml.match(
+    /href="[^"]*\/(?:browse|issues)\/([A-Z][A-Z0-9_]+-\d+)/i,
+  );
+  if (hrefMatch?.[1]) return hrefMatch[1].toUpperCase();
+
+  // 3. Look for a bare PROJ-123 pattern anywhere in the HTML text
+  const bareKey = rawCellHtml.match(/\b([A-Z][A-Z0-9_]+-\d+)\b/);
+  if (bareKey?.[1]) return bareKey[1].toUpperCase();
+
+  // 4. Fallback: strip HTML and normalize
+  return normalizeJiraTicket(stripHtml(rawCellHtml));
+}
+
+/**
+ * Normalise a Jira ticket input: extracts the issue key from pasted URLs.
+ * Handles full URLs like https://company.atlassian.net/browse/PROJ-123,
+ * as well as already-clean keys like "proj-123". Always returns uppercase.
+ */
+function normalizeJiraTicket(value: string): string {
+  const trimmed = value.trim();
+  const urlMatch = trimmed.match(/\/(?:browse|issues)\/([A-Z][A-Z0-9_]+-\d+)/i);
+  if (urlMatch?.[1]) return urlMatch[1].toUpperCase();
+  if (/^[A-Z][A-Z0-9_]+-\d+$/i.test(trimmed)) return trimmed.toUpperCase();
+  return trimmed;
+}
+
 /** Extract attachment filenames from `<ac:image>` / `<ri:attachment>` tags in raw HTML. */
 function extractAttachmentFilenames(rawHtml: string): string[] {
   const filenames: string[] = [];
@@ -257,7 +302,7 @@ export function parseIssueRows(html: string): IssueRow[] {
     const descriptionAttachments = extractAttachmentFilenames(descRaw);
     const commentAttachments = extractAttachmentFilenames(commentRaw);
     const priority = normalizePriority(stripHtml(rawCells[2] ?? ""));
-    const jiraTicket = stripHtml(rawCells[3] ?? "");
+    const jiraTicket = extractJiraTicket(rawCells[3] ?? "");
 
     const devRaw = rawCells[4] ?? "";
     const mentionMatch = devRaw.match(
@@ -290,11 +335,10 @@ export function parseIssueRows(html: string): IssueRow[] {
   return rows;
 }
 
-/** Build the developer cell content — Confluence user mention + plain-text name for round-tripping. */
+/** Build the developer cell content — Confluence user mention (name is stored in data-dev-name on the td). */
 function buildDevCell(name: string, accountId: string): string {
   if (accountId) {
-    // Write both the mention and the plain-text name so parseIssueRows can always recover it
-    return `<ac:link><ri:user ri:account-id="${escHtml(accountId)}" /></ac:link> ${escHtml(name)}`;
+    return `<ac:link><ri:user ri:account-id="${escHtml(accountId)}" /></ac:link>`;
   }
   return escHtml(name);
 }
@@ -491,6 +535,7 @@ export function FeedbackPanel({ version }: FeedbackPanelProps) {
     isLoading,
     isError,
     error,
+    refetch: refetchPage,
   } = useConfluencePage(mapping?.pageId);
 
   const updatePage = useUpdateConfluencePage();
@@ -944,6 +989,14 @@ export function FeedbackPanel({ version }: FeedbackPanelProps) {
                   Add Issue
                 </button>
               )}
+              <button
+                onClick={() => void refetchPage()}
+                title="Reload from Confluence"
+                className="rounded p-1 text-slate-400 transition-colors hover:bg-slate-100
+                  hover:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-300"
+              >
+                <RotateCw className="h-3.5 w-3.5" />
+              </button>
             </div>
           </div>
 
@@ -1023,6 +1076,7 @@ export function FeedbackPanel({ version }: FeedbackPanelProps) {
                   placeholder="Jira Ticket (e.g. PROJ-123)"
                   value={addForm.jiraTicket}
                   onChange={(e) => setAddForm((f) => ({ ...f, jiraTicket: e.target.value }))}
+                  onBlur={(e) => setAddForm((f) => ({ ...f, jiraTicket: normalizeJiraTicket(e.target.value) }))}
                   className="rounded border border-slate-200 bg-white px-2.5 py-1.5 text-xs
                     text-slate-700 placeholder:text-slate-400 focus:border-blue-400
                     focus:outline-none dark:border-slate-700 dark:bg-slate-900
@@ -1889,6 +1943,12 @@ function IssueCard({ row, rowIndex: _rowIndex, isSaving, pageId, allAttachments,
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [draftDescAttachments, setDraftDescAttachments] = useState<string[]>(row.descriptionAttachments);
   const [draftCommentAttachments, setDraftCommentAttachments] = useState<string[]>(row.commentAttachments);
+  const { data: config } = useConfig();
+  const jiraBaseUrl = config?.jira_url?.replace(/\/+$/, "") ?? "";
+  const ticketKey = row.jiraTicket ? normalizeJiraTicket(row.jiraTicket) : null;
+  const { data: issueDetail } = useIssueDetail(ticketKey);
+  // Use the real key returned by Jira (resolves UUIDs/numeric IDs to PROJECT-NUM format)
+  const displayKey = issueDetail?.key ?? ticketKey;
   const [draft, setDraft] = useState({
     status: row.status,
     jiraTicket: row.jiraTicket,
@@ -1968,6 +2028,7 @@ function IssueCard({ row, rowIndex: _rowIndex, isSaving, pageId, allAttachments,
             placeholder="Jira Ticket"
             value={draft.jiraTicket}
             onChange={(e) => setDraft((d) => ({ ...d, jiraTicket: e.target.value }))}
+            onBlur={(e) => setDraft((d) => ({ ...d, jiraTicket: normalizeJiraTicket(e.target.value) }))}
             className="rounded border border-slate-200 bg-white px-2.5 py-1.5 text-xs
               text-slate-700 placeholder:text-slate-400 focus:border-blue-400
               focus:outline-none dark:border-slate-700 dark:bg-slate-900
@@ -2069,13 +2130,6 @@ function IssueCard({ row, rowIndex: _rowIndex, isSaving, pageId, allAttachments,
         <div className="min-w-0 flex-1">
           {/* Top row: ticket + priority + status + edit button */}
           <div className="flex flex-wrap items-center gap-2">
-            {row.jiraTicket && (
-              <span className="rounded bg-blue-50 px-1.5 py-0.5 text-xs font-semibold
-                text-blue-700 dark:bg-blue-950 dark:text-blue-300"
-              >
-                {row.jiraTicket}
-              </span>
-            )}
             {row.priority && <PriorityBadge priority={row.priority} />}
             <span
               className={cn(
@@ -2166,6 +2220,67 @@ function IssueCard({ row, rowIndex: _rowIndex, isSaving, pageId, allAttachments,
               filenames={row.commentAttachments.filter((f) => isImageFile(f) || isVideoFile(f))}
               allAttachments={allAttachments}
             />
+          )}
+
+          {/* Linked Jira ticket card */}
+          {row.jiraTicket && displayKey && (
+            <button
+              type="button"
+              onClick={() => jiraBaseUrl && void openUrl(`${jiraBaseUrl}/browse/${displayKey}`)}
+              disabled={!jiraBaseUrl}
+              className="mt-2 flex w-full items-start gap-2.5 rounded-lg border border-blue-100
+                bg-gradient-to-r from-blue-50/80 to-white px-3 py-2 text-left transition-all
+                hover:border-blue-200 hover:shadow-sm
+                disabled:cursor-default disabled:hover:border-blue-100 disabled:hover:shadow-none
+                dark:border-blue-900/50 dark:from-blue-950/40 dark:to-slate-900/60
+                dark:hover:border-blue-800 dark:disabled:hover:border-blue-900/50"
+            >
+              <div className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center
+                rounded bg-blue-100 dark:bg-blue-900/60"
+              >
+                <ExternalLink className="h-3 w-3 text-blue-600 dark:text-blue-400" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs font-bold text-blue-600 dark:text-blue-400">
+                    {displayKey}
+                  </span>
+                  {issueDetail?.issue_type && (
+                    <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-500
+                      dark:bg-slate-800 dark:text-slate-400"
+                    >
+                      {issueDetail.issue_type}
+                    </span>
+                  )}
+                  {issueDetail?.status && (
+                    <span className="rounded-full bg-blue-100 px-1.5 py-0.5 text-[10px]
+                      font-medium text-blue-700 dark:bg-blue-900/50 dark:text-blue-300"
+                    >
+                      {issueDetail.status}
+                    </span>
+                  )}
+                  {issueDetail?.priority && (
+                    <span className="text-[10px] text-slate-400 dark:text-slate-500">
+                      {issueDetail.priority}
+                    </span>
+                  )}
+                </div>
+                {issueDetail?.summary ? (
+                  <p className="mt-0.5 truncate text-xs text-slate-700 dark:text-slate-200">
+                    {issueDetail.summary}
+                  </p>
+                ) : (
+                  <p className="mt-0.5 text-xs italic text-slate-400 dark:text-slate-500">
+                    Loading…
+                  </p>
+                )}
+                {issueDetail?.assignee && (
+                  <p className="mt-0.5 text-[10px] text-slate-400 dark:text-slate-500">
+                    Assignee: {issueDetail.assignee}
+                  </p>
+                )}
+              </div>
+            </button>
           )}
 
           {/* Assigned developer — always visible */}

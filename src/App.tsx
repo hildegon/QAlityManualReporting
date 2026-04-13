@@ -3,6 +3,7 @@ import { HashRouter, Routes, Route, Navigate } from "react-router-dom";
 import { QueryClient } from "@tanstack/react-query";
 import { PersistQueryClientProvider } from "@tanstack/react-query-persist-client";
 import { createSyncStoragePersister } from "@tanstack/query-sync-storage-persister";
+import { listen } from "@tauri-apps/api/event";
 import { AppShell } from "@/components/common/AppShell";
 import { ErrorBoundary } from "@/components/common/ErrorBoundary";
 import { Spinner } from "@/components/ui/spinner";
@@ -95,6 +96,21 @@ export default function App() {
   // Only queries in an error state are invalidated — successful cached queries
   // are left alone to avoid a thundering herd when the rate limit lifts.
   useEffect(() => {
+    // Listen for rate-limit events emitted by the Rust backend (Xray GraphQL).
+    // The Rust side keeps retrying silently; this event just informs the user.
+    let unlistenRateLimit: (() => void) | undefined;
+    listen<{ until_ms: number }>("xray:rate-limited", (event) => {
+      const until = event.payload.until_ms;
+      const alreadyLimited = useUiStore.getState().rateLimitUntil !== null;
+      setRateLimit(until);
+      if (!alreadyLimited) {
+        const secs = Math.max(1, Math.ceil((until - Date.now()) / 1_000));
+        addToast(`Xray rate limit reached — retrying in ${secs}s`, "warning");
+      }
+    }).then((fn) => {
+      unlistenRateLimit = fn;
+    });
+
     queryClient.getQueryCache().config.onError = (error) => {
       const until = parseRateLimitError(error);
       if (until !== null) {
@@ -138,6 +154,9 @@ export default function App() {
           addToast(`API rate limit reached — requests paused for ${secs}s`, "warning");
         }
       }
+    };
+    return () => {
+      unlistenRateLimit?.();
     };
   }, [setRateLimit, addToast]);
 
