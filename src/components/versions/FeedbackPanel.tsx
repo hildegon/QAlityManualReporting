@@ -9,6 +9,7 @@ import {
   Edit3,
   ExternalLink,
   Filter,
+  Link2,
   Link2Off,
   Loader2,
   Paperclip,
@@ -44,6 +45,7 @@ import { useConfluenceStore } from "@/stores/confluenceStore";
 import type { ConfluencePageMapping } from "@/stores/confluenceStore";
 import { needsTranscode, transcodeToMp4 } from "@/services/videoTranscoder";
 import { ConfluencePagePicker } from "./ConfluencePagePicker";
+import { ConfluencePageLinker } from "./ConfluencePageLinker";
 import { Button } from "@/components/ui/button";
 import type { JiraVersion, JiraUser, ConfluenceAttachment } from "@/types";
 
@@ -459,6 +461,7 @@ export function FeedbackPanel({ version }: FeedbackPanelProps) {
   const unlinkingRef = useRef(false);
 
   const [showPicker, setShowPicker] = useState(false);
+  const [showLinker, setShowLinker] = useState(false);
   const [editing, setEditing] = useState(false);
   const [draftBody, setDraftBody] = useState("");
   const [showAddForm, setShowAddForm] = useState(false);
@@ -496,6 +499,7 @@ export function FeedbackPanel({ version }: FeedbackPanelProps) {
       // Save locally for instant UI response
       setVersionPage(version.id, { pageId, spaceId, parentId });
       setShowPicker(false);
+      setShowLinker(false);
       // Create the Related Work entry on the Jira version (source of truth)
       if (webUrl) {
         createRelatedWork.mutate({
@@ -759,6 +763,17 @@ export function FeedbackPanel({ version }: FeedbackPanelProps) {
       );
     }
 
+    if (showLinker) {
+      return (
+        <div className="flex h-full flex-col p-1">
+          <ConfluencePageLinker
+            onLinked={handleCreated}
+            onCancel={() => setShowLinker(false)}
+          />
+        </div>
+      );
+    }
+
     return (
       <div className="flex h-full flex-col gap-4 p-1">
         <div className="flex flex-1 flex-col items-center justify-center gap-4 rounded-lg border border-dashed border-slate-200 py-16 text-center dark:border-slate-700">
@@ -768,17 +783,27 @@ export function FeedbackPanel({ version }: FeedbackPanelProps) {
               No Confluence page linked
             </p>
             <p className="mt-1 max-w-sm text-xs text-slate-400 dark:text-slate-500">
-              Create a dedicated Confluence page for this version to track QA feedback,
-              checklists, and sign-off using Confluence&apos;s rich editing features.
+              Create a new Confluence page for this version or link an existing
+              one to track QA feedback, checklists, and sign-off.
             </p>
           </div>
-          <Button
-            onClick={() => setShowPicker(true)}
-            className="mt-1 gap-1.5"
-          >
-            <Plus className="h-3.5 w-3.5" />
-            Create Confluence Page
-          </Button>
+          <div className="mt-1 flex gap-2">
+            <Button
+              onClick={() => setShowPicker(true)}
+              className="gap-1.5"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              Create New Page
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => setShowLinker(true)}
+              className="gap-1.5"
+            >
+              <Link2 className="h-3.5 w-3.5" />
+              Link Existing Page
+            </Button>
+          </div>
         </div>
       </div>
     );
