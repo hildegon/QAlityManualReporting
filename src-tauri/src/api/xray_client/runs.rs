@@ -160,13 +160,14 @@ impl XrayClient {
 
     /// Fetch the latest run status for each test in a batch.
     ///
-    /// Uses the same efficient batched approach as health queries:
-    /// `getTests(jql: "id in (...)")` with `testRuns(limit: 1)` fetches the
-    /// latest run for up to 50 tests in a single API call — orders of magnitude
-    /// faster than the previous per-test sequential approach.
+    /// Two-phase approach (same pattern as `stream_health_batched`):
     ///
-    /// Falls back to `getTestRuns(testIssueIds: [...])` for tests that have a
-    /// cross-version `latestStatus` but no `testRuns` in the current version.
+    /// **Phase 1** — `getTests(jql: "id in (...)")` with `testRuns(limit: 1)`,
+    /// running up to `MAX_CONCURRENT` batches of 100 tests in parallel.
+    ///
+    /// **Phase 2** — A single consolidated `getTestRuns` fallback for tests
+    /// with a cross-version `latestStatus` but no `testRuns` in the current
+    /// version (typically because the test was edited after its last run).
     pub async fn get_latest_run_statuses_for_tests(
         &self,
         test_issue_ids: &[String],
@@ -191,79 +192,97 @@ impl XrayClient {
             }
         "#;
 
-        let fallback_query = r#"
-            query GetFallbackRuns($testIssueIds: [String]!, $limit: Int!) {
-                getTestRuns(testIssueIds: $testIssueIds, limit: $limit) {
-                    total
-                    results {
-                        status { name color description final }
-                        test { issueId }
+        const BATCH_SIZE: usize = 100;
+        const MAX_CONCURRENT: usize = 5;
+
+        // ── Phase 1: concurrent primary batches ──────────────────────────────
+        let semaphore = std::sync::Arc::new(tokio::sync::Semaphore::new(MAX_CONCURRENT));
+        let mut join_set = tokio::task::JoinSet::new();
+
+        for chunk in test_issue_ids.chunks(BATCH_SIZE) {
+            let sem = semaphore.clone();
+            let client = self.clone();
+            let chunk_ids: Vec<String> = chunk.to_vec();
+            let query = query.to_owned();
+
+            join_set.spawn(async move {
+                let _permit = sem.acquire().await.expect("semaphore closed");
+                let ids_jql = chunk_ids.join(", ");
+                let jql = format!("id in ({ids_jql})");
+
+                let resp: TestsForHealthResult = client
+                    .graphql(
+                        &query,
+                        serde_json::json!({ "jql": jql, "limit": chunk_ids.len() as u32 }),
+                    )
+                    .await?;
+
+                let mut entries: Vec<(String, LatestTestStatus)> = Vec::new();
+                let mut fallback_ids: Vec<String> = Vec::new();
+
+                for t in resp.get_tests.results {
+                    let run_status = t
+                        .test_runs
+                        .and_then(|tr| tr.results.into_iter().next())
+                        .and_then(|r| r.status);
+
+                    if let Some(status) = run_status {
+                        entries.push((t.issue_id, status));
+                    } else if let Some(agg_status) = t.latest_status {
+                        fallback_ids.push(t.issue_id.clone());
+                        entries.push((t.issue_id, agg_status));
                     }
                 }
-            }
-        "#;
+
+                Ok::<_, anyhow::Error>((entries, fallback_ids))
+            });
+        }
 
         let mut results: Vec<(String, LatestTestStatus)> = Vec::new();
+        let mut all_fallback_ids: Vec<String> = Vec::new();
 
-        // Batch 50 tests per query — each batch is a single API call.
-        const BATCH_SIZE: usize = 50;
-        for (chunk_idx, chunk) in test_issue_ids.chunks(BATCH_SIZE).enumerate() {
-            if chunk_idx > 0 {
-                tokio::time::sleep(tokio::time::Duration::from_millis(150)).await;
-            }
+        while let Some(join_result) = join_set.join_next().await {
+            let (entries, fallback_ids) =
+                join_result.expect("status batch task should not panic")?;
+            results.extend(entries);
+            all_fallback_ids.extend(fallback_ids);
+        }
 
-            let ids_jql = chunk.join(", ");
-            let jql = format!("id in ({ids_jql})");
-
-            let resp: TestsForHealthResult = self
-                .graphql(
-                    query,
-                    serde_json::json!({ "jql": jql, "limit": chunk.len() as u32 }),
-                )
-                .await?;
-
-            let mut fallback_ids: Vec<String> = Vec::new();
-
-            for t in resp.get_tests.results {
-                let run_status = t
-                    .test_runs
-                    .and_then(|tr| tr.results.into_iter().next())
-                    .and_then(|r| r.status);
-
-                if let Some(status) = run_status {
-                    results.push((t.issue_id, status));
-                } else if let Some(agg_status) = t.latest_status {
-                    // Has aggregated status but no testRuns — needs fallback.
-                    fallback_ids.push(t.issue_id.clone());
-                    results.push((t.issue_id, agg_status));
-                }
-            }
-
-            // Fallback: fetch via getTestRuns for tests with no inline runs.
-            if !fallback_ids.is_empty() {
-                let fb_limit = (fallback_ids.len() as u32).saturating_mul(5).max(50);
-                if let Ok(fb) = self
-                    .graphql::<TestRunsForHealthResult>(
-                        fallback_query,
-                        serde_json::json!({
-                            "testIssueIds": fallback_ids,
-                            "limit": fb_limit,
-                        }),
-                    )
-                    .await
-                {
-                    let mut best: std::collections::HashMap<String, LatestTestStatus> =
-                        std::collections::HashMap::new();
-                    for run in fb.get_test_runs.results {
-                        if let Some(status) = run.status {
-                            best.entry(run.test.issue_id).or_insert(status);
+        // ── Phase 2: single consolidated fallback ────────────────────────────
+        if !all_fallback_ids.is_empty() {
+            let fallback_query = r#"
+                query GetFallbackRuns($testIssueIds: [String]!, $limit: Int!) {
+                    getTestRuns(testIssueIds: $testIssueIds, limit: $limit) {
+                        total
+                        results {
+                            status { name color description final }
+                            test { issueId }
                         }
                     }
-                    // Override the aggregated status with the actual run status.
-                    for (id, status) in &mut results {
-                        if let Some(real) = best.remove(id) {
-                            *status = real;
-                        }
+                }
+            "#;
+
+            let fb_limit = (all_fallback_ids.len() as u32).saturating_mul(5).max(50);
+            if let Ok(fb) = self
+                .graphql::<TestRunsForHealthResult>(
+                    fallback_query,
+                    serde_json::json!({
+                        "testIssueIds": all_fallback_ids,
+                        "limit": fb_limit,
+                    }),
+                )
+                .await
+            {
+                let mut best: std::collections::HashMap<String, LatestTestStatus> =
+                    std::collections::HashMap::new();
+                for run in fb.get_test_runs.results {
+                    if let Some(status) = run.status {
+                        best.entry(run.test.issue_id).or_insert(status);
+                    }
+                }
+                for (id, status) in &mut results {
+                    if let Some(real) = best.remove(id) {
+                        *status = real;
                     }
                 }
             }

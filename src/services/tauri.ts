@@ -482,3 +482,8 @@ export const fetchConfluenceAttachment = (
   mimeType: string,
 ): Promise<string> =>
   invoke("fetch_confluence_attachment", { downloadUrl, mimeType });
+
+// ── API Usage ─────────────────────────────────────────────────────────────────
+
+export const getApiUsage = (): Promise<import("@/types").ApiUsageSnapshot> =>
+  invoke("get_api_usage");

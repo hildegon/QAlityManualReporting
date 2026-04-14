@@ -6,6 +6,7 @@ use crate::{
     models::confluence::{
         ConfluenceAttachment, ConfluenceChild, ConfluencePage, ConfluenceSpace,
     },
+    state::ApiUsageState,
 };
 
 fn format_err(e: anyhow::Error) -> String {
@@ -17,6 +18,7 @@ fn format_err(e: anyhow::Error) -> String {
 /// Confluence Cloud uses the same Atlassian email + API token as Jira,
 /// so no extra credentials are required.
 fn make_confluence_client(app: &AppHandle) -> Result<ConfluenceClient, String> {
+    use tauri::Manager;
     let config = load_config(app).map_err(format_err)?;
     if !config.is_jira_configured() {
         return Err(
@@ -25,10 +27,12 @@ fn make_confluence_client(app: &AppHandle) -> Result<ConfluenceClient, String> {
                 .into(),
         );
     }
+    let usage = app.state::<ApiUsageState>().confluence_usage();
     Ok(ConfluenceClient::new(
         &config.jira_url,
         &config.jira_email,
         &config.jira_api_token,
+        usage,
     ))
 }
 

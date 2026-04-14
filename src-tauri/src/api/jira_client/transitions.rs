@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 
-use crate::api::common::{check_rate_limit, validate_issue_key};
+use crate::api::common::{validate_issue_key};
 use crate::models::jira::{JiraTransition, JiraTransitionsResponse};
 
 use super::JiraClient;
@@ -17,7 +17,7 @@ impl JiraClient {
             issue_key.trim(),
         );
 
-        let resp: JiraTransitionsResponse = check_rate_limit(
+        let resp: JiraTransitionsResponse = self.track_response(
             self.client
                 .get(&url)
                 .header("Authorization", &self.auth_header)
@@ -48,7 +48,7 @@ impl JiraClient {
         );
         let body = serde_json::json!({ "transition": { "id": transition_id } });
 
-        check_rate_limit(
+        self.track_response(
             self.client
                 .post(&url)
                 .header("Authorization", &self.auth_header)

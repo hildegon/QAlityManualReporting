@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 
-use crate::api::common::{check_rate_limit, escape_jql_string, validate_project_key};
+use crate::api::common::{escape_jql_string, validate_project_key};
 use crate::models::jira::{JiraBug, JiraSearchResponse, JiraVersion, VersionRelatedWork};
 
 use super::JiraClient;
@@ -37,7 +37,7 @@ impl JiraClient {
                 body["nextPageToken"] = serde_json::Value::String(token.clone());
             }
 
-            let resp: JiraSearchResponse = check_rate_limit(
+            let resp: JiraSearchResponse = self.track_response(
                 self.client
                     .post(&url)
                     .header("Authorization", &self.auth_header)
@@ -101,7 +101,7 @@ impl JiraClient {
                 body["nextPageToken"] = serde_json::Value::String(token.clone());
             }
 
-            let resp: JiraSearchResponse = check_rate_limit(
+            let resp: JiraSearchResponse = self.track_response(
                 self.client
                     .post(&url)
                     .header("Authorization", &self.auth_header)
@@ -140,7 +140,7 @@ impl JiraClient {
             project_key.trim(),
         );
 
-        check_rate_limit(
+        self.track_response(
             self.client
                 .get(&url)
                 .header("Authorization", &self.auth_header)
@@ -179,7 +179,7 @@ impl JiraClient {
         if let Some(d) = release_date.filter(|s| !s.is_empty()) {
             body["releaseDate"] = d.into();
         }
-        check_rate_limit(
+        self.track_response(
             self.client
                 .post(&url)
                 .header("Authorization", &self.auth_header)
@@ -220,7 +220,7 @@ impl JiraClient {
         if let Some(v) = archived { body["archived"] = v.into(); }
         if let Some(v) = start_date { body["startDate"] = v.into(); }
         if let Some(v) = release_date { body["releaseDate"] = v.into(); }
-        check_rate_limit(
+        self.track_response(
             self.client
                 .put(&url)
                 .header("Authorization", &self.auth_header)
@@ -254,7 +254,7 @@ impl JiraClient {
             version_id.trim(),
             property_key.trim(),
         );
-        let resp = check_rate_limit(
+        let resp = self.track_response(
             self.client
                 .get(&url)
                 .header("Authorization", &self.auth_header)
@@ -291,7 +291,7 @@ impl JiraClient {
             version_id.trim(),
             property_key.trim(),
         );
-        check_rate_limit(
+        self.track_response(
             self.client
                 .put(&url)
                 .header("Authorization", &self.auth_header)
@@ -332,7 +332,7 @@ impl JiraClient {
         if resp.status() == reqwest::StatusCode::NOT_FOUND {
             return Ok(());
         }
-        check_rate_limit(resp)?
+        self.track_response(resp)?
             .error_for_status()
             .context("Delete-version-property request returned error status")?;
         Ok(())
@@ -350,7 +350,7 @@ impl JiraClient {
             self.base_url,
             version_id.trim(),
         );
-        check_rate_limit(
+        self.track_response(
             self.client
                 .get(&url)
                 .header("Authorization", &self.auth_header)
@@ -386,7 +386,7 @@ impl JiraClient {
             "title": title,
             "url": url_value,
         });
-        check_rate_limit(
+        self.track_response(
             self.client
                 .post(&url)
                 .header("Authorization", &self.auth_header)
@@ -418,7 +418,7 @@ impl JiraClient {
             version_id.trim(),
             related_work_id.trim(),
         );
-        check_rate_limit(
+        self.track_response(
             self.client
                 .delete(&url)
                 .header("Authorization", &self.auth_header)

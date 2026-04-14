@@ -73,6 +73,48 @@ pub struct TestSetMembershipsResponse {
     pub test_sets: Vec<XrayTestSet>,
 }
 
+// ── Test Sets with nested member tests (for batched membership) ──────────────
+
+/// A test set including its nested member tests (only `issueId` per test).
+/// Used by `get_all_test_set_memberships` to avoid N+1 queries.
+#[derive(Debug, Clone, Deserialize)]
+pub struct TestSetWithMembers {
+    #[serde(rename(deserialize = "issueId"))]
+    pub issue_id: String,
+    #[serde(deserialize_with = "super::deserialize_jira_json")]
+    pub jira: XrayTestSetJira,
+    /// Nested member tests — only issue IDs needed for membership mapping.
+    pub tests: TestSetMemberIds,
+}
+
+/// Just the test issue IDs inside a test set (no other fields needed).
+#[derive(Debug, Clone, Deserialize)]
+pub struct TestSetMemberIds {
+    pub results: Vec<TestMemberId>,
+}
+
+/// Minimal test reference (issue ID only) for membership mapping.
+#[derive(Debug, Clone, Deserialize)]
+pub struct TestMemberId {
+    #[serde(rename(deserialize = "issueId"))]
+    pub issue_id: String,
+}
+
+/// Paginated result from `getTestSets` with nested member tests.
+#[derive(Debug, Clone, Deserialize)]
+pub struct TestSetsWithMembersResult {
+    #[serde(rename(deserialize = "getTestSets"))]
+    pub get_test_sets: TestSetsWithMembersPage,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct TestSetsWithMembersPage {
+    pub total: u32,
+    pub start: Option<u32>,
+    pub limit: Option<u32>,
+    pub results: Vec<TestSetWithMembers>,
+}
+
 // ── Create Test Set ───────────────────────────────────────────────────────────
 
 /// The test set object returned inside `CreateTestSetResult`.

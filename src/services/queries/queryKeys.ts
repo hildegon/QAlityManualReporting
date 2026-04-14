@@ -76,4 +76,6 @@ export const queryKeys = {
     ["confluence", "attachments", pageId] as const,
   confluenceAttachmentFile: (downloadUrl: string) =>
     ["confluence", "attachment-file", downloadUrl] as const,
+  // Usage
+  apiUsage: ["api-usage"] as const,
 };

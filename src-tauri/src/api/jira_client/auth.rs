@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 
-use crate::api::common::{check_rate_limit, validate_issue_key};
+use crate::api::common::{validate_issue_key};
 use crate::models::jira::JiraUserSearchResult;
 
 use super::JiraClient;
@@ -9,7 +9,7 @@ impl JiraClient {
     /// Validate the credentials by fetching the current user.
     pub async fn validate_credentials(&self) -> Result<String> {
         let url = format!("{}/rest/api/3/myself", self.base_url);
-        let value: serde_json::Value = check_rate_limit(
+        let value: serde_json::Value = self.track_response(
             self.client
                 .get(&url)
                 .header("Authorization", &self.auth_header)
@@ -36,7 +36,7 @@ impl JiraClient {
     pub async fn search_users(&self, query: &str) -> Result<Vec<JiraUserSearchResult>> {
         let url = format!("{}/rest/api/3/user/search", self.base_url);
 
-        check_rate_limit(
+        self.track_response(
             self.client
                 .get(&url)
                 .query(&[("query", query), ("maxResults", "20")])
@@ -59,7 +59,7 @@ impl JiraClient {
     pub async fn get_user_display_name(&self, account_id: &str) -> Result<String> {
         let url = format!("{}/rest/api/3/user", self.base_url);
 
-        let resp: serde_json::Value = check_rate_limit(
+        let resp: serde_json::Value = self.track_response(
             self.client
                 .get(&url)
                 .query(&[("accountId", account_id)])
@@ -98,7 +98,7 @@ impl JiraClient {
             None => serde_json::json!({ "accountId": serde_json::Value::Null }),
         };
 
-        check_rate_limit(
+        self.track_response(
             self.client
                 .put(&url)
                 .header("Authorization", &self.auth_header)

@@ -161,13 +161,14 @@ export function TestsPage() {
 
   useEffect(() => {
     if (!loadConfirmed || !allTests?.length || isTestsStreaming || !projectKey) return;
+    if (activeTab !== "health" && activeTab !== "deprecated" && activeTab !== "sets-health") return;
     healthStore.startHealthFetch(
       projectKey,
       allTests.map((t) => t.issue_id),
       handleToast,
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loadConfirmed, projectKey, !!allTests?.length, isTestsStreaming]);
+  }, [loadConfirmed, projectKey, !!allTests?.length, isTestsStreaming, activeTab]);
 
   const handleReloadTests = useCallback(async () => {
     if (!projectKey) return;

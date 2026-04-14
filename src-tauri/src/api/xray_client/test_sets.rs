@@ -1,10 +1,11 @@
-use anyhow::{Context, Result};
+use anyhow::Result;
 use std::collections::HashMap;
 
 use crate::api::common::validate_project_key;
 use crate::models::xray::{
     FirstPageResult, TestSetMemberInfo, TestSetMembershipsResponse, TestSetResult,
-    TestSetWithStatusResult, TestSetsResult, XrayTest, XrayTestSet, XrayTestWithStatus,
+    TestSetWithStatusResult, TestSetsResult, TestSetsWithMembersResult, XrayTest, XrayTestSet,
+    XrayTestWithStatus,
 };
 
 use super::XrayClient;
@@ -156,49 +157,74 @@ impl XrayClient {
     /// Fetch all test sets for a project and their member tests in one backend
     /// call, building a membership map keyed by test issue ID.
     ///
-    /// This avoids the N+1 problem where the frontend would fire one query per
-    /// test set.  Requests are issued sequentially with a small delay to stay
-    /// within Xray rate limits.
+    /// Uses a `getTestSets` query with nested `tests(limit: 500)` to avoid the
+    /// N+1 problem — all membership data arrives in 1–2 paginated requests
+    /// instead of one request per test set.
     pub async fn get_all_test_set_memberships(
         &self,
         project_key: &str,
     ) -> Result<TestSetMembershipsResponse> {
-        // 1. Fetch all test sets in the project (paginated automatically).
-        let test_sets = self.get_test_sets(project_key).await?;
-
-        // 2. For each test set, fetch its member tests sequentially.
-        let mut memberships: HashMap<String, Vec<TestSetMemberInfo>> = HashMap::new();
-
-        for ts in &test_sets {
-            let info = TestSetMemberInfo {
-                issue_id: ts.issue_id.clone(),
-                key: ts.jira.key.clone(),
-                summary: ts.jira.summary.clone(),
-            };
-
-            match self.get_test_set_tests(&ts.issue_id).await {
-                Ok(tests) => {
-                    for t in tests {
-                        memberships
-                            .entry(t.issue_id)
-                            .or_default()
-                            .push(info.clone());
+        let query = r#"
+            query GetTestSetsWithMembers($jql: String!, $limit: Int!, $start: Int) {
+                getTestSets(jql: $jql, limit: $limit, start: $start) {
+                    total
+                    start
+                    limit
+                    results {
+                        issueId
+                        jira(fields: ["key", "summary", "status"])
+                        tests(limit: 500) {
+                            results {
+                                issueId
+                            }
+                        }
                     }
                 }
-                Err(e) => {
-                    // If one test set fails (e.g. rate limit), propagate the
-                    // error so the frontend can handle it uniformly.
-                    return Err(e).with_context(|| {
-                        format!(
-                            "Failed to fetch tests for test set {} ({})",
-                            ts.jira.key, ts.issue_id
-                        )
-                    });
+            }
+        "#;
+
+        const PAGE_SIZE: u32 = 100;
+        validate_project_key(project_key)?;
+        let jql = format!("project = '{project_key}'");
+
+        let mut memberships: HashMap<String, Vec<TestSetMemberInfo>> = HashMap::new();
+        let mut test_sets: Vec<XrayTestSet> = Vec::new();
+        let mut start: u32 = 0;
+
+        loop {
+            let result: TestSetsWithMembersResult = self
+                .graphql(
+                    query,
+                    serde_json::json!({ "jql": jql, "limit": PAGE_SIZE, "start": start }),
+                )
+                .await?;
+            let page = result.get_test_sets;
+            let fetched = page.results.len() as u32;
+
+            for ts in page.results {
+                let info = TestSetMemberInfo {
+                    issue_id: ts.issue_id.clone(),
+                    key: ts.jira.key.clone(),
+                    summary: ts.jira.summary.clone(),
+                };
+
+                for member in &ts.tests.results {
+                    memberships
+                        .entry(member.issue_id.clone())
+                        .or_default()
+                        .push(info.clone());
                 }
+
+                test_sets.push(XrayTestSet {
+                    issue_id: ts.issue_id,
+                    jira: ts.jira,
+                });
             }
 
-            // Small delay between requests to avoid hammering the API.
-            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            start += fetched;
+            if fetched == 0 || start >= page.total {
+                break;
+            }
         }
 
         Ok(TestSetMembershipsResponse {

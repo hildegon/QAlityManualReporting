@@ -8,6 +8,7 @@ import { AppShell } from "@/components/common/AppShell";
 import { ErrorBoundary } from "@/components/common/ErrorBoundary";
 import { Spinner } from "@/components/ui/spinner";
 import { useUiStore, parseRateLimitError } from "@/stores/uiStore";
+import { useUserRoleStore, getAllowedRoutes, getDefaultRoute } from "@/stores/userRoleStore";
 
 // Lazy-load page routes so each page's JS is only parsed when first navigated to.
 const SettingsPage = lazy(() => import("@/pages/SettingsPage"));
@@ -82,6 +83,20 @@ const localStoragePersister = createSyncStoragePersister({
 });
 
 const queryClient = makeQueryClient();
+
+/**
+ * Redirects to the user's default landing page if they navigate to a route
+ * their role doesn't have access to.
+ */
+function RoleGuard({ path, children }: { path: string; children: React.ReactNode }) {
+  const userRole = useUserRoleStore((s) => s.userRole);
+  if (!userRole) return <>{children}</>;
+  const allowed = getAllowedRoutes(userRole);
+  if (!allowed.includes(path)) {
+    return <Navigate to={getDefaultRoute(userRole)} replace />;
+  }
+  return <>{children}</>;
+}
 
 export default function App() {
   const setRateLimit = useUiStore((s) => s.setRateLimit);
@@ -197,12 +212,45 @@ export default function App() {
             <Routes>
               <Route element={<AppShell />}>
                 <Route index element={<Navigate to="/executions" replace />} />
-                <Route path="/executions" element={<TestExecutionsPage />} />
-                <Route path="/coverage" element={<CoveragePage />} />
-                <Route path="/test-plans" element={<TestPlansPage />} />
-                <Route path="/tests" element={<TestsPage />} />
+                <Route
+                  path="/executions"
+                  element={
+                    <RoleGuard path="/executions">
+                      <TestExecutionsPage />
+                    </RoleGuard>
+                  }
+                />
+                <Route path="/coverage" element={
+                    <RoleGuard path="/coverage">
+                      <CoveragePage />
+                    </RoleGuard>
+                  }
+                />
+                <Route
+                  path="/test-plans"
+                  element={
+                    <RoleGuard path="/test-plans">
+                      <TestPlansPage />
+                    </RoleGuard>
+                  }
+                />
+                <Route
+                  path="/tests"
+                  element={
+                    <RoleGuard path="/tests">
+                      <TestsPage />
+                    </RoleGuard>
+                  }
+                />
                 <Route path="/versions" element={<VersionsPage />} />
-                <Route path="/create-test" element={<CreateTestPage />} />
+                <Route
+                  path="/create-test"
+                  element={
+                    <RoleGuard path="/create-test">
+                      <CreateTestPage />
+                    </RoleGuard>
+                  }
+                />
                 <Route path="/settings" element={<SettingsPage />} />
               </Route>
             </Routes>

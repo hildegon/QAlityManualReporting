@@ -1275,5 +1275,78 @@ mod tests {
         assert!(resp.memberships["t-2"].is_empty());
         assert_eq!(resp.test_sets.len(), 1);
     }
+
+    // ── TestSetsWithMembersResult (inline membership query) ──────────────────
+
+    #[test]
+    fn test_sets_with_members_deserializes() {
+        let json = r#"{
+            "getTestSets": {
+                "total": 2,
+                "start": 0,
+                "limit": 100,
+                "results": [
+                    {
+                        "issueId": "ts-100",
+                        "jira": "{\"key\":\"PROJ-10\",\"summary\":\"Login Tests\"}",
+                        "tests": {
+                            "results": [
+                                { "issueId": "t-1" },
+                                { "issueId": "t-2" },
+                                { "issueId": "t-3" }
+                            ]
+                        }
+                    },
+                    {
+                        "issueId": "ts-200",
+                        "jira": "{\"key\":\"PROJ-20\",\"summary\":\"Payment Tests\"}",
+                        "tests": {
+                            "results": [
+                                { "issueId": "t-2" },
+                                { "issueId": "t-4" }
+                            ]
+                        }
+                    }
+                ]
+            }
+        }"#;
+        let result: TestSetsWithMembersResult = serde_json::from_str(json).unwrap();
+        let page = result.get_test_sets;
+        assert_eq!(page.total, 2);
+        assert_eq!(page.results.len(), 2);
+
+        let first = &page.results[0];
+        assert_eq!(first.issue_id, "ts-100");
+        assert_eq!(first.jira.key, "PROJ-10");
+        assert_eq!(first.jira.summary, "Login Tests");
+        assert_eq!(first.tests.results.len(), 3);
+        assert_eq!(first.tests.results[0].issue_id, "t-1");
+
+        let second = &page.results[1];
+        assert_eq!(second.issue_id, "ts-200");
+        assert_eq!(second.tests.results.len(), 2);
+    }
+
+    #[test]
+    fn test_sets_with_members_empty_tests() {
+        let json = r#"{
+            "getTestSets": {
+                "total": 1,
+                "start": 0,
+                "limit": 100,
+                "results": [
+                    {
+                        "issueId": "ts-300",
+                        "jira": "{\"key\":\"PROJ-30\",\"summary\":\"Empty Set\"}",
+                        "tests": {
+                            "results": []
+                        }
+                    }
+                ]
+            }
+        }"#;
+        let result: TestSetsWithMembersResult = serde_json::from_str(json).unwrap();
+        assert_eq!(result.get_test_sets.results[0].tests.results.len(), 0);
+    }
 }
 

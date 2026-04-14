@@ -7,11 +7,14 @@ import {
   FilePlus2,
   Tag,
   FlaskConical,
+  Lock,
 } from "lucide-react";
 import { ProjectSelector } from "./ProjectSelector";
 import { RateLimitBanner } from "./RateLimitBanner";
 import { ThemeToggle } from "./ThemeToggle";
 import { GlobalToastList } from "./GlobalToastList";
+import { RoleSelectionModal } from "./RoleSelectionModal";
+import { useUserRoleStore, getAllowedRoutes } from "@/stores/userRoleStore";
 import { cn } from "@/components/ui/utils";
 
 const navItems = [
@@ -35,6 +38,9 @@ function navClassName({ isActive }: { isActive: boolean }) {
 }
 
 export function AppShell() {
+  const userRole = useUserRoleStore((s) => s.userRole);
+  const allowedRoutes = userRole ? new Set(getAllowedRoutes(userRole)) : null;
+
   return (
     <div className="flex h-screen flex-col bg-slate-100 text-slate-900 dark:bg-slate-900 dark:text-slate-100">
       {/* Top navigation bar */}
@@ -64,12 +70,27 @@ export function AppShell() {
 
         {/* Right: nav links + theme toggle */}
         <nav className="flex items-center gap-0.5">
-          {navItems.map(({ to, label, icon: Icon }) => (
-            <NavLink key={to} to={to} className={navClassName} title={label}>
-              <Icon className="h-4 w-4 shrink-0" />
-              <span className="hidden xl:inline">{label}</span>
-            </NavLink>
-          ))}
+          {navItems.map(({ to, label, icon: Icon }) => {
+            const isLocked = allowedRoutes !== null && !allowedRoutes.has(to);
+            if (isLocked) {
+              return (
+                <span
+                  key={to}
+                  title={`${label} — not available for your role`}
+                  className="flex cursor-not-allowed items-center gap-1.5 rounded-md px-2 py-1.5 text-sm opacity-35 xl:px-3 text-slate-400 dark:text-slate-500"
+                >
+                  <Lock className="h-4 w-4 shrink-0" />
+                  <span className="hidden xl:inline">{label}</span>
+                </span>
+              );
+            }
+            return (
+              <NavLink key={to} to={to} className={navClassName} title={label}>
+                <Icon className="h-4 w-4 shrink-0" />
+                <span className="hidden xl:inline">{label}</span>
+              </NavLink>
+            );
+          })}
           <ThemeToggle />
         </nav>
       </header>
@@ -84,6 +105,9 @@ export function AppShell() {
 
       {/* Global toast notifications (anchored bottom-right) */}
       <GlobalToastList />
+
+      {/* Role selection — shown on first launch until user picks a role */}
+      {userRole === null && <RoleSelectionModal />}
     </div>
   );
 }

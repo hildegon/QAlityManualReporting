@@ -23,6 +23,7 @@ use commands::{
         transition_issue, update_assignee, update_issue_fix_version, update_issue_summary,
         update_version, validate_jira_credentials,
     },
+    usage::get_api_usage,
     utils::write_text_file,
     xray::{
         add_defects_to_test_run, add_tests_to_test_execution, add_tests_to_test_plan,
@@ -41,6 +42,7 @@ use commands::{
     },
 };
 use state::XrayClientState;
+use state::ApiUsageState;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -49,6 +51,46 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .manage(XrayClientState::new())
+        .manage(ApiUsageState::new())
+        .setup(|app| {
+            // Restore persisted all-time API usage counters from disk.
+            use tauri::Manager;
+            let managed = app.state::<ApiUsageState>();
+
+            // Wire up the app handle so TrackedUsage can emit events.
+            managed.set_app_handle(app.handle().clone());
+
+            if let Ok(dir) = app.path().app_config_dir() {
+                let path = dir.join("api_usage.json");
+                if path.exists() {
+                    let fresh = ApiUsageState::load_from_file(&path);
+                    // Extract the persisted values before borrowing managed state.
+                    let jira_all = fresh.jira.lock().map(|u| (u.calls_all_time, u.rate_limit_hits_all_time)).ok();
+                    let xray_all = fresh.xray.lock().map(|u| (u.calls_all_time, u.rate_limit_hits_all_time)).ok();
+                    let conf_all = fresh.confluence.lock().map(|u| (u.calls_all_time, u.rate_limit_hits_all_time)).ok();
+
+                    if let Some((calls, hits)) = jira_all {
+                        if let Ok(mut u) = managed.jira.lock() {
+                            u.calls_all_time = calls;
+                            u.rate_limit_hits_all_time = hits;
+                        }
+                    }
+                    if let Some((calls, hits)) = xray_all {
+                        if let Ok(mut u) = managed.xray.lock() {
+                            u.calls_all_time = calls;
+                            u.rate_limit_hits_all_time = hits;
+                        }
+                    }
+                    if let Some((calls, hits)) = conf_all {
+                        if let Ok(mut u) = managed.confluence.lock() {
+                            u.calls_all_time = calls;
+                            u.rate_limit_hits_all_time = hits;
+                        }
+                    }
+                }
+            }
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             // Config
             get_config,
@@ -137,6 +179,8 @@ pub fn run() {
             fetch_confluence_attachment,
             // Utils
             write_text_file,
+            // Usage
+            get_api_usage,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

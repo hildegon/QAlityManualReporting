@@ -8,7 +8,7 @@ use super::JiraClient;
 impl JiraClient {
     /// Fetch all accessible Jira projects (paginated, collects all pages).
     pub async fn get_projects(&self) -> Result<Vec<JiraProject>> {
-        use crate::api::common::check_rate_limit;
+        
         let mut all_projects = Vec::new();
         let mut start_at = 0u32;
         let max_results = 50u32;
@@ -19,7 +19,7 @@ impl JiraClient {
                 self.base_url, start_at, max_results,
             );
 
-            let response: JiraProjectsResponse = check_rate_limit(
+            let response: JiraProjectsResponse = self.track_response(
                 self.client
                     .get(&url)
                     .header("Authorization", &self.auth_header)
@@ -48,7 +48,7 @@ impl JiraClient {
     /// Fetch a single project by its key (e.g. "PROJ") and return it.
     /// Uses the direct project endpoint which is faster than paginating all projects.
     pub async fn get_project(&self, project_key: &str) -> Result<JiraProject> {
-        use crate::api::common::check_rate_limit;
+        
         validate_project_key(project_key)?;
         let url = format!(
             "{}/rest/api/3/project/{}",
@@ -56,7 +56,7 @@ impl JiraClient {
             project_key.trim(),
         );
 
-        check_rate_limit(
+        self.track_response(
             self.client
                 .get(&url)
                 .header("Authorization", &self.auth_header)
@@ -74,7 +74,7 @@ impl JiraClient {
 
     /// Fetch all components for a given Jira project key or numeric ID.
     pub async fn get_project_components(&self, project_key: &str) -> Result<Vec<JiraComponent>> {
-        use crate::api::common::check_rate_limit;
+        
         validate_project_key(project_key)?;
         let url = format!(
             "{}/rest/api/3/project/{}/components",
@@ -82,7 +82,7 @@ impl JiraClient {
             project_key.trim(),
         );
 
-        check_rate_limit(
+        self.track_response(
             self.client
                 .get(&url)
                 .header("Authorization", &self.auth_header)

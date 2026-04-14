@@ -7,6 +7,7 @@ use tokio::sync::Mutex;
 
 use super::common::{rate_limit_until_ms, truncate_body};
 use crate::models::xray::{GraphQLRequest, GraphQLResponse, XrayAuthRequest};
+use crate::state::TrackedUsage;
 
 mod executions;
 mod health;
@@ -31,10 +32,16 @@ pub struct XrayClient {
     token: Arc<Mutex<Option<String>>>,
     /// Tauri app handle for emitting events to the frontend.
     app_handle: Option<tauri::AppHandle>,
+    /// Shared API-usage counter updated on every HTTP response.
+    usage: TrackedUsage,
 }
 
 impl XrayClient {
-    pub fn new(client_id: String, client_secret: String) -> Self {
+    pub fn new(
+        client_id: String,
+        client_secret: String,
+        usage: TrackedUsage,
+    ) -> Self {
         let client = Client::builder()
             .timeout(std::time::Duration::from_secs(30))
             .build()
@@ -45,6 +52,7 @@ impl XrayClient {
             client_secret,
             token: Arc::new(Mutex::new(None)),
             app_handle: None,
+            usage,
         }
     }
 
@@ -94,13 +102,16 @@ impl XrayClient {
         guard.clone().context("Token missing after authentication")
     }
 
+    /// Maximum number of 429 retries before giving up.
+    const MAX_RATE_LIMIT_RETRIES: u32 = 10;
+
     /// Execute a GraphQL query against the Xray Cloud API.
     ///
     /// Retry behaviour:
     /// - **401 Unauthorized** – clears the cached token and retries once.
     /// - **429 Too Many Requests** – sleeps until the rate-limit window resets
     ///   (honouring `X-RateLimit-Reset` / `Retry-After` headers, defaulting to
-    ///   30 s) and retries indefinitely until the request succeeds.
+    ///   30 s) and retries up to [`MAX_RATE_LIMIT_RETRIES`] times.
     pub(super) async fn graphql<T: serde::de::DeserializeOwned>(
         &self,
         query: &str,
@@ -112,6 +123,7 @@ impl XrayClient {
         };
 
         let mut auth_retried = false;
+        let mut rate_limit_attempts: u32 = 0;
 
         loop {
             let token = self.get_token().await?;
@@ -138,6 +150,19 @@ impl XrayClient {
 
             // ── 429: notify the frontend, then sleep until the window resets ──
             if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
+                rate_limit_attempts += 1;
+
+                // Record the 429 as a rate-limit hit.
+                self.usage.record_rate_limit(resp.headers());
+
+                if rate_limit_attempts > Self::MAX_RATE_LIMIT_RETRIES {
+                    bail!(
+                        "Xray rate limit exceeded — gave up after {} retries. \
+                         Please wait a few minutes and try again.",
+                        Self::MAX_RATE_LIMIT_RETRIES
+                    );
+                }
+
                 let until_ms = rate_limit_until_ms(resp.headers()).unwrap_or_else(|| {
                     let now = SystemTime::now()
                         .duration_since(UNIX_EPOCH)
@@ -160,6 +185,10 @@ impl XrayClient {
                 tokio::time::sleep(tokio::time::Duration::from_millis(wait_ms)).await;
                 continue;
             }
+
+            // Record the API call before consuming the body.
+            let response_headers = resp.headers().clone();
+            self.usage.record_call(&response_headers);
 
             let raw_body = resp
                 .text()

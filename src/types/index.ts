@@ -651,3 +651,26 @@ export interface ConfluenceAttachment {
   /** MIME type (e.g. `"image/png"`). */
   mediaType: string;
 }
+
+// ── API Usage ──────────────────────────────────────────────────────────────────
+
+/** Per-service API usage snapshot returned by the `get_api_usage` command. */
+export interface ServiceUsageSnapshot {
+  calls_this_hour: number;
+  hour_start_ms: number;
+  last_remaining: number | null;
+  last_limit: number | null;
+  last_reset_ms: number | null;
+  calls_total: number;
+  rate_limit_hits: number;
+  last_rate_limited_at: number | null;
+  calls_all_time: number;
+  rate_limit_hits_all_time: number;
+}
+
+/** Combined Jira + Xray API usage snapshot. */
+export interface ApiUsageSnapshot {
+  jira: ServiceUsageSnapshot;
+  xray: ServiceUsageSnapshot;
+  confluence: ServiceUsageSnapshot;
+}

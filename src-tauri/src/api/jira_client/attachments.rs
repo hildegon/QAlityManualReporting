@@ -1,6 +1,6 @@
 use anyhow::{bail, Context, Result};
 
-use crate::api::common::{check_rate_limit, validate_issue_key};
+use crate::api::common::{validate_issue_key};
 
 use super::JiraClient;
 
@@ -88,7 +88,7 @@ impl JiraClient {
 
         let form = reqwest::multipart::Form::new().part("file", part);
 
-        check_rate_limit(
+        self.track_response(
             self.client
                 .post(&url)
                 .header("Authorization", &self.auth_header)
@@ -121,7 +121,7 @@ impl JiraClient {
                 "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": body }] }]
             }
         });
-        let resp = check_rate_limit(
+        let resp = self.track_response(
             self.client
                 .post(&url)
                 .header("Authorization", &self.auth_header)

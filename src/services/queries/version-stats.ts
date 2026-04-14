@@ -116,7 +116,7 @@ export function useVersionRunStats(executions: TestExecution[], bugs?: JiraBug[]
     queries: executions.map((ex, i) => ({
       queryKey: ["version-run-stats", ex.issue_id, 0] as const,
       queryFn: () => api.getTestRunStats(ex.issue_id, PAGE_SIZE, 0),
-      staleTime: 5 * 60 * 1_000,
+      staleTime: 15 * 60 * 1_000,
       gcTime: Infinity,
       enabled: executions.length > 0 && i < settledRef.current + MAX_CONCURRENT,
       meta: { persist: true },
@@ -148,7 +148,7 @@ export function useVersionRunStats(executions: TestExecution[], bugs?: JiraBug[]
     queries: extraPageQueries.map(({ issueId, start }, i) => ({
       queryKey: ["version-run-stats", issueId, start] as const,
       queryFn: () => api.getTestRunStats(issueId, PAGE_SIZE, start),
-      staleTime: 5 * 60 * 1_000,
+      staleTime: 15 * 60 * 1_000,
       gcTime: Infinity,
       enabled: extraPageQueries.length > 0 && i < extraSettledRef.current + MAX_CONCURRENT,
       meta: { persist: true },
@@ -304,7 +304,7 @@ export function useExecutionRunSummary(executionIssueId: string | null): ExecSum
     queryKey: queryKeys.execSummary(executionIssueId ?? "", 0),
     queryFn: () => api.getTestRunStatuses(executionIssueId!, EXEC_SUMMARY_PAGE_SIZE, 0),
     enabled,
-    staleTime: 5 * 60 * 1_000,
+    staleTime: 15 * 60 * 1_000,
     gcTime: Infinity,
     meta: { persist: true },
   });
@@ -327,7 +327,7 @@ export function useExecutionRunSummary(executionIssueId: string | null): ExecSum
       queryKey: queryKeys.execSummary(executionIssueId ?? "", start),
       queryFn: () => api.getTestRunStatuses(executionIssueId!, EXEC_SUMMARY_PAGE_SIZE, start),
       enabled: enabled && extraStarts.length > 0 && i < phase2SettledRef.current + MAX_CONCURRENT,
-      staleTime: 5 * 60 * 1_000,
+      staleTime: 15 * 60 * 1_000,
       gcTime: Infinity,
       meta: { persist: true },
     })),

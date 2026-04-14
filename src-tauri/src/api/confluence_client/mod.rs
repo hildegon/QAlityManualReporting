@@ -6,6 +6,7 @@ use crate::models::confluence::{
     AttachmentV1Response, ChildrenResponse, ConfluenceAttachment, ConfluenceChild, ConfluencePage,
     ConfluenceSpace, PagesResponse, RawPage, SpacesResponse,
 };
+use crate::state::TrackedUsage;
 
 /// Check HTTP status and return a descriptive error including the response body
 /// when the status indicates failure.
@@ -35,12 +36,19 @@ pub struct ConfluenceClient {
     /// e.g. `https://mysite.atlassian.net/wiki`
     wiki_base: String,
     auth_header: String,
+    /// Shared API-usage counter updated on every HTTP response.
+    usage: TrackedUsage,
 }
 
 impl ConfluenceClient {
     /// Create a new client. `jira_base_url` is the Jira site URL (e.g.
     /// `https://mysite.atlassian.net`). The wiki API URL is derived automatically.
-    pub fn new(jira_base_url: &str, email: &str, api_token: &str) -> Self {
+    pub fn new(
+        jira_base_url: &str,
+        email: &str,
+        api_token: &str,
+        usage: TrackedUsage,
+    ) -> Self {
         use base64::{engine::general_purpose::STANDARD, Engine};
         let credentials = STANDARD.encode(format!("{email}:{api_token}"));
         let site = jira_base_url.trim_end_matches('/');
@@ -53,7 +61,19 @@ impl ConfluenceClient {
             base_url: format!("{site}/wiki/api/v2"),
             wiki_base: format!("{site}/wiki"),
             auth_header: format!("Basic {credentials}"),
+            usage,
         }
+    }
+
+    /// Record an API call in the usage counter then delegate to
+    /// `check_rate_limit` for 429 handling.
+    fn track_response(&self, resp: Response) -> Result<Response> {
+        if resp.status() == reqwest::StatusCode::TOO_MANY_REQUESTS {
+            self.usage.record_rate_limit(resp.headers());
+        } else {
+            self.usage.record_call(resp.headers());
+        }
+        check_rate_limit(resp)
     }
 
     /// List all current (non-archived) Confluence spaces visible to the user.
@@ -66,7 +86,7 @@ impl ConfluenceClient {
 
         loop {
             let resp: SpacesResponse = ensure_ok(
-                check_rate_limit(
+                self.track_response(
                     self.client
                         .get(&url)
                         .header("Authorization", &self.auth_header)
@@ -123,7 +143,7 @@ impl ConfluenceClient {
 
         loop {
             let resp: PagesResponse = ensure_ok(
-                check_rate_limit(
+                self.track_response(
                     self.client
                         .get(&url)
                         .header("Authorization", &self.auth_header)
@@ -184,7 +204,7 @@ impl ConfluenceClient {
 
         loop {
             let resp: ChildrenResponse = ensure_ok(
-                check_rate_limit(
+                self.track_response(
                     self.client
                         .get(&url)
                         .header("Authorization", &self.auth_header)
@@ -226,7 +246,7 @@ impl ConfluenceClient {
         );
 
         let raw: RawPage = ensure_ok(
-            check_rate_limit(
+            self.track_response(
                 self.client
                     .get(&url)
                     .header("Authorization", &self.auth_header)
@@ -271,7 +291,7 @@ impl ConfluenceClient {
         }
 
         let raw: RawPage = ensure_ok(
-            check_rate_limit(
+            self.track_response(
                 self.client
                     .post(&url)
                     .header("Authorization", &self.auth_header)
@@ -319,7 +339,7 @@ impl ConfluenceClient {
         });
 
         let raw: RawPage = ensure_ok(
-            check_rate_limit(
+            self.track_response(
                 self.client
                     .put(&url)
                     .header("Authorization", &self.auth_header)
@@ -425,7 +445,7 @@ impl ConfluenceClient {
         let form = reqwest::multipart::Form::new().part("file", part);
 
         let resp: AttachmentV1Response = ensure_ok(
-            check_rate_limit(
+            self.track_response(
                 self.client
                     .post(&url)
                     .header("Authorization", &self.auth_header)
@@ -467,7 +487,7 @@ impl ConfluenceClient {
 
         loop {
             let resp: AttachmentV1Response = ensure_ok(
-                check_rate_limit(
+                self.track_response(
                     self.client
                         .get(&url)
                         .header("Authorization", &self.auth_header)

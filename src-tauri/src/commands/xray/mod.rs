@@ -1,9 +1,9 @@
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Manager, State};
 
 use crate::{
     api::xray_client::XrayClient,
     commands::config::load_config,
-    state::XrayClientState,
+    state::{ApiUsageState, XrayClientState},
 };
 
 mod executions;
@@ -45,6 +45,7 @@ pub(super) async fn get_xray_client(
         *guard = Some(XrayClient::new(
             config.xray_client_id,
             config.xray_client_secret,
+            app.state::<ApiUsageState>().xray_usage(),
         ).with_app_handle(app.clone()));
     }
     // Unwrap is safe: we just ensured it is Some.

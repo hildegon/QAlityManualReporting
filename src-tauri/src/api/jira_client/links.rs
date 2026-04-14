@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 
-use crate::api::common::check_rate_limit;
+
 use crate::models::jira::{IssueLinkType, IssueLinkTypesResponse, JiraCreatedIssue};
 
 use super::JiraClient;
@@ -25,7 +25,7 @@ impl JiraClient {
             "outwardIssue": { "key": outward_issue_key },
         });
 
-        let resp = check_rate_limit(
+        let resp = self.track_response(
             self.client
                 .post(&url)
                 .header("Authorization", &self.auth_header)
@@ -60,7 +60,7 @@ impl JiraClient {
     /// Uses `GET /rest/api/3/issueLinkType`.
     pub async fn get_issue_link_types(&self) -> Result<Vec<IssueLinkType>> {
         let url = format!("{}/rest/api/3/issueLinkType", self.base_url);
-        let resp: IssueLinkTypesResponse = check_rate_limit(
+        let resp: IssueLinkTypesResponse = self.track_response(
             self.client
                 .get(&url)
                 .header("Authorization", &self.auth_header)
@@ -127,7 +127,7 @@ impl JiraClient {
 
         let body = serde_json::json!({ "fields": fields });
 
-        let resp = check_rate_limit(
+        let resp = self.track_response(
             self.client
                 .post(&url)
                 .header("Authorization", &self.auth_header)

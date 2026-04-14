@@ -1,4 +1,4 @@
-use tauri::AppHandle;
+use tauri::{AppHandle, Manager};
 
 use crate::{
     api::jira_client::JiraClient,
@@ -8,6 +8,7 @@ use crate::{
         JiraCreatedIssue, JiraIssueDetail, JiraProject, JiraTransition, JiraUserSearchResult,
         JiraVersion, VersionRelatedWork,
     },
+    state::ApiUsageState,
 };
 
 /// Recursively extract plain text from an Atlassian Document Format (ADF) node.
@@ -118,10 +119,12 @@ fn make_jira_client(app: &AppHandle) -> Result<JiraClient, String> {
             "Jira is not configured. Please set Jira URL, Email, and API Token in Settings.".into(),
         );
     }
+    let usage = app.state::<ApiUsageState>();
     Ok(JiraClient::new(
         config.jira_url,
         config.jira_email,
         config.jira_api_token,
+        usage.jira_usage(),
     ))
 }
 

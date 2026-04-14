@@ -215,45 +215,69 @@ impl XrayClient {
         "#;
 
         let page_size: u32 = 100;
-        let mut start: u32 = 0;
-        let mut best_id: Option<i64> = None;
-        let mut best_str: Option<String> = None;
 
-        loop {
-            let resp: Resp = self
-                .graphql(
-                    query,
-                    serde_json::json!({
-                        "issueId": test_issue_id,
-                        "limit": page_size,
-                        "start": start,
-                    }),
-                )
-                .await?;
+        // First call: fetch page 0 to discover `total`.
+        let resp: Resp = self
+            .graphql(
+                query,
+                serde_json::json!({
+                    "issueId": test_issue_id,
+                    "limit": page_size,
+                    "start": 0u32,
+                }),
+            )
+            .await?;
 
-            let Some(test_node) = resp.get_test else {
-                return Ok(None);
-            };
-            let Some(page) = test_node.test_executions else {
-                return Ok(None);
-            };
+        let Some(test_node) = resp.get_test else {
+            return Ok(None);
+        };
+        let Some(page) = test_node.test_executions else {
+            return Ok(None);
+        };
 
-            let total = page.total;
-            for row in &page.results {
-                let num = row.issue_id.parse::<i64>().unwrap_or(0);
-                if best_id.is_none_or(|prev| num > prev) {
-                    best_id = Some(num);
-                    best_str = Some(row.issue_id.clone());
+        let total = page.total;
+
+        // Helper: find the highest numeric issueId in a page.
+        let best_in = |rows: &[ExecRow]| -> Option<(i64, String)> {
+            rows.iter()
+                .filter_map(|r| r.issue_id.parse::<i64>().ok().map(|n| (n, r.issue_id.clone())))
+                .max_by_key(|(n, _)| *n)
+        };
+
+        let mut best = best_in(&page.results);
+
+        // If everything fit in the first page, we're done.
+        if total <= page_size {
+            return Ok(best.map(|(_, s)| s));
+        }
+
+        // Otherwise, jump straight to the LAST page — the highest issueId is
+        // almost certainly there since executions are created in order.
+        let last_start = total.saturating_sub(page_size);
+        let resp2: Resp = self
+            .graphql(
+                query,
+                serde_json::json!({
+                    "issueId": test_issue_id,
+                    "limit": page_size,
+                    "start": last_start,
+                }),
+            )
+            .await?;
+
+        if let Some(test_node) = resp2.get_test {
+            if let Some(page2) = test_node.test_executions {
+                if let Some(last_best) = best_in(&page2.results) {
+                    match &best {
+                        Some((prev, _)) if last_best.0 > *prev => best = Some(last_best),
+                        None => best = Some(last_best),
+                        _ => {}
+                    }
                 }
-            }
-
-            start += page_size;
-            if page.results.is_empty() || start >= total {
-                break;
             }
         }
 
-        Ok(best_str)
+        Ok(best.map(|(_, s)| s))
     }
 
     /// Fetch steps, gherkin, and unstructured content for the given test issue IDs.

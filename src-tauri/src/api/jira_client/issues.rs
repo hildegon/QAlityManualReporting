@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 
-use crate::api::common::{check_rate_limit, validate_issue_key};
+use crate::api::common::{validate_issue_key};
 use crate::models::jira::JiraIssue;
 
 use super::JiraClient;
@@ -14,7 +14,7 @@ impl JiraClient {
             self.base_url, issue_key,
         );
 
-        check_rate_limit(
+        self.track_response(
             self.client
                 .get(&url)
                 .header("Authorization", &self.auth_header)
@@ -40,7 +40,7 @@ impl JiraClient {
         let url = format!("{}/rest/api/3/issue/{}", self.base_url, issue_key.trim(),);
         let body = serde_json::json!({ "fields": { "summary": summary } });
 
-        check_rate_limit(
+        self.track_response(
             self.client
                 .put(&url)
                 .header("Authorization", &self.auth_header)
@@ -73,7 +73,7 @@ impl JiraClient {
         };
         let body = serde_json::json!({ "fields": { "fixVersions": fix_versions } });
 
-        check_rate_limit(
+        self.track_response(
             self.client
                 .put(&url)
                 .header("Authorization", &self.auth_header)
