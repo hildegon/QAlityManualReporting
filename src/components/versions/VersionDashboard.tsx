@@ -36,6 +36,9 @@ export function VersionDashboard({ stats, executions, version, projectKey, bugs 
     <div id="version-section-results" className="mt-4 space-y-2">
       {/* Compact test results card */}
       <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+        <div className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-slate-400">
+          Test results
+        </div>
         <FetchProgress loaded={stats.pagesLoaded} expected={stats.pagesExpected} />
 
         {stats.total > 0 ? (

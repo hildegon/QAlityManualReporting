@@ -118,23 +118,21 @@ export function VersionContent({
         </button>
       </div>
 
-      <div id="version-section-feedback">
-        <FeedbackSummary version={version} />
+      <div className="mb-3 space-y-3">
+        <ReleaseReadinessChecklist
+          stats={stats}
+          executions={executions}
+          bugs={bugs ?? []}
+          versionIssues={versionIssues ?? []}
+          version={version}
+          feedbackRows={feedbackRows}
+        />
       </div>
 
-      {executions.length > 0 && (
-        <div className="mb-4 space-y-3">
-          <ReleaseReadinessChecklist
-            stats={stats}
-            executions={executions}
-            bugs={bugs ?? []}
-            versionIssues={versionIssues ?? []}
-            version={version}
-            feedbackRows={feedbackRows}
-          />
-        </div>
-      )}
-
+      {/* Feedback + Test Results — equal visual weight, stacked */}
+      <div id="version-section-feedback" className="mt-4">
+        <FeedbackSummary version={version} />
+      </div>
       <VersionDashboard
         stats={stats}
         executions={executions}

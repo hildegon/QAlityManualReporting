@@ -317,7 +317,15 @@ export function parseIssueRows(html: string): IssueRow[] {
     // Column order: Description, Comment, Priority, Jira Ticket, Assigned Dev, Status
     const descRaw = rawCells[0] ?? "";
     const commentRaw = rawCells[1] ?? "";
-    const description = stripHtml(descRaw);
+    // Strip the Confluence carry-over annotation before parsing display text.
+    // The annotation is written as <p><em>↩ Carried from …</em></p> inside the
+    // description cell. We remove it here so it never appears in row.description.
+    // The source-of-truth is the data-carryover-from attribute on the <tr>.
+    const descForDisplay = descRaw.replace(
+      /<p>\s*<em[^>]*>\s*↩\s*Carried from[^<]*<\/em>\s*<\/p>/gi,
+      "",
+    );
+    const description = stripHtml(descForDisplay);
     const comment = stripHtml(commentRaw);
     const descriptionAttachments = extractAttachmentFilenames(descRaw);
     const commentAttachments = extractAttachmentFilenames(commentRaw);
@@ -345,7 +353,10 @@ export function parseIssueRows(html: string): IssueRow[] {
     if (!hasContent) continue;
 
     const carryOverMatch = trAttrs.match(/data-carryover-from="([^"]*)"/);
-    const carryOverFrom = carryOverMatch?.[1] || undefined;
+    // Fallback: extract version from the <em> annotation in the description cell
+    // for rows written before the data-carryover-from attribute was introduced.
+    const emCarryOverMatch = descRaw.match(/↩\s*Carried from\s+([^\s<"]+)/i);
+    const carryOverFrom = carryOverMatch?.[1] || emCarryOverMatch?.[1] || undefined;
 
     rows.push({
       rawIndex: currentTrIndex,
@@ -2301,17 +2312,29 @@ function IssueCard({ row, rowIndex: _rowIndex, isSaving, pageId, allAttachments,
   return (
     <div
       className={cn(
-        "group rounded-lg border px-4 py-3 transition-colors",
+        "group overflow-hidden rounded-lg border border-l-4 transition-colors",
         row.carryOverFrom
-          ? "border-l-4 border-l-amber-400 border-t-amber-200 border-r-amber-200 border-b-amber-200 bg-amber-50/30 dark:border-l-amber-500 dark:border-t-amber-800/50 dark:border-r-amber-800/50 dark:border-b-amber-800/50 dark:bg-amber-950/20"
+          ? "border-l-amber-400 border-t-amber-200 border-r-amber-200 border-b-amber-200 bg-amber-50/40 dark:border-l-amber-500 dark:border-t-amber-800/50 dark:border-r-amber-800/50 dark:border-b-amber-800/50 dark:bg-amber-950/20"
           : row.isDone
-            ? "border-green-200 bg-green-50 dark:border-green-800/50 dark:bg-green-950/30"
+            ? "border-l-emerald-400 border-t-emerald-200 border-r-emerald-200 border-b-emerald-200 bg-emerald-50 dark:border-l-emerald-500 dark:border-t-emerald-800/50 dark:border-r-emerald-800/50 dark:border-b-emerald-800/50 dark:bg-emerald-950/20"
             : row.isInProgress
-              ? "border-blue-200 bg-blue-50/50 dark:border-blue-800/50 dark:bg-blue-950/20"
-              : "border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900",
+              ? "border-l-blue-400 border-t-blue-200 border-r-blue-200 border-b-blue-200 bg-blue-50 dark:border-l-blue-500 dark:border-t-blue-800/50 dark:border-r-blue-800/50 dark:border-b-blue-800/50 dark:bg-blue-950/20"
+              : "border-l-slate-300 border-t-slate-200 border-r-slate-200 border-b-slate-200 bg-slate-50 dark:border-l-slate-500 dark:border-t-slate-700 dark:border-r-slate-700 dark:border-b-slate-700 dark:bg-slate-900",
       )}
     >
-      <div className="flex items-start gap-3">
+      {/* Carry-over banner */}
+      {row.carryOverFrom && (
+        <div className="flex items-center gap-2 border-b border-amber-200 bg-amber-100 px-4 py-1.5 dark:border-amber-800 dark:bg-amber-900/50">
+          <ArrowLeftRight className="h-3 w-3 shrink-0 text-amber-600 dark:text-amber-400" />
+          <span className="text-xs text-amber-700 dark:text-amber-300">
+            Not resolved in{" "}
+            <strong className="font-semibold">{row.carryOverFrom}</strong>
+            {" "}— carried forward to this release
+          </span>
+        </div>
+      )}
+
+      <div className="flex items-start gap-3 px-4 py-3">
         {/* Status toggle — cycles Open → In Progress → Done → Open */}
         <button
           onClick={onToggle}
@@ -2320,12 +2343,12 @@ function IssueCard({ row, rowIndex: _rowIndex, isSaving, pageId, allAttachments,
           className="mt-0.5 shrink-0 transition-transform hover:scale-110 disabled:opacity-50"
         >
           {row.isDone ? (
-            <CheckCircle2 className="h-4 w-4 text-green-500" />
+            <CheckCircle2 className="h-4 w-4 text-emerald-500" />
           ) : row.isInProgress ? (
             <Loader2 className="h-4 w-4 text-blue-500" />
           ) : (
-            <Circle className="h-4 w-4 text-slate-300 hover:text-blue-400
-              dark:text-slate-600 dark:hover:text-blue-500" />
+            <Circle className="h-4 w-4 text-slate-400 hover:text-blue-400
+              dark:text-slate-500 dark:hover:text-blue-500" />
           )}
         </button>
 
@@ -2334,23 +2357,14 @@ function IssueCard({ row, rowIndex: _rowIndex, isSaving, pageId, allAttachments,
           {/* Top row: ticket + priority + status + edit button */}
           <div className="flex flex-wrap items-center gap-2">
             {row.priority && <PriorityBadge priority={row.priority} />}
-            {row.carryOverFrom && (
-              <span className="inline-flex items-center gap-1 rounded-md border border-amber-300
-                bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 shadow-sm
-                dark:border-amber-700 dark:bg-amber-950/50 dark:text-amber-300"
-              >
-                <ArrowLeftRight className="h-2.5 w-2.5" />
-                {row.carryOverFrom}
-              </span>
-            )}
             <span
               className={cn(
                 "ml-auto rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
                 row.isDone
-                  ? "bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-300"
+                  ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-300"
                   : row.isInProgress
                     ? "bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300"
-                    : "bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400",
+                    : "bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-300",
               )}
             >
               {row.status}
@@ -2407,7 +2421,7 @@ function IssueCard({ row, rowIndex: _rowIndex, isSaving, pageId, allAttachments,
             <p
               className={`mt-1.5 text-sm ${
                 row.isDone
-                  ? "text-green-700 line-through decoration-green-400/50 dark:text-green-300"
+                  ? "text-emerald-700 line-through decoration-emerald-400/50 dark:text-emerald-300"
                   : "text-slate-700 dark:text-slate-200"
               }`}
             >

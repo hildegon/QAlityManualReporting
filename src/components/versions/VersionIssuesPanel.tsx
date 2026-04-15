@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useMemo } from "react";
 import { open as openFilePicker } from "@tauri-apps/plugin-dialog";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import {
+  AlertTriangle,
   CheckCircle,
   CheckCircle2,
   Clock,
@@ -301,10 +302,11 @@ interface VersionIssuesPanelProps {
 export function VersionIssuesPanel({ projectKey, versionName }: VersionIssuesPanelProps) {
   const { data: issues, isLoading, isError, error } = useVersionIssues(projectKey, versionName);
 
-  const { done, inAcceptance } = useMemo(() => {
+  const { done, inAcceptance, blocked } = useMemo(() => {
     const list = issues ?? [];
     const done: JiraBug[] = [];
     const inAcceptance: JiraBug[] = [];
+    const blocked: JiraBug[] = [];
     for (const issue of list) {
       const categoryKey = issue.fields.status?.category?.key ?? "";
       const statusName = issue.fields.status?.name ?? "";
@@ -312,9 +314,11 @@ export function VersionIssuesPanel({ projectKey, versionName }: VersionIssuesPan
         done.push(issue);
       } else if (/acceptance/i.test(statusName)) {
         inAcceptance.push(issue);
+      } else if (/block/i.test(statusName)) {
+        blocked.push(issue);
       }
     }
-    return { done, inAcceptance };
+    return { done, inAcceptance, blocked };
   }, [issues]);
 
   if (isLoading) {
@@ -322,7 +326,7 @@ export function VersionIssuesPanel({ projectKey, versionName }: VersionIssuesPan
       <div className="mt-4 overflow-hidden rounded-2xl border border-indigo-200 bg-white shadow-sm dark:border-indigo-900/60 dark:bg-slate-800">
         <div className="flex items-center gap-1.5 bg-indigo-50 px-4 py-2.5 text-xs font-semibold uppercase tracking-wider text-indigo-500 dark:bg-indigo-950/60 dark:text-indigo-400">
           <CheckCircle className="h-3.5 w-3.5" />
-          Version Issues
+          Stories &amp; Tasks
         </div>
         <div className="space-y-1.5 p-4">
           <div className="flex items-center gap-2 text-sm text-slate-500">
@@ -359,7 +363,7 @@ export function VersionIssuesPanel({ projectKey, versionName }: VersionIssuesPan
       <div className="mt-4 overflow-hidden rounded-2xl border border-indigo-200 bg-white shadow-sm dark:border-indigo-900/60 dark:bg-slate-800">
         <div className="flex items-center gap-1.5 bg-indigo-50 px-4 py-2.5 text-xs font-semibold uppercase tracking-wider text-indigo-500 dark:bg-indigo-950/60 dark:text-indigo-400">
           <CheckCircle className="h-3.5 w-3.5" />
-          Version Issues
+          Stories &amp; Tasks
         </div>
         <p className="p-4 text-xs italic text-slate-400">
           No stories, tasks, or bugs found for this version.
@@ -370,14 +374,44 @@ export function VersionIssuesPanel({ projectKey, versionName }: VersionIssuesPan
 
   return (
     <div className="mt-4 overflow-hidden rounded-2xl border border-indigo-200 bg-white shadow-sm dark:border-indigo-900/60 dark:bg-slate-800">
-      <div className="flex items-center gap-1.5 bg-indigo-50 px-4 py-2.5 text-xs font-semibold uppercase tracking-wider text-indigo-500 dark:bg-indigo-950/60 dark:text-indigo-400">
-        <CheckCircle className="h-3.5 w-3.5" />
-        Version Issues ({list.length})
+      <div className="flex items-center justify-between bg-indigo-50 px-4 py-2.5 dark:bg-indigo-950/60">
+        <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-indigo-500 dark:text-indigo-400">
+          <CheckCircle className="h-3.5 w-3.5" />
+          Stories &amp; Tasks ({list.length})
+        </div>
+        {blocked.length > 0 && (
+          <span className="flex items-center gap-1 rounded-full border border-red-200 bg-red-50 px-2 py-0.5 text-xs font-semibold text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">
+            <AlertTriangle className="h-3 w-3" />
+            {blocked.length} blocked
+          </span>
+        )}
       </div>
 
       <div className="p-4">
-        {inAcceptance.length > 0 && (
+        {/* Blocked — highest urgency, shown first */}
+        {blocked.length > 0 && (
           <div className="mb-3">
+            <div className="mb-1.5 flex items-center gap-1.5">
+              <AlertTriangle className="h-3.5 w-3.5 text-red-500" />
+              <span className="text-xs font-semibold text-red-600 dark:text-red-400">
+                Blocked ({blocked.length})
+              </span>
+            </div>
+            <div className="space-y-1.5">
+              {blocked.map((issue) => (
+                <VersionIssueRow
+                  key={issue.id}
+                  issue={issue}
+                  projectKey={projectKey}
+                  versionName={versionName}
+                />
+              ))}
+            </div>
+          </div>
+        )}
+
+        {inAcceptance.length > 0 && (
+          <div className={cn(blocked.length > 0 && "mt-3")}>
             <div className="mb-1.5 flex items-center gap-1.5">
               <Clock className="h-3.5 w-3.5 text-amber-500" />
               <span className="text-xs font-semibold text-amber-600 dark:text-amber-400">
@@ -398,7 +432,7 @@ export function VersionIssuesPanel({ projectKey, versionName }: VersionIssuesPan
         )}
 
         {done.length > 0 && (
-          <div className={cn(inAcceptance.length > 0 && "mt-3")}>
+          <div className={cn((inAcceptance.length > 0 || blocked.length > 0) && "mt-3")}>
             <div className="mb-1.5 flex items-center gap-1.5">
               <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
               <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400">
@@ -418,17 +452,21 @@ export function VersionIssuesPanel({ projectKey, versionName }: VersionIssuesPan
           </div>
         )}
 
-        {list.length > done.length + inAcceptance.length && (
-          <div className={cn(done.length + inAcceptance.length > 0 && "mt-3")}>
+        {list.length > done.length + inAcceptance.length + blocked.length && (
+          <div className={cn(done.length + inAcceptance.length + blocked.length > 0 && "mt-3")}>
             <div className="mb-1.5 text-xs font-semibold text-slate-500 dark:text-slate-400">
-              Other ({list.length - done.length - inAcceptance.length})
+              In Progress / Other ({list.length - done.length - inAcceptance.length - blocked.length})
             </div>
             <div className="space-y-1.5">
               {list
                 .filter((issue) => {
                   const categoryKey = issue.fields.status?.category?.key ?? "";
                   const statusName = issue.fields.status?.name ?? "";
-                  return categoryKey !== "done" && !/acceptance/i.test(statusName);
+                  return (
+                    categoryKey !== "done" &&
+                    !/acceptance/i.test(statusName) &&
+                    !/block/i.test(statusName)
+                  );
                 })
                 .map((issue) => (
                   <VersionIssueRow

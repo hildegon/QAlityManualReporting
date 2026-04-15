@@ -82,7 +82,7 @@ export function BugsPanel({ bugs, isLoading, isError, error, failedTests, versio
   const [activePriorities, setActivePriorities] = useState<Set<string>>(new Set());
   const [activeStatuses, setActiveStatuses] = useState<Set<string>>(new Set());
   const [activeAssignee, setActiveAssignee] = useState<string | null>(null);
-  const [unresolvedOnly, setUnresolvedOnly] = useState(false);
+  const [unresolvedOnly, setUnresolvedOnly] = useState(true);
 
   const { priorities, statuses, assignees } = useMemo(() => {
     const list = bugs ?? [];
