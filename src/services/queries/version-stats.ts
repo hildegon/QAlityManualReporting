@@ -359,3 +359,24 @@ export function useExecutionRunSummary(executionIssueId: string | null): ExecSum
     return { counts, total, hasMore: loaded < total, isLoading };
   }, [phase1.data, phase1.isLoading, phase2]);
 }
+
+// ── Batch execution summaries ─────────────────────────────────────────────────
+
+/**
+ * Fetches aggregated status counts for multiple executions in a single
+ * backend call. The backend runs all queries concurrently with a semaphore
+ * and returns a map of executionIssueId → { counts, total }.
+ *
+ * Replaces the per-ExecRow `useExecutionRunSummary` pattern when rendering
+ * a list of executions.
+ */
+export function useExecutionSummariesBatch(executionIssueIds: string[]) {
+  return useQuery({
+    queryKey: queryKeys.execSummaryBatch(executionIssueIds),
+    queryFn: () => api.getExecutionSummariesBatch(executionIssueIds),
+    enabled: executionIssueIds.length > 0,
+    staleTime: 15 * 60 * 1_000,
+    gcTime: Infinity,
+    meta: { persist: true },
+  });
+}

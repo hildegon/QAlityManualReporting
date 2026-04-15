@@ -90,6 +90,7 @@ pub struct TestSetWithMembers {
 /// Just the test issue IDs inside a test set (no other fields needed).
 #[derive(Debug, Clone, Deserialize)]
 pub struct TestSetMemberIds {
+    pub total: Option<u32>,
     pub results: Vec<TestMemberId>,
 }
 

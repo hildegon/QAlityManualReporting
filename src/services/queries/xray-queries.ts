@@ -4,6 +4,7 @@ import { useInfiniteQuery, useQuery, useQueryClient, type InfiniteData, type Que
 import type {
   TestExecution,
   TestPlan,
+  TestRun,
   TestRunIteration,
   TestRunsPage,
   TestSetMemberInfo,
@@ -106,7 +107,8 @@ export function useTestRuns(executionIssueId: string | null) {
     number
   >({
     queryKey: queryKeys.testRuns(executionIssueId ?? ""),
-    queryFn: ({ pageParam }) => api.getTestRuns(executionIssueId!, TEST_RUNS_PAGE_SIZE, pageParam),
+    queryFn: ({ pageParam }) =>
+      api.getTestRunsLightweight(executionIssueId!, TEST_RUNS_PAGE_SIZE, pageParam),
     initialPageParam: 0,
     getNextPageParam: (lastPage) => {
       const start = lastPage.start ?? 0;
@@ -119,7 +121,31 @@ export function useTestRuns(executionIssueId: string | null) {
     enabled: !!executionIssueId,
     staleTime: 5 * 60 * 1_000, // mutations handle optimistic updates
     gcTime: Infinity,
+    // Rust backend already retries rate-limited requests (up to 10×).
+    // Disabling TQ retries prevents compounding waits during Load-all pump.
+    retry: false,
     meta: { persist: true },
+  });
+}
+
+// ── Single test run detail (lazy, on-demand) ──────────────────────────────────
+
+/**
+ * Fetches full details for a single test run (steps, iterations, Gherkin,
+ * evidence, Cucumber results). Only fires when the user expands a row,
+ * providing `testIssueId` and `execIssueId`. Cached indefinitely since
+ * details are immutable for completed runs.
+ */
+export function useTestRunDetail(
+  testIssueId: string | null,
+  execIssueId: string | null,
+) {
+  return useQuery<TestRun | null>({
+    queryKey: queryKeys.testRunDetail(testIssueId ?? "", execIssueId ?? ""),
+    queryFn: () => api.getSingleTestRun(testIssueId!, execIssueId!),
+    enabled: !!testIssueId && !!execIssueId,
+    staleTime: 5 * 60 * 1_000,
+    gcTime: Infinity,
   });
 }
 
@@ -149,7 +175,7 @@ export function useXrayStatuses(projectId: string | null) {
     queryKey: queryKeys.xrayStatuses(projectId ?? ""),
     queryFn: () => api.getXrayStatuses(projectId!),
     enabled: !!projectId,
-    staleTime: 10 * 60 * 1000, // statuses rarely change
+    staleTime: Infinity, // statuses are project configuration — only change when admin edits them
     gcTime: Infinity,
     meta: { persist: true },
   });
@@ -162,7 +188,7 @@ export function useStepStatuses(projectId: string | null) {
     queryKey: queryKeys.stepStatuses(projectId ?? ""),
     queryFn: () => api.getStepStatuses(projectId!),
     enabled: !!projectId,
-    staleTime: 10 * 60 * 1000,
+    staleTime: Infinity, // step statuses are project configuration — rarely change
     gcTime: Infinity,
     meta: { persist: true },
   });
@@ -290,6 +316,37 @@ export function useGetTestSetTestsWithStatus(issueId: string | null) {
   });
 }
 
+// ── Batch coverage: fetch multiple sets + consolidated status in one call ────
+
+/**
+ * Fetches tests-with-status for multiple test sets in a single backend call.
+ * The backend fetches all sets concurrently and does ONE consolidated status
+ * lookup across all test IDs — replaces the N+1 pattern of individual
+ * `useGetTestSetTestsWithStatus` queries.
+ *
+ * Returns a Record<setIssueId, XrayTestWithStatus[]>.
+ */
+export function useCoverageBatch(setIssueIds: string[]) {
+  const queryClient = useQueryClient();
+
+  return useQuery<Record<string, XrayTestWithStatus[]>>({
+    queryKey: queryKeys.coverageBatch(setIssueIds),
+    queryFn: async () => {
+      const result = await api.getCoverageBatch(setIssueIds);
+      // Populate individual per-set caches so the refetch button and
+      // other consumers (e.g. Sets Health) can read from cache.
+      for (const [setId, tests] of Object.entries(result)) {
+        queryClient.setQueryData(queryKeys.testSetTestsWithStatus(setId), tests);
+      }
+      return result;
+    },
+    enabled: setIssueIds.length > 0,
+    staleTime: Infinity,
+    gcTime: Infinity,
+    meta: { persist: true },
+  });
+}
+
 // ── Get Test Plan Tests ───────────────────────────────────────────────────────
 
 export function useGetTestPlanTests(issueId: string | null) {
@@ -316,7 +373,7 @@ export function useTestSetMembership(projectKey: string | null) {
     queryKey: queryKeys.testSetMemberships(projectKey!),
     queryFn: () => api.getAllTestSetMemberships(projectKey!),
     enabled: !!projectKey,
-    staleTime: 5 * 60 * 1_000,
+    staleTime: Infinity, // membership only changes via add/remove mutations that invalidate this key
     gcTime: Infinity,
     meta: { persist: true },
   });

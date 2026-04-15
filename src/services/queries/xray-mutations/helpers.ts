@@ -46,6 +46,14 @@ export function debouncedInvalidateTestRuns(
       void queryClient.invalidateQueries({
         queryKey: queryKeys.testRuns(executionIssueId),
       });
+      // Also invalidate the execution summary (progress bar on ExecRow)
+      void queryClient.invalidateQueries({
+        queryKey: ["xray", "exec-summary", executionIssueId],
+      });
+      // Invalidate batch summaries that may include this execution
+      void queryClient.invalidateQueries({
+        queryKey: ["xray", "exec-summary-batch"],
+      });
     }, DEBOUNCE_MS),
   );
 }

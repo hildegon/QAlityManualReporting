@@ -71,10 +71,10 @@ pub struct ServiceUsage {
     pub rate_limit_hits: u32,
     /// Epoch-ms timestamp of the most recent 429 response, if any.
     pub last_rate_limited_at: Option<u64>,
-    /// Lifetime call counter — persisted to disk across app restarts.
+    /// Per-window call counter — persisted to disk, resets each UTC hour.
     #[serde(default)]
     pub calls_all_time: u64,
-    /// Lifetime 429-hit counter — persisted to disk across app restarts.
+    /// Per-window 429-hit counter — persisted to disk, resets each UTC hour.
     #[serde(default)]
     pub rate_limit_hits_all_time: u64,
 }
@@ -106,6 +106,8 @@ impl ServiceUsage {
         let now_hour = current_hour_start_ms();
         if now_hour != self.hour_start_ms {
             self.calls_this_hour = 0;
+            self.calls_all_time = 0;
+            self.rate_limit_hits_all_time = 0;
             self.hour_start_ms = now_hour;
         }
         self.calls_this_hour += 1;
@@ -160,6 +162,19 @@ impl ServiceUsage {
         self.rate_limit_hits_all_time += 1;
         self.last_rate_limited_at = Some(current_now_ms());
         self.record_call(headers);
+    }
+
+    /// Roll the hourly window if the UTC hour has changed, without recording
+    /// a call.  Called by snapshot reads so the frontend always sees fresh
+    /// numbers even when no API calls are in flight.
+    pub fn maybe_reset_window(&mut self) {
+        let now_hour = current_hour_start_ms();
+        if now_hour != self.hour_start_ms {
+            self.calls_this_hour = 0;
+            self.calls_all_time = 0;
+            self.rate_limit_hits_all_time = 0;
+            self.hour_start_ms = now_hour;
+        }
     }
 }
 
@@ -270,23 +285,32 @@ impl ApiUsageState {
         }
     }
 
-    /// Restore persisted all-time counters from disk.  Session counters
-    /// (`calls_total`, `rate_limit_hits`, header fields) start fresh.
+    /// Restore persisted per-window counters from disk, but only if we're
+    /// still within the same UTC hour window.  Session counters
+    /// (`calls_total`, `rate_limit_hits`, header fields) always start fresh.
     pub fn load_from_file(path: &std::path::Path) -> Self {
         let state = Self::new();
+        let current_hour = current_hour_start_ms();
         if let Ok(json) = std::fs::read_to_string(path) {
             if let Ok(saved) = serde_json::from_str::<ApiUsageSnapshot>(&json) {
-                if let Ok(mut u) = state.jira.lock() {
-                    u.calls_all_time = saved.jira.calls_all_time;
-                    u.rate_limit_hits_all_time = saved.jira.rate_limit_hits_all_time;
+                // Only restore per-window counters if we're in the same hour.
+                if saved.jira.hour_start_ms == current_hour {
+                    if let Ok(mut u) = state.jira.lock() {
+                        u.calls_all_time = saved.jira.calls_all_time;
+                        u.rate_limit_hits_all_time = saved.jira.rate_limit_hits_all_time;
+                    }
                 }
-                if let Ok(mut u) = state.xray.lock() {
-                    u.calls_all_time = saved.xray.calls_all_time;
-                    u.rate_limit_hits_all_time = saved.xray.rate_limit_hits_all_time;
+                if saved.xray.hour_start_ms == current_hour {
+                    if let Ok(mut u) = state.xray.lock() {
+                        u.calls_all_time = saved.xray.calls_all_time;
+                        u.rate_limit_hits_all_time = saved.xray.rate_limit_hits_all_time;
+                    }
                 }
-                if let Ok(mut u) = state.confluence.lock() {
-                    u.calls_all_time = saved.confluence.calls_all_time;
-                    u.rate_limit_hits_all_time = saved.confluence.rate_limit_hits_all_time;
+                if saved.confluence.hour_start_ms == current_hour {
+                    if let Ok(mut u) = state.confluence.lock() {
+                        u.calls_all_time = saved.confluence.calls_all_time;
+                        u.rate_limit_hits_all_time = saved.confluence.rate_limit_hits_all_time;
+                    }
                 }
             }
         }
@@ -319,7 +343,18 @@ impl ApiUsageState {
     }
 
     /// Take a point-in-time snapshot of all usage counters.
+    /// Rolls over the hourly window first so the frontend always sees
+    /// up-to-date numbers even when no API calls are being made.
     pub fn snapshot(&self) -> ApiUsageSnapshot {
+        if let Ok(mut u) = self.jira.lock() {
+            u.maybe_reset_window();
+        }
+        if let Ok(mut u) = self.xray.lock() {
+            u.maybe_reset_window();
+        }
+        if let Ok(mut u) = self.confluence.lock() {
+            u.maybe_reset_window();
+        }
         ApiUsageSnapshot {
             jira: self.jira.lock().unwrap().clone(),
             xray: self.xray.lock().unwrap().clone(),

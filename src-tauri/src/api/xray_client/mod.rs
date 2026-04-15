@@ -12,7 +12,7 @@ use crate::state::TrackedUsage;
 mod executions;
 mod health;
 mod mutations;
-mod runs;
+pub(crate) mod runs;
 mod statuses;
 mod test_plans;
 mod test_sets;

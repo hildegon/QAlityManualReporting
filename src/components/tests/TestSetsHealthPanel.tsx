@@ -6,7 +6,7 @@ import {
   useGetTestSetTestsWithStatus,
   useRemoveTestsFromTestSet,
 } from "@/services/queries";
-import type { XrayTestSet, XrayTestWithStatus } from "@/types";
+import type { XrayTest, XrayTestSet, XrayTestWithStatus } from "@/types";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -21,18 +21,26 @@ const TestSetHealthRow = memo(function TestSetHealthRow({
   testSet,
   projectKey,
   onToast,
+  preloadedTests,
 }: {
   testSet: XrayTestSet;
   projectKey: string;
   onToast: ToastFn;
+  preloadedTests?: XrayTest[];
 }) {
   const [expanded, setExpanded] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const { data: tests, isLoading } = useGetTestSetTestsWithStatus(testSet.issue_id);
+  // Only fetch from API when expanded — avoids N+1 calls on tab open
+  const { data: fetchedTests, isLoading } = useGetTestSetTestsWithStatus(
+    expanded ? testSet.issue_id : null,
+  );
   const removeTests = useRemoveTestsFromTestSet();
   const rowHeaderCheckRef = useRef<HTMLInputElement>(null);
 
-  const deprecated = useMemo<XrayTestWithStatus[]>(
+  // Use fetched data when available (expanded), fall back to preloaded data
+  const tests: XrayTestWithStatus[] | XrayTest[] | undefined = fetchedTests ?? preloadedTests;
+
+  const deprecated = useMemo(
     () =>
       tests?.filter((t) => t.jira.status?.name && isDeprecatingStatus(t.jira.status.name)) ?? [],
     [tests],
@@ -322,12 +330,32 @@ const TestSetHealthRow = memo(function TestSetHealthRow({
 export function TestSetsHealthPanel({
   projectKey,
   onToast,
+  allTests,
+  membership,
 }: {
   projectKey: string;
   onToast: ToastFn;
+  allTests?: XrayTest[];
+  membership?: Map<string, { issueId: string }[]>;
 }) {
   const { data: testSets, isLoading } = useGetTestSets(projectKey);
   const [search, setSearch] = useState("");
+
+  // Build reverse map: setId → XrayTest[] from preloaded data
+  const setTestsMap = useMemo(() => {
+    const map = new Map<string, XrayTest[]>();
+    if (!allTests || !membership) return map;
+    for (const test of allTests) {
+      const sets = membership.get(test.issue_id);
+      if (!sets) continue;
+      for (const s of sets) {
+        const arr = map.get(s.issueId) ?? [];
+        arr.push(test);
+        map.set(s.issueId, arr);
+      }
+    }
+    return map;
+  }, [allTests, membership]);
 
   const filtered = useMemo(() => {
     if (!testSets) return [];
@@ -378,14 +406,18 @@ export function TestSetsHealthPanel({
         {filtered.length === 0 ? (
           <p className="p-4 text-sm text-slate-400">No test sets match your filter.</p>
         ) : (
-          filtered.map((testSet) => (
-            <TestSetHealthRow
-              key={testSet.issue_id}
-              testSet={testSet}
-              projectKey={projectKey}
-              onToast={onToast}
-            />
-          ))
+          filtered.map((testSet) => {
+            const pre = setTestsMap.get(testSet.issue_id);
+            return (
+              <TestSetHealthRow
+                key={testSet.issue_id}
+                testSet={testSet}
+                projectKey={projectKey}
+                onToast={onToast}
+                {...(pre ? { preloadedTests: pre } : {})}
+              />
+            );
+          })
         )}
       </div>
     </div>

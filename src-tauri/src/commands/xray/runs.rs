@@ -1,8 +1,9 @@
 use tauri::{AppHandle, State};
 
 use crate::{
+    api::xray_client::runs::ExecSummaryResult,
     models::xray::{
-        TestRunIteration, TestRunStatsPage, TestRunStatusesPage, TestRunsPage,
+        TestRun, TestRunIteration, TestRunStatsPage, TestRunStatusesPage, TestRunsPage,
         UpdateTestRunStatusInput, UpdateTestRunStepData,
     },
     state::XrayClientState,
@@ -46,12 +47,51 @@ pub async fn get_test_runs(
     let result = client
         .get_test_runs(
             &test_execution_issue_id,
-            limit.unwrap_or(50),
+            limit.unwrap_or(100),
             start.unwrap_or(0),
         )
         .await
         .map_err(format_err)?;
     Ok(result.test_runs)
+}
+
+/// Lightweight paginated test runs — only the fields needed for the list view.
+/// Steps, iterations, Gherkin, evidence, and Cucumber results are omitted.
+#[tauri::command]
+pub async fn get_test_runs_lightweight(
+    app: AppHandle,
+    state: State<'_, XrayClientState>,
+    test_execution_issue_id: String,
+    limit: Option<u32>,
+    start: Option<u32>,
+) -> Result<TestRunsPage, String> {
+    let client = get_xray_client(&app, &state).await?;
+    let result = client
+        .get_test_runs_lightweight(
+            &test_execution_issue_id,
+            limit.unwrap_or(100),
+            start.unwrap_or(0),
+        )
+        .await
+        .map_err(format_err)?;
+    Ok(result.test_runs)
+}
+
+/// Fetch full details for a single test run (steps, iterations, Gherkin,
+/// evidence, Cucumber results). Used for on-demand lazy loading when the user
+/// expands a row in the execution detail view.
+#[tauri::command]
+pub async fn get_single_test_run(
+    app: AppHandle,
+    state: State<'_, XrayClientState>,
+    test_issue_id: String,
+    test_exec_issue_id: String,
+) -> Result<Option<TestRun>, String> {
+    let client = get_xray_client(&app, &state).await?;
+    client
+        .get_single_test_run(&test_issue_id, &test_exec_issue_id)
+        .await
+        .map_err(format_err)
 }
 
 /// Fetch only the status of each test run in an execution (lightweight summary).
@@ -100,6 +140,23 @@ pub async fn get_test_run_stats(
         .await
         .map_err(format_err)?;
     Ok(result.test_runs)
+}
+
+/// Batch-fetch status counts for multiple executions in parallel.
+///
+/// Returns a map of execution issue ID → { counts, total } that the frontend
+/// uses to render progress bars on each ExecRow without N separate queries.
+#[tauri::command]
+pub async fn get_execution_summaries_batch(
+    app: AppHandle,
+    state: State<'_, XrayClientState>,
+    execution_issue_ids: Vec<String>,
+) -> Result<std::collections::HashMap<String, ExecSummaryResult>, String> {
+    let client = get_xray_client(&app, &state).await?;
+    client
+        .get_execution_summaries_batch(&execution_issue_ids)
+        .await
+        .map_err(format_err)
 }
 
 /// Fetch step results for all iterations of a single test run (lazy load).

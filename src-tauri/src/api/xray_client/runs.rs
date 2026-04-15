@@ -1,4 +1,5 @@
 use anyhow::Result;
+use serde::Serialize;
 
 use crate::models::xray::{
     GetTestRunResult, LatestTestStatus, TestRunIteration, TestRunsForHealthResult,
@@ -6,6 +7,13 @@ use crate::models::xray::{
 };
 
 use super::XrayClient;
+
+/// Aggregated status counts for a single execution — returned by batch summary.
+#[derive(Debug, Clone, Serialize)]
+pub struct ExecSummaryResult {
+    pub counts: std::collections::HashMap<String, u32>,
+    pub total: u32,
+}
 
 impl XrayClient {
     // ── Test Runs (tests inside an execution) ─────────────────────────────────
@@ -373,7 +381,42 @@ impl XrayClient {
         .await
     }
 
-    /// Fetches only the status name for each test run in an execution.
+    /// Lightweight paginated test runs — fetches only the fields needed for the
+    /// list view (status, test identity, test type, comment, defects).
+    /// Steps, iterations, Gherkin, evidence, Cucumber results, and parameters
+    /// are omitted to keep the response ~10× smaller.
+    pub async fn get_test_runs_lightweight(
+        &self,
+        test_execution_issue_id: &str,
+        limit: u32,
+        start: u32,
+    ) -> Result<TestRunsResult> {
+        let query = r#"
+            query GetTestRunsLightweight($issueId: String!, $limit: Int!, $start: Int) {
+                getTestRuns(testExecIssueIds: [$issueId], limit: $limit, start: $start) {
+                    total
+                    start
+                    limit
+                    results {
+                        id
+                        status { name color description final }
+                        comment
+                        testType { name kind }
+                        defects
+                        test {
+                            issueId
+                            jira(fields: ["key", "summary"])
+                        }
+                    }
+                }
+            }
+        "#;
+        self.graphql(
+            query,
+            serde_json::json!({ "issueId": test_execution_issue_id, "limit": limit, "start": start }),
+        )
+        .await
+    }
     ///
     /// Much lighter than `get_test_runs` — no steps, iterations, Gherkin, or
     /// comments — so a single page of 100 covers most executions in one call.
@@ -435,6 +478,83 @@ impl XrayClient {
             serde_json::json!({ "issueId": test_execution_issue_id, "limit": limit, "start": start }),
         )
         .await
+    }
+
+    // ── Batch execution summaries ────────────────────────────────────────────
+
+    /// Fetches status counts for multiple executions in parallel.
+    ///
+    /// For each execution, paginates through all test runs (status-only) and
+    /// aggregates counts. Returns a map of execution issue ID → { counts, total }.
+    /// Uses a semaphore to cap concurrency at 6 concurrent GraphQL requests.
+    pub async fn get_execution_summaries_batch(
+        &self,
+        execution_issue_ids: &[String],
+    ) -> Result<std::collections::HashMap<String, ExecSummaryResult>> {
+        use std::collections::HashMap;
+        use tokio::sync::Semaphore;
+
+        const MAX_CONCURRENT: usize = 6;
+        const PAGE_SIZE: u32 = 100;
+
+        let sem = std::sync::Arc::new(Semaphore::new(MAX_CONCURRENT));
+        let mut handles = Vec::with_capacity(execution_issue_ids.len());
+
+        for exec_id in execution_issue_ids {
+            let client = self.clone();
+            let exec_id = exec_id.clone();
+            let sem = sem.clone();
+
+            handles.push(tokio::spawn(async move {
+                let _permit = sem.acquire().await.unwrap();
+
+                // Phase 1: first page
+                let page0 = client.get_test_run_statuses(&exec_id, PAGE_SIZE, 0).await?;
+                let total = page0.test_runs.total;
+                let mut counts: HashMap<String, u32> = HashMap::new();
+                for entry in &page0.test_runs.results {
+                    *counts.entry(entry.status.name.to_uppercase()).or_default() += 1;
+                }
+
+                // Phase 2: remaining pages (concurrent within this execution)
+                if total > PAGE_SIZE {
+                    let mut extra_handles = Vec::new();
+                    let inner_sem = std::sync::Arc::new(Semaphore::new(3));
+
+                    let mut start = PAGE_SIZE;
+                    while start < total {
+                        let c = client.clone();
+                        let eid = exec_id.clone();
+                        let s = inner_sem.clone();
+                        let st = start;
+                        extra_handles.push(tokio::spawn(async move {
+                            let _p = s.acquire().await.unwrap();
+                            c.get_test_run_statuses(&eid, PAGE_SIZE, st).await
+                        }));
+                        start += PAGE_SIZE;
+                    }
+
+                    for h in extra_handles {
+                        let page = h.await??;
+                        for entry in &page.test_runs.results {
+                            *counts.entry(entry.status.name.to_uppercase()).or_default() += 1;
+                        }
+                    }
+                }
+
+                Ok::<(String, ExecSummaryResult), anyhow::Error>((
+                    exec_id,
+                    ExecSummaryResult { counts, total },
+                ))
+            }));
+        }
+
+        let mut result = HashMap::with_capacity(execution_issue_ids.len());
+        for h in handles {
+            let (exec_id, summary) = h.await??;
+            result.insert(exec_id, summary);
+        }
+        Ok(result)
     }
 
     // ── Get Iteration Step Results (lazy, per test run) ───────────────────────

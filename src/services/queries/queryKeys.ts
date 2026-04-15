@@ -36,6 +36,8 @@ export const queryKeys = {
   testExecutionsByVersion: (projectKey: string, versionName: string) =>
     ["xray", "test-executions-by-version", projectKey, versionName] as const,
   testRuns: (executionIssueId: string) => ["xray", "test-runs", executionIssueId] as const,
+  testRunDetail: (testIssueId: string, execIssueId: string) =>
+    ["xray", "test-run-detail", testIssueId, execIssueId] as const,
   iterationStepResults: (testRunId: string) =>
     ["xray", "iteration-step-results", testRunId] as const,
   tests: (projectKey: string) => ["xray", "tests", projectKey] as const,
@@ -43,6 +45,8 @@ export const queryKeys = {
   testSetTests: (issueId: string) => ["xray", "test-set-tests", issueId] as const,
   testSetTestsWithStatus: (issueId: string) =>
     ["xray", "test-set-tests-with-status", issueId] as const,
+  coverageBatch: (setIds: string[]) =>
+    ["xray", "coverage-batch", ...[...setIds].sort()] as const,
   testSetMemberships: (projectKey: string) => ["xray", "test-set-memberships", projectKey] as const,
   testPlanTests: (issueId: string) => ["xray", "test-plan-tests", issueId] as const,
   xrayStatuses: (projectId: string) => ["xray", "statuses", projectId] as const,
@@ -60,6 +64,8 @@ export const queryKeys = {
   attachment: (contentUrl: string) => ["jira", "attachment", contentUrl] as const,
   execSummary: (executionIssueId: string, start: number) =>
     ["xray", "exec-summary", executionIssueId, start] as const,
+  execSummaryBatch: (execIds: string[]) =>
+    ["xray", "exec-summary-batch", ...[...execIds].sort()] as const,
   testDetail: (testKey: string) => ["xray", "test-detail", testKey] as const,
   testRunsByTestId: (testIssueId: string) =>
     ["xray", "test-runs-by-test-id", testIssueId] as const,

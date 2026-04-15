@@ -1,5 +1,4 @@
-import { useState, useMemo, useRef, useDeferredValue } from "react";
-import { useQueries, useQueryClient } from "@tanstack/react-query";
+import { useState, useMemo, useDeferredValue } from "react";
 import { save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { openPath } from "@tauri-apps/plugin-opener";
 import {
@@ -20,7 +19,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
 import { EmptyState } from "@/components/common/EmptyState";
 import { PageHelpButton } from "@/components/common/PageHelpModal";
-import { useGetTestSets, queryKeys } from "@/services/queries";
+import { useGetTestSets, useCoverageBatch } from "@/services/queries";
 import { useContentProjectKey } from "@/hooks/useProjectKey";
 import { useCoveragePresetsStore } from "@/stores/coveragePresetsStore";
 import type { CoveragePreset } from "@/stores/coveragePresetsStore";
@@ -34,7 +33,6 @@ import { InsightsPanel, FailureConcentrationPanel, NeverRunPanel } from "@/compo
 import { CoverageTestDetailModal } from "@/components/coverage/CoverageTestDetailModal";
 export function CoveragePage() {
   const projectKey = useContentProjectKey();
-  const queryClient = useQueryClient();
   const { savePreset, updatePreset, deletePreset, renamePreset } = useCoveragePresetsStore();
   const {
     data: testSets,
@@ -84,23 +82,20 @@ export function CoveragePage() {
     [testSets, selectedSetIds],
   );
 
-  // Fetch tests-with-status for every selected set, windowed to avoid 429s.
-  const MAX_CONCURRENT_COVERAGE = 6;
-  const coverageSettledRef = useRef(0);
-
-  const testQueries = useQueries({
-    queries: selectedSets.map((ts, i) => ({
-      queryKey: queryKeys.testSetTestsWithStatus(ts.issue_id),
-      queryFn: () => api.getTestSetTestsWithStatus(ts.issue_id),
-      enabled: i < coverageSettledRef.current + MAX_CONCURRENT_COVERAGE,
-      staleTime: Infinity,
-      gcTime: Infinity,
-      meta: { persist: true },
-    })),
-  });
-
-  // Advance the concurrency window as queries settle.
-  coverageSettledRef.current = testQueries.filter((q) => q.isSuccess || q.isError).length;
+  // Fetch tests-with-status for ALL selected sets in a single backend call.
+  // The backend fetches sets concurrently + does ONE consolidated status lookup.
+  const batchSetIds = useMemo(
+    () => selectedSets.map((ts) => ts.issue_id),
+    [selectedSets],
+  );
+  const {
+    data: batchData,
+    isLoading: batchLoading,
+    isFetching: batchFetching,
+    isError: batchIsError,
+    error: batchError,
+    refetch: refetchBatch,
+  } = useCoverageBatch(batchSetIds);
 
   const queryBySetId = useMemo(() => {
     const map = new Map<
@@ -113,18 +108,17 @@ export function CoveragePage() {
         error: unknown;
       }
     >();
-    selectedSets.forEach((ts, i) => {
-      const q = testQueries[i];
+    for (const ts of selectedSets) {
       map.set(ts.issue_id, {
-        tests: q?.data,
-        isLoading: q?.isLoading ?? false,
-        isFetching: q?.isFetching ?? false,
-        isError: q?.isError ?? false,
-        error: q?.error,
+        tests: batchData?.[ts.issue_id],
+        isLoading: batchLoading,
+        isFetching: batchFetching,
+        isError: batchIsError,
+        error: batchError,
       });
-    });
+    }
     return map;
-  }, [selectedSets, testQueries]);
+  }, [selectedSets, batchData, batchLoading, batchFetching, batchIsError, batchError]);
 
   // Grand total across all loaded sets.
   const allTests = useMemo(
@@ -132,21 +126,13 @@ export function CoveragePage() {
     [queryBySetId],
   );
 
-  // All queries are "settled" when none are still loading/fetching.
-  const allQueriesSettled = useMemo(
-    () =>
-      testQueries.length > 0 &&
-      testQueries.every((q) => !q.isLoading && !q.isFetching && !q.isError),
-    [testQueries],
-  );
+  // The batch query is "settled" when it's not loading/fetching.
+  const allQueriesSettled = selectedSets.length > 0 && !batchLoading && !batchFetching && !batchIsError;
 
   // Loading progress for the progress bar.
-  const loadedCount = testQueries.filter((q) => q.isSuccess && !q.isFetching).length;
-  const fetchingCount = testQueries.filter((q) => q.isFetching).length;
-  const initialLoadingCount = testQueries.filter((q) => q.isLoading).length;
   const totalCount = selectedSets.length;
   const isAnyLoading = totalCount > 0 && !allQueriesSettled;
-  const isBackgroundRefresh = isAnyLoading && initialLoadingCount === 0;
+  const isBackgroundRefresh = isAnyLoading && !batchLoading;
 
   const handleRefresh = async () => {
     setIsRefreshing(true);
@@ -160,13 +146,7 @@ export function CoveragePage() {
   const handleRefetchResults = async () => {
     if (selectedSets.length === 0) return;
     setIsRefetchingResults(true);
-    await Promise.all(
-      selectedSets.map((ts) =>
-        queryClient.refetchQueries({
-          queryKey: queryKeys.testSetTestsWithStatus(ts.issue_id),
-        }),
-      ),
-    );
+    await refetchBatch();
     setIsRefetchingResults(false);
   };
 
@@ -496,18 +476,8 @@ export function CoveragePage() {
                 )}>
                   {isBackgroundRefresh ? "Refreshing cached data…" : "Loading test set data…"}{" "}
                   <span className="font-semibold">
-                    {loadedCount}/{totalCount}
+                    {totalCount} set{totalCount !== 1 ? "s" : ""}
                   </span>
-                  {fetchingCount > 0 && (
-                    <span className={cn(
-                      "ml-1 font-normal",
-                      isBackgroundRefresh
-                        ? "text-emerald-500 dark:text-emerald-400"
-                        : "text-blue-500 dark:text-blue-400",
-                    )}>
-                      ({fetchingCount} in progress)
-                    </span>
-                  )}
                 </p>
               </div>
               <div className={cn(
@@ -518,12 +488,12 @@ export function CoveragePage() {
               )}>
                 <div
                   className={cn(
-                    "h-full rounded-full transition-all duration-500 ease-out",
+                    "h-full animate-pulse rounded-full",
                     isBackgroundRefresh
                       ? "bg-emerald-500 dark:bg-emerald-400"
                       : "bg-blue-500 dark:bg-blue-400",
                   )}
-                  style={{ width: `${totalCount > 0 ? (loadedCount / totalCount) * 100 : 0}%` }}
+                  style={{ width: "100%" }}
                 />
               </div>
             </div>
@@ -581,11 +551,7 @@ export function CoveragePage() {
                     isFetching={q?.isFetching ?? false}
                     isError={q?.isError ?? false}
                     error={q?.error}
-                    onRetry={() =>
-                      void queryClient.refetchQueries({
-                        queryKey: queryKeys.testSetTestsWithStatus(ts.issue_id),
-                      })
-                    }
+                    onRetry={() => void refetchBatch()}
                     testSearch={deferredTestSearch}
                     statusFilter={null}
                     expandSignal={expandSignal}

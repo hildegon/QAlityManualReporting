@@ -2,6 +2,7 @@ import { useState, useMemo, useCallback, useRef, useDeferredValue } from "react"
 import {
   useTestExecutions,
   useRenameIssue,
+  useExecutionSummariesBatch,
   queryKeys,
 } from "@/services/queries";
 import { useContentProjectKey, useExecutionProjectKey } from "@/hooks/useProjectKey";
@@ -106,6 +107,14 @@ export function TestExecutionsPage() {
   /** Slice of regularExecs currently shown — at most EXEC_PAGE_SIZE × execPage rows. */
   const visibleRegularExecs = regularExecs.slice(0, execPage * EXEC_PAGE_SIZE);
   const hasMoreRegularExecs = visibleRegularExecs.length < regularExecs.length;
+
+  // Collect all visible execution IDs for the batch summary query
+  const visibleExecIds = useMemo(
+    () => [...favouriteExecs, ...visibleRegularExecs].map((e) => e.issue_id),
+    [favouriteExecs, visibleRegularExecs],
+  );
+  const { data: summariesMap, isLoading: summariesLoading } =
+    useExecutionSummariesBatch(visibleExecIds);
 
   function handleToggleExecFavourite(e: React.MouseEvent, issueId: string) {
     e.stopPropagation();
@@ -299,6 +308,8 @@ export function TestExecutionsPage() {
                       renameKey={renameKey}
                       renameDraft={renameDraft}
                       renameIsPending={renameIssue.isPending}
+                      summary={summariesMap?.[exec.issue_id]}
+                      summaryLoading={summariesLoading}
                       onSelect={handleSelect}
                       onStartRename={handleStartRename}
                       onCancelRename={handleCancelRename}
@@ -330,6 +341,8 @@ export function TestExecutionsPage() {
                   renameKey={renameKey}
                   renameDraft={renameDraft}
                   renameIsPending={renameIssue.isPending}
+                  summary={summariesMap?.[exec.issue_id]}
+                  summaryLoading={summariesLoading}
                   onSelect={handleSelect}
                   onStartRename={handleStartRename}
                   onCancelRename={handleCancelRename}
@@ -342,8 +355,7 @@ export function TestExecutionsPage() {
               ))}
             </tbody>
           </table>
-          {/* Load more — only mounts new ExecRow components (and their useExecutionRunSummary
-               calls) when the user explicitly requests more, preventing API floods. */}
+          {/* Load more — batched summary is re-fetched with the expanded ID list. */}
           {hasMoreRegularExecs && (
             <div className="flex items-center justify-between border-t border-slate-100 px-4 py-2 dark:border-slate-700">
               <span className="text-xs text-slate-400 dark:text-slate-500">

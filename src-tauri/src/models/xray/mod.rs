@@ -1290,6 +1290,7 @@ mod tests {
                         "issueId": "ts-100",
                         "jira": "{\"key\":\"PROJ-10\",\"summary\":\"Login Tests\"}",
                         "tests": {
+                            "total": 3,
                             "results": [
                                 { "issueId": "t-1" },
                                 { "issueId": "t-2" },
@@ -1301,6 +1302,7 @@ mod tests {
                         "issueId": "ts-200",
                         "jira": "{\"key\":\"PROJ-20\",\"summary\":\"Payment Tests\"}",
                         "tests": {
+                            "total": 2,
                             "results": [
                                 { "issueId": "t-2" },
                                 { "issueId": "t-4" }

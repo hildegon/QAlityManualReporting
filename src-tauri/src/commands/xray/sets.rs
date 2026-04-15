@@ -82,6 +82,22 @@ pub async fn get_test_set_tests_with_status(
     Ok(tests)
 }
 
+/// Fetch tests-with-status for multiple test sets in a single backend call.
+/// Fetches all sets concurrently and does ONE consolidated status lookup
+/// across all test IDs, instead of per-set lookups.
+#[tauri::command]
+pub async fn get_coverage_batch(
+    app: AppHandle,
+    state: State<'_, XrayClientState>,
+    set_issue_ids: Vec<String>,
+) -> Result<std::collections::HashMap<String, Vec<XrayTestWithStatus>>, String> {
+    let client = get_xray_client(&app, &state).await?;
+    client
+        .get_test_sets_tests_with_status_batch(&set_issue_ids)
+        .await
+        .map_err(format_err)
+}
+
 /// Fetch all test sets for a project and build a membership map
 /// (test_issue_id → list of test sets) in a single backend round-trip.
 #[tauri::command]

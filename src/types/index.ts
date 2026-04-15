@@ -521,6 +521,12 @@ export interface TestRunStatusesPage {
   results: TestRunStatusEntry[];
 }
 
+/** Aggregated status counts for a single execution — returned by batch summary. */
+export interface ExecSummaryResult {
+  counts: Record<string, number>;
+  total: number;
+}
+
 /** Lightweight test-run entry for version-stats aggregation (status + test identity). */
 export interface TestRunStatEntry {
   status: TestRunStatus;

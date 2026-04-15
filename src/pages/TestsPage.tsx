@@ -443,7 +443,12 @@ export function TestsPage() {
 
       {activeTab === "sets-health" && (
         <div className="h-[calc(100vh-13rem)]">
-          <TestSetsHealthPanel projectKey={projectKey} onToast={handleToast} />
+          <TestSetsHealthPanel
+            projectKey={projectKey}
+            onToast={handleToast}
+            {...(allTests ? { allTests } : {})}
+            {...(membership ? { membership } : {})}
+          />
         </div>
       )}
 

@@ -10,6 +10,7 @@ import type {
   ConfluencePage,
   ConfluenceSpace,
   CreateBugResult,
+  ExecSummaryResult,
   JiraIssueDetail,
   CreateTestExecutionResult,
   CreateTestPlanResult,
@@ -25,6 +26,7 @@ import type {
   JiraVersion,
   TestExecution,
   TestLastRunEntry,
+  TestRun,
   TestRunIteration,
   TestPlan,
   TestRunsPage,
@@ -205,6 +207,24 @@ export const getTestRuns = (
   start?: number,
 ): Promise<TestRunsPage> => invoke("get_test_runs", { testExecutionIssueId, limit, start });
 
+/** Lightweight version of getTestRuns — fetches only fields needed for the list
+ *  view (id, status, testType, comment, defects, test identity).
+ *  Steps, iterations, Gherkin, evidence, and Cucumber results are omitted. */
+export const getTestRunsLightweight = (
+  testExecutionIssueId: string,
+  limit?: number,
+  start?: number,
+): Promise<TestRunsPage> =>
+  invoke("get_test_runs_lightweight", { testExecutionIssueId, limit, start });
+
+/** Fetch full details for a single test run (steps, iterations, evidence, etc.).
+ *  Used for on-demand lazy loading when user expands a row. */
+export const getSingleTestRun = (
+  testIssueId: string,
+  testExecIssueId: string,
+): Promise<TestRun | null> =>
+  invoke("get_single_test_run", { testIssueId, testExecIssueId });
+
 /** Fetch the latest test runs for a specific test across all executions. */
 export const getTestRunsByTestId = (
   testIssueId: string,
@@ -218,6 +238,12 @@ export const getTestRunStatuses = (
   start?: number,
 ): Promise<TestRunStatusesPage> =>
   invoke("get_test_run_statuses", { testExecutionIssueId, limit, start });
+
+/** Batch-fetch status counts for multiple executions in parallel. */
+export const getExecutionSummariesBatch = (
+  executionIssueIds: string[],
+): Promise<Record<string, ExecSummaryResult>> =>
+  invoke("get_execution_summaries_batch", { executionIssueIds });
 
 export const getTestRunStats = (
   testExecutionIssueId: string,
@@ -354,6 +380,13 @@ export const removeTestsFromTestPlan = (
 /** Fetch all tests in a test set including each test's latest execution status. */
 export const getTestSetTestsWithStatus = (issueId: string): Promise<XrayTestWithStatus[]> =>
   invoke("get_test_set_tests_with_status", { issueId });
+
+/** Fetch tests-with-status for multiple test sets in a single backend call.
+ *  Returns a map of set_issue_id → XrayTestWithStatus[]. */
+export const getCoverageBatch = (
+  setIssueIds: string[],
+): Promise<Record<string, XrayTestWithStatus[]>> =>
+  invoke("get_coverage_batch", { setIssueIds });
 
 /**
  * Link one or more Jira bug keys to a test run as Xray defects.

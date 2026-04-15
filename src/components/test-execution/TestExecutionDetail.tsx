@@ -1,9 +1,11 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { StepMarkdown } from "./StepMarkdown";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQueryClient, type InfiniteData } from "@tanstack/react-query";
+import { listen } from "@tauri-apps/api/event";
 import {
   useTestRuns,
+  useTestRunDetail,
   useUpdateTestRunStatus,
   useUpdateTestRunComment,
   useUpdateTestRunStepStatus,
@@ -19,9 +21,12 @@ import {
   useUpdateExecutionFixVersion,
   useProjectVersions,
   useAddDefectsToTestRun,
+  useExecutionSummariesBatch,
   queryKeys,
+  TEST_RUNS_PAGE_SIZE,
 } from "@/services/queries";
 import * as api from "@/services/tauri";
+import type { TestRunsPage } from "@/types";
 import { parseRateLimitError } from "@/stores/uiStore";
 import { MiniStackedBar } from "@/components/charts/StatusCharts";
 import { buildSlicesFromCounts } from "@/components/charts/status-utils";
@@ -38,6 +43,7 @@ import {
   ChevronDown,
   ChevronRight,
   ClipboardList,
+  Info,
   Loader2,
   MessageSquare,
   Pencil,
@@ -127,6 +133,11 @@ export function TestExecutionDetail({
 }: TestExecutionDetailProps) {
   const { data, isLoading, isError, error, fetchNextPage, hasNextPage, isFetchingNextPage } =
     useTestRuns(execution.issue_id);
+  // Full summary from the batch API — used for the progress graph when not all
+  // runs are loaded locally (avoids showing a partial/misleading chart).
+  const execIds = useMemo(() => [execution.issue_id], [execution.issue_id]);
+  const { data: batchSummaries } = useExecutionSummariesBatch(execIds);
+  const batchSummary = batchSummaries?.[execution.issue_id];
   const { data: xrayStatuses } = useXrayStatuses(execution.project_id);
   const { data: xrayStepStatuses } = useStepStatuses(execution.project_id);
   const updateStatus = useUpdateTestRunStatus();
@@ -159,14 +170,147 @@ export function TestExecutionDetail({
   const [testSearch, setTestSearch] = useState("");
   const [sortByStatus, setSortByStatus] = useState(false);
   const [loadingAll, setLoadingAll] = useState(false);
+  /** Ref mirror of loadingAll so the async pump can check cancellation. */
+  const loadingAllRef = useRef(false);
+  /** Progress state for the Load-all pump — tracks pages and rate-limit stalls. */
+  const [loadAllProgress, setLoadAllProgress] = useState<{
+    currentPage: number;
+    totalPages: number;
+    startedAt: number;
+    rateLimited: boolean;
+  } | null>(null);
+  /** Timeout handle for deferring the pump one tick so progress renders immediately. */
+  const loadAllStartTimeoutRef = useRef<number | null>(null);
   /** Tracks whether the component is still mounted so the "Load all" pump can
    *  bail out instead of scheduling more fetches after unmount. */
   const mountedRef = useRef(true);
   useEffect(() => {
     return () => {
       mountedRef.current = false;
+      if (loadAllStartTimeoutRef.current !== null) {
+        window.clearTimeout(loadAllStartTimeoutRef.current);
+      }
     };
   }, []);
+
+  const stopLoadAll = useCallback(() => {
+    loadingAllRef.current = false;
+    if (loadAllStartTimeoutRef.current !== null) {
+      window.clearTimeout(loadAllStartTimeoutRef.current);
+      loadAllStartTimeoutRef.current = null;
+    }
+    setLoadingAll(false);
+    setLoadAllProgress(null);
+  }, []);
+
+  /**
+   * Load-all pump: calls Tauri directly (bypasses TanStack Query's retry layer)
+   * and manually merges results into the infinite query cache.
+   * This gives full control over progress tracking and error handling.
+   */
+  const startLoadAll = useCallback(() => {
+    loadingAllRef.current = true;
+    setLoadingAll(true);
+
+    // Compute how many pages remain from current cache state
+    const cachedPages = data?.pages ?? [];
+    const loadedCount = cachedPages.reduce((sum, p) => sum + p.results.length, 0);
+    const total = cachedPages[0]?.total ?? 0;
+    const totalPages = Math.max(1, Math.ceil(total / TEST_RUNS_PAGE_SIZE));
+    const remaining = total - loadedCount;
+    const pagesToFetch = Math.ceil(remaining / TEST_RUNS_PAGE_SIZE);
+    let nextStart = loadedCount;
+    const nextPageNumber = Math.floor(loadedCount / TEST_RUNS_PAGE_SIZE) + 1;
+
+    if (pagesToFetch <= 0 || remaining <= 0) {
+      stopLoadAll();
+      return;
+    }
+
+    setLoadAllProgress({
+      currentPage: nextPageNumber,
+      totalPages,
+      startedAt: Date.now(),
+      rateLimited: false,
+    });
+
+    const pump = async () => {
+      for (let page = 0; page < pagesToFetch; page++) {
+        if (!mountedRef.current || !loadingAllRef.current) return;
+        const pageNumber = Math.floor(nextStart / TEST_RUNS_PAGE_SIZE) + 1;
+
+        setLoadAllProgress((prev) => ({
+          currentPage: pageNumber,
+          totalPages: prev?.totalPages ?? totalPages,
+          startedAt: prev?.startedAt ?? Date.now(),
+          rateLimited: false,
+        }));
+
+        try {
+          const result: TestRunsPage = await api.getTestRunsLightweight(
+            execution.issue_id,
+            TEST_RUNS_PAGE_SIZE,
+            nextStart,
+          );
+
+          if (!mountedRef.current || !loadingAllRef.current) return;
+
+          // Merge the new page into TanStack Query's infinite query cache
+          queryClient.setQueryData<InfiniteData<TestRunsPage>>(
+            queryKeys.testRuns(execution.issue_id),
+            (old) => {
+              if (!old) return old;
+              return {
+                ...old,
+                pages: [...old.pages, result],
+                pageParams: [...old.pageParams, nextStart],
+              };
+            },
+          );
+
+          nextStart += result.results.length;
+
+          // If this page had fewer results than expected, we've reached the end
+          if (nextStart >= total || result.results.length < TEST_RUNS_PAGE_SIZE) {
+            break;
+          }
+        } catch (err) {
+          if (!mountedRef.current) return;
+          stopLoadAll();
+          showToast(setToast, `Failed to load tests: ${String(err)}`, "error");
+          return;
+        }
+      }
+
+      // Finished successfully
+      if (mountedRef.current) stopLoadAll();
+    };
+
+    loadAllStartTimeoutRef.current = window.setTimeout(() => {
+      loadAllStartTimeoutRef.current = null;
+      void pump();
+    }, 0);
+  }, [data?.pages, execution.issue_id, queryClient, stopLoadAll]);
+
+  // Listen for rate-limit events during Load-all to show in the banner
+  useEffect(() => {
+    if (!loadingAll) return;
+    const unlisten = listen("xray:rate-limited", () => {
+      setLoadAllProgress((prev) => (prev ? { ...prev, rateLimited: true } : null));
+    });
+    return () => {
+      void unlisten.then((fn) => fn());
+    };
+  }, [loadingAll]);
+
+  // Tick elapsed time every second while load-all is active
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    if (!loadingAll) return;
+    const id = setInterval(() => setTick((t) => t + 1), 1_000);
+    return () => clearInterval(id);
+  }, [loadingAll]);
+
   /** Status name to filter by, or null to show all. */
   const [statusFilter, setStatusFilter] = useState<string | null>(null);
   /** Bulk selection mode state */
@@ -197,16 +341,22 @@ export function TestExecutionDetail({
     });
   }, []);
 
-  // Resize the virtualised list to fill available space dynamically.
+  // Size the virtualised list from the available viewport space instead of
+  // the parent's current height. Observing the parent height here can create
+  // a feedback loop where the list grows with its container and leaves a huge
+  // empty scroll area.
   useEffect(() => {
-    const el = parentRef.current;
-    if (!el) return;
-    const ro = new ResizeObserver((entries) => {
-      const entry = entries[0];
-      if (entry) setListHeight(entry.contentRect.height);
-    });
-    ro.observe(el.parentElement ?? el);
-    return () => ro.disconnect();
+    const updateListHeight = () => {
+      const el = parentRef.current;
+      if (!el) return;
+      const top = el.getBoundingClientRect().top;
+      const available = window.innerHeight - top - 96;
+      setListHeight(Math.max(240, available));
+    };
+
+    updateListHeight();
+    window.addEventListener("resize", updateListHeight);
+    return () => window.removeEventListener("resize", updateListHeight);
   }, []);
 
   // Dismiss defect picker when clicking outside it.
@@ -236,10 +386,9 @@ export function TestExecutionDetail({
   const { data: allTests, isLoading: testsLoading } = useGetTests(
     addPanelOpen ? (contentProjectKey ?? undefined) : undefined,
   );
-  // Always pass projectKey so results land in the shared cache slot every other page reads from.
-  // The enabled: !!projectKey guard inside the hook prevents network calls when key is absent.
+  // Only fetch test sets when the panel is open — same gating as tests.
   const { data: allTestSets, isLoading: testSetsLoading } = useGetTestSets(
-    contentProjectKey ?? undefined,
+    addPanelOpen ? (contentProjectKey ?? undefined) : undefined,
   );
 
   const filteredAddSets = useMemo(() => {
@@ -486,24 +635,33 @@ export function TestExecutionDetail({
     },
   });
 
-  // Track only the ordered list of run IDs (not their data) so we can
-  // distinguish a structural change (reorder / add / remove) from a
-  // data-only refresh (status / step update).  We join them into a single
-  // string so the comparison is a fast reference-equal check on the memo.
-  const filteredRunKeys = useMemo(() => filteredRuns.map((r) => r.id).join(","), [filteredRuns]);
+  // Track the rendered virtual row structure so we can remeasure when
+  // sections are collapsed/expanded or rows are added/removed/reordered,
+  // without reacting to pure status/comment refreshes.
+  const virtualRowKeys = useMemo(
+    () =>
+      virtualRows
+        .map((item) => (item.type === "header" ? `h:${item.setIssueId}` : `r:${item.run.id}`))
+        .join(","),
+    [virtualRows],
+  );
+  const expandedRunKeys = useMemo(
+    () => [...expandedRuns].sort().join(","),
+    [expandedRuns],
+  );
 
-  // Only force a full height recomputation when the list structure actually
-  // changes (items added, removed, or reordered).  Skipping this on pure
-  // data refreshes prevents the virtualizer from resetting cached heights for
-  // expanded rows, which was the cause of the "ghost steps" visual glitch.
+  // Force a height recomputation whenever the rendered structure changes or
+  // expanded rows toggle. Without this, the virtualizer can keep stale
+  // measurements and leave extra empty scroll space below the last row.
   useEffect(() => {
     virtualizer.measure();
-  }, [filteredRunKeys, virtualizer]);
+  }, [virtualRowKeys, expandedRunKeys, virtualizer]);
 
   // Pagination is entirely user-driven (Load more / Load all buttons in the footer).
   // Auto-fetching on scroll is intentionally disabled to avoid hammering the Xray API,
   // especially when a status filter is active and each new page triggers an extra call.
   const virtualItems = virtualizer.getVirtualItems();
+  const scrollAreaHeight = Math.min(listHeight, Math.max(virtualizer.getTotalSize(), 1));
 
   const handleStatusChange = useCallback(
     (run: TestRun, newStatus: string) => {
@@ -855,19 +1013,40 @@ export function TestExecutionDetail({
     </div>
   ) : null;
 
-  // ── Progress summary (over filtered runs) ──────────────────────────────────
-  const total = filteredRuns.length;
+  // ── Progress summary ────────────────────────────────────────────────────────
+  // When not all runs are loaded locally we use the batch summary (from a
+  // lightweight server call) so the graph always shows the full picture.
+  // Once everything is loaded we switch to the local filteredRuns data so status
+  // filters are reflected instantly.
+  const allRunsLoaded = !hasNextPage;
+  const summaryTotal = useMemo(() => {
+    if (allRunsLoaded) return filteredRuns.length;
+    return batchSummary?.total ?? totalFromServer;
+  }, [allRunsLoaded, filteredRuns.length, batchSummary, totalFromServer]);
+
   const summarySlices = useMemo(() => {
-    const rawCounts = filteredRuns.reduce<Record<string, number>>((acc, run) => {
+    if (allRunsLoaded) {
+      // All pages loaded — compute from local data (respects search/filter).
+      const rawCounts = filteredRuns.reduce<Record<string, number>>((acc, run) => {
+        const name = run.status.name.toUpperCase();
+        acc[name] = (acc[name] ?? 0) + 1;
+        return acc;
+      }, {});
+      return buildSlicesFromCounts(rawCounts, filteredRuns.length);
+    }
+    // Use batch summary from the server (full picture, no filter applied).
+    if (batchSummary) {
+      return buildSlicesFromCounts(batchSummary.counts, batchSummary.total);
+    }
+    // Fallback while batch is still loading — use whatever local runs we have.
+    const rawCounts = runs.reduce<Record<string, number>>((acc, run) => {
       const name = run.status.name.toUpperCase();
       acc[name] = (acc[name] ?? 0) + 1;
       return acc;
     }, {});
-    // buildSlicesFromCounts merges aliases (PASSED→PASS, NOT RUN→TODO, etc.) and
-    // keeps N/A and any other custom status as its own distinct slice.
-    return buildSlicesFromCounts(rawCounts, total);
+    return buildSlicesFromCounts(rawCounts, runs.length);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filteredRuns]); // `total` is derived from filteredRuns.length — redundant dep
+  }, [allRunsLoaded, filteredRuns, batchSummary, runs]);
 
   return (
     <div className="flex h-full flex-col">
@@ -1107,11 +1286,13 @@ export function TestExecutionDetail({
 
           {/* Progress summary */}
           <div className="mb-4 rounded-lg border border-slate-200 bg-white px-4 py-3 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+            <p className="mb-1.5 truncate text-sm font-medium text-slate-700 dark:text-slate-200">
+              {execution.jira.summary}
+            </p>
             <div className="mb-2 flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
               <span className="font-medium">
-                {total}
-                {totalFromServer > total ? ` of ${totalFromServer}` : ""} test
-                {totalFromServer !== 1 ? "s" : ""}
+                {summaryTotal} test{summaryTotal !== 1 ? "s" : ""}
+                {!allRunsLoaded && ` (${runs.length} loaded)`}
               </span>
               <span className="text-slate-400">
                 {summarySlices.map((sl, i) => (
@@ -1186,8 +1367,111 @@ export function TestExecutionDetail({
               <span></span>
             </div>
 
+            {/* Pagination banner — prominent notice when not all tests are loaded */}
+            {(hasNextPage || loadingAll) && (
+              <div
+                className={cn(
+                  "flex items-center gap-3 border-b px-4 py-2.5",
+                  loadAllProgress?.rateLimited
+                    ? "border-amber-100 bg-amber-50 dark:border-amber-900/40 dark:bg-amber-950/30"
+                    : "border-blue-100 bg-blue-50 dark:border-blue-900/40 dark:bg-blue-950/30",
+                )}
+              >
+                {loadAllProgress?.rateLimited ? (
+                  <Loader2 className="h-4 w-4 shrink-0 animate-spin text-amber-500 dark:text-amber-400" />
+                ) : (
+                  <Info className="h-4 w-4 shrink-0 text-blue-500 dark:text-blue-400" />
+                )}
+                <span
+                  className={cn(
+                    "flex-1 text-sm",
+                    loadAllProgress?.rateLimited
+                      ? "text-amber-700 dark:text-amber-300"
+                      : "text-blue-700 dark:text-blue-300",
+                  )}
+                >
+                  {loadingAll && loadAllProgress ? (
+                    <>
+                      <Loader2 className="mr-1.5 inline h-3.5 w-3.5 animate-spin" />
+                      {loadAllProgress.rateLimited ? (
+                        <>
+                          Rate limited — waiting for API cooldown… Page{" "}
+                          <strong>
+                            {loadAllProgress.currentPage}/{loadAllProgress.totalPages}
+                          </strong>{" "}
+                          · <strong>{runs.length}</strong> of{" "}
+                          <strong>{totalFromServer}</strong> loaded ·{" "}
+                          {Math.round((Date.now() - loadAllProgress.startedAt) / 1000)}s elapsed
+                        </>
+                      ) : (
+                        <>
+                          Loading page{" "}
+                          <strong>
+                            {loadAllProgress.currentPage}/{loadAllProgress.totalPages}
+                          </strong>{" "}
+                          · <strong>{runs.length}</strong> of{" "}
+                          <strong>{totalFromServer}</strong> tests loaded ·{" "}
+                          {Math.round((Date.now() - loadAllProgress.startedAt) / 1000)}s elapsed
+                        </>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      Showing <strong>{runs.length}</strong> of{" "}
+                      <strong>{totalFromServer}</strong> tests.{" "}
+                      {totalFromServer - runs.length} more available.
+                    </>
+                  )}
+                </span>
+                {!loadingAll && (
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => void fetchNextPage()}
+                      disabled={isFetchingNextPage}
+                      className="h-7 text-xs"
+                    >
+                      {isFetchingNextPage ? (
+                        <>
+                          <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                          Loading…
+                        </>
+                      ) : (
+                        `Load next ${Math.min(TEST_RUNS_PAGE_SIZE, totalFromServer - runs.length)}`
+                      )}
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={startLoadAll}
+                      disabled={isFetchingNextPage}
+                      className="h-7 text-xs"
+                    >
+                      Load all ({totalFromServer - runs.length} remaining)
+                    </Button>
+                  </div>
+                )}
+                {loadingAll && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={stopLoadAll}
+                    className={cn(
+                      "h-7 text-xs",
+                      loadAllProgress?.rateLimited
+                        ? "text-amber-600 dark:text-amber-400"
+                        : "text-blue-600 dark:text-blue-400",
+                    )}
+                  >
+                    Stop
+                  </Button>
+                )}
+              </div>
+            )}
+
             {/* Virtualised rows */}
-            <div ref={parentRef} className="overflow-auto" style={{ height: listHeight }}>
+            <div ref={parentRef} className="overflow-auto" style={{ height: scrollAreaHeight }}>
               <div style={{ height: virtualizer.getTotalSize(), position: "relative" }}>
                 {virtualItems.map((virtualRow) => {
                   const item = virtualRows[virtualRow.index];
@@ -1262,10 +1546,13 @@ export function TestExecutionDetail({
 
                   // ── Test run row ────────────────────────────────────────────
                   const { run } = item;
-                  const hasManualSteps = (run.steps?.length ?? 0) > 0;
                   const isCucumber =
                     run.test_type?.name?.toLowerCase() === "cucumber" || !!run.gherkin;
-                  const hasSteps = hasManualSteps || isCucumber;
+                  // With lightweight data, steps may not be loaded yet —
+                  // assume all Manual/Cucumber tests are expandable
+                  const isManual = run.test_type?.name?.toLowerCase() === "manual" ||
+                    (!run.test_type && !isCucumber);
+                  const hasSteps = isManual || isCucumber;
                   const isExpanded = expandedRuns.has(run.id);
 
                   return (
@@ -1349,7 +1636,9 @@ export function TestExecutionDetail({
                                 <span className="ml-2 text-slate-300 dark:text-slate-600">
                                   {isCucumber
                                     ? "Cucumber"
-                                    : `${run.steps!.length} step${run.steps!.length !== 1 ? "s" : ""}`}
+                                    : run.steps
+                                      ? `${run.steps.length} step${run.steps.length !== 1 ? "s" : ""}`
+                                      : "Manual"}
                                 </span>
                               )}
                             </p>
@@ -1574,53 +1863,43 @@ export function TestExecutionDetail({
                     : runs.length}{" "}
                 test{totalFromServer !== 1 ? "s" : ""}
               </span>
-              {hasNextPage && (
+              {(hasNextPage || loadingAll) && (
                 <div className="flex items-center gap-2">
-                  {/* Load next page */}
-                  <button
-                    onClick={() => void fetchNextPage()}
-                    disabled={isFetchingNextPage || loadingAll}
-                    className="flex items-center gap-1 rounded px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-100 disabled:opacity-50 dark:text-slate-400 dark:hover:bg-slate-700"
-                  >
-                    {isFetchingNextPage && !loadingAll ? (
-                      <>
-                        <Loader2 className="h-3 w-3 animate-spin" />
-                        Loading…
-                      </>
-                    ) : (
-                      "Load more"
-                    )}
-                  </button>
+                  {!loadingAll && (
+                    <>
+                      <button
+                        onClick={() => void fetchNextPage()}
+                        disabled={isFetchingNextPage || loadingAll}
+                        className="flex items-center gap-1 rounded px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-100 disabled:opacity-50 dark:text-slate-400 dark:hover:bg-slate-700"
+                      >
+                        {isFetchingNextPage ? (
+                          <>
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                            Loading…
+                          </>
+                        ) : (
+                          `Load next ${Math.min(TEST_RUNS_PAGE_SIZE, totalFromServer - runs.length)}`
+                        )}
+                      </button>
 
-                  {/* Load all remaining pages — throttled to avoid 429s */}
-                  <button
-                    onClick={() => {
-                      setLoadingAll(true);
-                      const pump = () => {
-                        if (!mountedRef.current) return;
-                        void fetchNextPage().then(({ hasNextPage: more }) => {
-                          if (!mountedRef.current) return;
-                          if (more) {
-                            setTimeout(pump, 400);
-                          } else {
-                            setLoadingAll(false);
-                          }
-                        });
-                      };
-                      pump();
-                    }}
-                    disabled={isFetchingNextPage || loadingAll}
-                    className="flex items-center gap-1 rounded px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-100 disabled:opacity-50 dark:text-slate-400 dark:hover:bg-slate-700"
-                  >
-                    {loadingAll ? (
-                      <>
-                        <Loader2 className="h-3 w-3 animate-spin" />
-                        Loading all…
-                      </>
-                    ) : (
-                      `Load all (${totalFromServer - runs.length} remaining)`
-                    )}
-                  </button>
+                      <button
+                        onClick={startLoadAll}
+                        disabled={isFetchingNextPage}
+                        className="flex items-center gap-1 rounded px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-100 disabled:opacity-50 dark:text-slate-400 dark:hover:bg-slate-700"
+                      >
+                        Load all ({totalFromServer - runs.length} remaining)
+                      </button>
+                    </>
+                  )}
+                  {loadingAll && (
+                    <button
+                      onClick={stopLoadAll}
+                      className="flex items-center gap-1 rounded px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-700"
+                    >
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                      {runs.length} / {totalFromServer} · Stop
+                    </button>
+                  )}
                 </div>
               )}
             </div>
@@ -1724,30 +2003,64 @@ const RunExpandedPanel = memo(function RunExpandedPanel({
   removeSavingKey,
   setToast,
 }: RunExpandedPanelProps) {
-  const isCucumber = run.test_type?.name?.toLowerCase() === "cucumber" || !!run.gherkin;
-  const hasManualSteps = (run.steps?.length ?? 0) > 0;
+  // Lazy-load full run details (steps, iterations, Gherkin, evidence)
+  const { data: detail, isLoading, isError, error } = useTestRunDetail(
+    run.test.issue_id,
+    executionIssueId,
+  );
+
+  // Merge: use fetched detail if available, else fall back to the (possibly slim) run
+  const fullRun = detail ?? run;
+
+  const isCucumber = fullRun.test_type?.name?.toLowerCase() === "cucumber" || !!fullRun.gherkin;
+  const hasManualSteps = (fullRun.steps?.length ?? 0) > 0;
 
   const handleStepStatusChange = useCallback(
-    (step: TestRunStep, status: string) => onStepStatusChange(run, step, status),
-    [run, onStepStatusChange],
+    (step: TestRunStep, status: string) => onStepStatusChange(fullRun, step, status),
+    [fullRun, onStepStatusChange],
   );
   const handleSaveStepField = useCallback(
     (step: TestRunStep, field: "comment" | "actualResult", value: string) =>
-      onSaveStepField(run, step, field, value),
-    [run, onSaveStepField],
+      onSaveStepField(fullRun, step, field, value),
+    [fullRun, onSaveStepField],
   );
   const handleBulkStepStatus = useCallback(
-    (status: string) => onBulkStepStatus(run, status),
-    [run, onBulkStepStatus],
+    (status: string) => onBulkStepStatus(fullRun, status),
+    [fullRun, onBulkStepStatus],
   );
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center gap-2 px-6 py-4 text-sm text-slate-400">
+        <Loader2 className="h-4 w-4 animate-spin" />
+        Loading test details…
+      </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <div className="px-6 py-4 text-sm text-red-500">
+        Failed to load details: {String(error)}
+      </div>
+    );
+  }
+
+  if (!hasManualSteps && !isCucumber) {
+    return (
+      <div className="px-6 py-3 text-sm text-slate-400 italic">
+        No steps defined for this test.
+      </div>
+    );
+  }
 
   return (
     <>
-      {isCucumber && <GherkinPanel gherkin={run.gherkin} results={run.results} />}
+      {isCucumber && <GherkinPanel gherkin={fullRun.gherkin} results={fullRun.results} />}
       {hasManualSteps && (
         <StepsPanel
-          run={run}
-          steps={run.steps!}
+          run={fullRun}
+          steps={fullRun.steps!}
           stepStatuses={stepStatuses}
           onStepStatusChange={handleStepStatusChange}
           onSaveStepField={handleSaveStepField}
@@ -1757,11 +2070,11 @@ const RunExpandedPanel = memo(function RunExpandedPanel({
           savingKeys={savingKeys}
         />
       )}
-      {hasManualSteps && (run.iterations?.results.length ?? 0) > 0 && (
+      {hasManualSteps && (fullRun.iterations?.results.length ?? 0) > 0 && (
         <IterationsPanel
-          testRunId={run.id}
-          iterations={run.iterations!.results}
-          steps={run.steps!}
+          testRunId={fullRun.id}
+          iterations={fullRun.iterations!.results}
+          steps={fullRun.steps!}
           stepStatuses={stepStatuses}
           executionIssueId={executionIssueId}
           savingKeys={savingKeys}

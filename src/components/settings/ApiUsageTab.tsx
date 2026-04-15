@@ -1,3 +1,5 @@
+import { useEffect, useState } from "react";
+
 import { useApiUsage } from "@/services/queries";
 import type { ServiceUsageSnapshot } from "@/types";
 import { Spinner } from "@/components/ui/spinner";
@@ -90,6 +92,94 @@ function formatTimeAgo(ms: number | null): string {
   if (ago < 60_000) return "Just now";
   if (ago < 3_600_000) return `${Math.floor(ago / 60_000)}m ago`;
   return `${Math.floor(ago / 3_600_000)}h ago`;
+}
+
+/** Return ms until the next UTC hour boundary. */
+function msUntilNextHour(): number {
+  const now = Date.now();
+  const msPerHour = 3_600_000;
+  const nextHour = Math.ceil(now / msPerHour) * msPerHour;
+  return Math.max(0, nextHour - now);
+}
+
+// ── Countdown Timer ──────────────────────────────────────────────────────────
+
+function useCountdown() {
+  const [remaining, setRemaining] = useState(msUntilNextHour());
+
+  useEffect(() => {
+    const id = setInterval(() => setRemaining(msUntilNextHour()), 1_000);
+    return () => clearInterval(id);
+  }, []);
+
+  return remaining;
+}
+
+function ResetCountdown() {
+  const remaining = useCountdown();
+
+  const totalMs = 3_600_000;
+  const elapsed = totalMs - remaining;
+  const pct = Math.min(100, (elapsed / totalMs) * 100);
+
+  const mins = Math.floor(remaining / 60_000);
+  const secs = Math.floor((remaining % 60_000) / 1_000);
+
+  const r = 44;
+  const circ = 2 * Math.PI * r;
+  const filled = (pct / 100) * circ;
+
+  return (
+    <div className="flex flex-col items-center gap-2">
+      <svg viewBox="0 0 100 100" className="h-24 w-24">
+        {/* background track */}
+        <circle
+          cx="50"
+          cy="50"
+          r={r}
+          fill="none"
+          strokeWidth="6"
+          className="stroke-slate-100 dark:stroke-slate-800"
+        />
+        {/* elapsed arc */}
+        <circle
+          cx="50"
+          cy="50"
+          r={r}
+          fill="none"
+          strokeWidth="6"
+          strokeLinecap="round"
+          strokeDasharray={`${filled} ${circ - filled}`}
+          strokeDashoffset={circ * 0.25}
+          className="stroke-indigo-500 dark:stroke-indigo-400"
+          style={{ transition: "stroke-dasharray 1s linear" }}
+        />
+        {/* time text */}
+        <text
+          x="50"
+          y="46"
+          textAnchor="middle"
+          dominantBaseline="central"
+          className="fill-current text-slate-700 dark:text-slate-200"
+          fontSize="16"
+          fontWeight="bold"
+        >
+          {mins}:{secs.toString().padStart(2, "0")}
+        </text>
+        <text
+          x="50"
+          y="62"
+          textAnchor="middle"
+          dominantBaseline="central"
+          className="fill-current text-slate-400 dark:text-slate-500"
+          fontSize="8"
+        >
+          until reset
+        </text>
+      </svg>
+      <p className="text-[10px] text-slate-400 dark:text-slate-500">Window resets each UTC hour</p>
+    </div>
+  );
 }
 
 // ── Gauge SVG ────────────────────────────────────────────────────────────────
@@ -207,10 +297,10 @@ function ServiceCard({
             </div>
           </div>
 
-          {/* All-time stats */}
+          {/* Per-window stats (persisted, resets each hour) */}
           <div className="space-y-1.5">
             <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
-              All time (persisted)
+              This window (persisted)
             </p>
             <div className="grid grid-cols-2 gap-x-4 gap-y-1">
               <Stat label="Total calls" value={formatNumber(usage.calls_all_time)} />
@@ -278,11 +368,17 @@ export function ApiUsageTab() {
 
   return (
     <div className="space-y-6">
-      <p className="text-xs text-slate-400 dark:text-slate-500">
-        Tracks API calls in real time. Hourly counter resets each UTC hour. Session counters reset
-        on app restart. All-time counters persist across restarts. The gauge reflects live
-        rate-limit headers when the API provides them.
-      </p>
+      {/* Countdown timer + description */}
+      <div className="flex items-start gap-5">
+        <ResetCountdown />
+        <p className="flex-1 pt-1 text-xs leading-relaxed text-slate-400 dark:text-slate-500">
+          Tracks API calls in real time. All counters reset at the top of each UTC hour.
+          Session counters also reset on app restart. Window counters persist across restarts
+          within the same hour. The gauge reflects live rate-limit headers when the API provides
+          them.
+        </p>
+      </div>
+
       <ServiceCard info={SERVICE_INFO.jira} usage={data.jira} />
       <ServiceCard info={SERVICE_INFO.xray} usage={data.xray} />
       <ServiceCard info={SERVICE_INFO.confluence} usage={data.confluence} />

@@ -1,5 +1,4 @@
-import { memo, useState, useEffect } from "react";
-import { useExecutionRunSummary } from "@/services/queries";
+import { memo } from "react";
 import { cn } from "@/components/ui/utils";
 import { Badge } from "@/components/ui/badge";
 import { statusVariant } from "@/components/ui/badge-utils";
@@ -7,7 +6,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { MiniStackedBar } from "@/components/charts/StatusCharts";
 import { buildSlicesFromCounts } from "@/components/charts/status-utils";
 import { Copy, Pencil, Star } from "lucide-react";
-import type { TestExecution } from "@/types";
+import type { TestExecution, ExecSummaryResult } from "@/types";
 
 export interface ExecRowProps {
   exec: TestExecution;
@@ -16,6 +15,9 @@ export interface ExecRowProps {
   renameKey: string | null;
   renameDraft: string;
   renameIsPending: boolean;
+  /** Pre-fetched summary from the batch query (undefined while loading). */
+  summary?: ExecSummaryResult | undefined;
+  summaryLoading: boolean;
   /** Called with the exec when the row is clicked. */
   onSelect: (exec: TestExecution) => void;
   /** Called with the exec to start an inline rename. */
@@ -34,6 +36,8 @@ export const ExecRow = memo(function ExecRow({
   renameKey,
   renameDraft,
   renameIsPending,
+  summary,
+  summaryLoading,
   onSelect,
   onStartRename,
   onCancelRename,
@@ -43,21 +47,8 @@ export const ExecRow = memo(function ExecRow({
   onEdit,
   onClone,
 }: ExecRowProps) {
-  // Delay the summary query so all visible ExecRows don't fire simultaneously
-  // on mount. The 200ms grace period lets the page paint first; subsequent
-  // rows stagger naturally as React schedules their effects.
-  const [summaryEnabled, setSummaryEnabled] = useState(false);
-  useEffect(() => {
-    const t = setTimeout(() => setSummaryEnabled(true), 200);
-    return () => clearTimeout(t);
-  }, []);
-
-  const {
-    counts,
-    total,
-    hasMore,
-    isLoading: summaryLoading,
-  } = useExecutionRunSummary(summaryEnabled ? exec.issue_id : null);
+  const counts = summary?.counts ?? {};
+  const total = summary?.total ?? 0;
 
   return (
     <tr
@@ -147,7 +138,6 @@ export const ExecRow = memo(function ExecRow({
                 <MiniStackedBar slices={buildSlicesFromCounts(counts, total)} className="flex-1" />
                 <span className="shrink-0 text-[10px] text-slate-400">
                   {total}
-                  {hasMore && "+"}
                 </span>
               </div>
             ) : null}
