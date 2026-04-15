@@ -57,6 +57,7 @@ export function ConfluencePagePicker({
   const [breadcrumb, setBreadcrumb] = useState<BreadcrumbItem[]>([]);
   const [spaceSearch, setSpaceSearch] = useState("");
   const [pageSearch, setPageSearch] = useState("");
+  const [pageTitle, setPageTitle] = useState(`QA Feedback \u2014 ${version.name}`);
 
   // Current parent: last breadcrumb item, or homepage for root
   const currentParent = breadcrumb.at(-1);
@@ -109,7 +110,7 @@ export function ConfluencePagePicker({
   const handleCreate = () => {
     if (!spaceId) return;
     const parentId = currentParentId ?? null;
-    const title = `QA Feedback \u2014 ${version.name}`;
+    const title = pageTitle.trim() || `QA Feedback \u2014 ${version.name}`;
     const body = buildTemplate(version);
     createPage.mutate(
       { spaceId, parentId, parentType: currentParentType, title, body },
@@ -369,13 +370,21 @@ export function ConfluencePagePicker({
       {/* Summary + action */}
       <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3
         dark:border-slate-700 dark:bg-slate-900/50">
-        <p className="text-sm text-slate-600 dark:text-slate-300">
-          Page:{" "}
-          <span className="font-medium text-slate-800 dark:text-slate-100">
-            QA Feedback &mdash; {version.name}
-          </span>
-        </p>
-        <p className="mt-0.5 text-xs text-slate-400">
+        <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-slate-400">
+          Page title
+        </label>
+        <input
+          type="text"
+          value={pageTitle}
+          onChange={(e) => setPageTitle(e.target.value)}
+          disabled={isCreating}
+          className="w-full rounded border border-slate-300 bg-white px-2 py-1.5 text-sm
+            font-medium text-slate-800 focus:border-blue-400 focus:outline-none
+            dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100
+            dark:focus:border-blue-500 disabled:opacity-50"
+          placeholder={`QA Feedback \u2014 ${version.name}`}
+        />
+        <p className="mt-1 text-xs text-slate-400">
           in {locationLabel}
         </p>
       </div>

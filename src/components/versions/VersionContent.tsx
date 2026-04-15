@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
-import { Download, FileText } from "lucide-react";
+import { ChevronDown, Download, FileText } from "lucide-react";
 import { save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { openPath } from "@tauri-apps/plugin-opener";
 import { useBugsByVersion, useVersionIssues, useVersionRunStats, useVersionRelatedWork, useConfluencePage } from "@/services/queries";
-import { VersionKpiStrip } from "./KpiStrip";
+import { cn } from "@/components/ui/utils";
 import { ReleaseReadinessChecklist } from "./ReleaseReadinessChecklist";
 import { VersionDashboard } from "./VersionDashboard";
 import { BugsPanel } from "./BugsPanel";
@@ -56,6 +56,7 @@ export function VersionContent({
   );
 
   const [isExporting, setIsExporting] = useState(false);
+  const [execsOpen, setExecsOpen] = useState(false);
 
   const allLoaded = stats.pagesLoaded >= stats.pagesExpected && stats.pagesExpected > 0;
 
@@ -117,22 +118,19 @@ export function VersionContent({
         </button>
       </div>
 
-      <FeedbackSummary version={version} />
+      <div id="version-section-feedback">
+        <FeedbackSummary version={version} />
+      </div>
 
       {executions.length > 0 && (
         <div className="mb-4 space-y-3">
-          <VersionKpiStrip
-            stats={stats}
-            executions={executions}
-            bugs={bugs ?? []}
-            versionIssues={versionIssues ?? []}
-          />
           <ReleaseReadinessChecklist
             stats={stats}
             executions={executions}
             bugs={bugs ?? []}
             versionIssues={versionIssues ?? []}
             version={version}
+            feedbackRows={feedbackRows}
           />
         </div>
       )}
@@ -160,20 +158,33 @@ export function VersionContent({
       </div>
 
       {executions.length > 0 && (
-        <div id="version-section-executions" className="mt-4">
-          <div className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-slate-400">
-            <FileText className="h-3.5 w-3.5" />
-            Executions
-          </div>
-          <div className="space-y-2">
-            {executions.map((exec) => (
-              <ExecutionRow
-                key={exec.issue_id}
-                execution={exec}
-                onClick={() => onSelectExecution(exec)}
-              />
-            ))}
-          </div>
+        <div id="version-section-executions" className="mt-4 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
+          <button
+            onClick={() => setExecsOpen((o) => !o)}
+            className="flex w-full items-center justify-between px-4 py-2.5 text-left hover:bg-slate-50 dark:hover:bg-slate-700/50"
+          >
+            <span className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-slate-400">
+              <FileText className="h-3.5 w-3.5" />
+              Executions ({executions.length})
+            </span>
+            <ChevronDown
+              className={cn(
+                "h-3.5 w-3.5 text-slate-400 transition-transform",
+                execsOpen && "rotate-180",
+              )}
+            />
+          </button>
+          {execsOpen && (
+            <div className="space-y-2 border-t border-slate-100 p-3 dark:border-slate-700">
+              {executions.map((exec) => (
+                <ExecutionRow
+                  key={exec.issue_id}
+                  execution={exec}
+                  onClick={() => onSelectExecution(exec)}
+                />
+              ))}
+            </div>
+          )}
         </div>
       )}
     </>

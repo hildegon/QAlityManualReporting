@@ -1,6 +1,7 @@
 import { useState, useCallback, useMemo, useRef, useEffect, memo } from "react";
 import { useQueries } from "@tanstack/react-query";
 import {
+  ArrowLeftRight,
   BookOpen,
   AlertTriangle,
   Check,
@@ -43,12 +44,13 @@ import {
   useIssueDetail,
 } from "@/services/queries";
 import { queryKeys } from "@/services/queries/queryKeys";
-import { getUserDisplayName } from "@/services/tauri";
+import { getUserDisplayName, copyConfluenceAttachments } from "@/services/tauri";
 import { useConfluenceStore } from "@/stores/confluenceStore";
 import type { ConfluencePageMapping } from "@/stores/confluenceStore";
 import { needsTranscode, transcodeToMp4 } from "@/services/videoTranscoder";
 import { ConfluencePagePicker } from "./ConfluencePagePicker";
 import { ConfluencePageLinker } from "./ConfluencePageLinker";
+import { CarryOverModal } from "./CarryOverModal";
 import { Button } from "@/components/ui/button";
 import type { JiraVersion, JiraUser, ConfluenceAttachment } from "@/types";
 
@@ -73,6 +75,8 @@ export interface IssueRow {
   descriptionAttachments: string[];
   /** Filenames of images/videos attached to the comment cell. */
   commentAttachments: string[];
+  /** If this row was carried over from another version's feedback page. */
+  carryOverFrom?: string | undefined;
 }
 
 function stripHtml(html: string): string {
@@ -292,17 +296,19 @@ export function parseIssueRows(html: string): IssueRow[] {
   if (!tbodyMatch?.[1]) return [];
 
   const rows: IssueRow[] = [];
-  const trRegex = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
+  const trRegex = /<tr([^>]*)>([\s\S]*?)<\/tr>/gi;
   let trMatch: RegExpExecArray | null;
   let trIndex = 0;
 
   while ((trMatch = trRegex.exec(tbodyMatch[1])) !== null) {
     const currentTrIndex = trIndex++;
+    const trAttrs = trMatch[1] ?? "";
+    const trContent = trMatch[2] ?? "";
     const rawCells: string[] = [];
     const rawTdAttrs: string[] = [];
     const tdRegex = /<td([^>]*)>([\s\S]*?)<\/td>/gi;
     let tdMatch: RegExpExecArray | null;
-    while ((tdMatch = tdRegex.exec(trMatch[1]!)) !== null) {
+    while ((tdMatch = tdRegex.exec(trContent)) !== null) {
       rawTdAttrs.push(tdMatch[1] ?? "");
       rawCells.push(tdMatch[2] ?? "");
     }
@@ -338,11 +344,14 @@ export function parseIssueRows(html: string): IssueRow[] {
     const hasContent = jiraTicket || priority || description || comment || dev;
     if (!hasContent) continue;
 
+    const carryOverMatch = trAttrs.match(/data-carryover-from="([^"]*)"/);
+    const carryOverFrom = carryOverMatch?.[1] || undefined;
+
     rows.push({
       rawIndex: currentTrIndex,
       status, jiraTicket, priority, description, comment,
       assignedDeveloper: dev, developerAccountId, isDone, isInProgress,
-      descriptionAttachments, commentAttachments,
+      descriptionAttachments, commentAttachments, carryOverFrom,
     });
   }
 
@@ -372,6 +381,8 @@ function injectIssueRow(
     developerAccountId: string;
     descriptionAttachments?: string[];
     commentAttachments?: string[];
+    carryOverFrom?: string | undefined;
+    status?: IssueStatus | undefined;
   },
   jiraBaseUrl: string,
 ): string {
@@ -379,14 +390,21 @@ function injectIssueRow(
   const descImages = buildImageTags(fields.descriptionAttachments ?? []);
   const commentImages = buildImageTags(fields.commentAttachments ?? []);
   const ticketContent = buildJiraTicketCell(fields.jiraTicket, jiraBaseUrl);
+  const trAttrs = fields.carryOverFrom
+    ? ` data-carryover-from="${escHtml(fields.carryOverFrom)}"`
+    : "";
+  const statusText = fields.status ?? "Open";
+  const carryOverTag = fields.carryOverFrom
+    ? `<p><em style="color: #b45309; font-size: 11px;">↩ Carried from ${escHtml(fields.carryOverFrom)}</em></p>`
+    : "";
   const row =
-    `<tr>` +
-    `<td><p>${escHtml(fields.description)}</p>${descImages}</td>` +
+    `<tr${trAttrs}>` +
+    `<td><p>${escHtml(fields.description)}</p>${carryOverTag}${descImages}</td>` +
     `<td><p>${escHtml(fields.comment)}</p>${commentImages}</td>` +
     `<td><p>${escHtml(fields.priority)}</p></td>` +
     `<td><p>${ticketContent}</p></td>` +
     `<td data-dev-name="${escHtml(fields.developer)}"><p>${devContent}</p></td>` +
-    `<td><p>Open</p></td>` +
+    `<td><p>${escHtml(statusText)}</p></td>` +
     `</tr>`;
 
   // Find the Issues table's </tbody> and insert before it.
@@ -414,6 +432,7 @@ function replaceIssueRow(
     developerAccountId: string;
     descriptionAttachments?: string[];
     commentAttachments?: string[];
+    carryOverFrom?: string | undefined;
   },
   jiraBaseUrl: string,
 ): string {
@@ -437,8 +456,11 @@ function replaceIssueRow(
   const descImages = buildImageTags(fields.descriptionAttachments ?? []);
   const commentImages = buildImageTags(fields.commentAttachments ?? []);
   const ticketContent = buildJiraTicketCell(fields.jiraTicket, jiraBaseUrl);
+  const trAttrs = fields.carryOverFrom
+    ? ` data-carryover-from="${escHtml(fields.carryOverFrom)}"`
+    : "";
   rows[rowIndex] =
-    `<tr>` +
+    `<tr${trAttrs}>` +
     `<td><p>${escHtml(fields.description)}</p>${descImages}</td>` +
     `<td><p>${escHtml(fields.comment)}</p>${commentImages}</td>` +
     `<td><p>${escHtml(fields.priority)}</p></td>` +
@@ -477,6 +499,38 @@ function deleteIssueRow(html: string, rowIndex: number): string {
   return html.replace(pattern, () => `${prefix}${rows.join("\n  ")}${suffix}`);
 }
 
+/**
+ * Inject multiple carry-over rows into the Issues `<tbody>`.
+ * Each row is injected with `data-carryover-from` and preserves its original status.
+ */
+export function injectCarryOverRows(
+  html: string,
+  rows: IssueRow[],
+  sourceVersionName: string,
+  jiraBaseUrl: string,
+): string {
+  let result = html;
+  for (const row of rows) {
+    result = injectIssueRow(
+      result,
+      {
+        jiraTicket: row.jiraTicket,
+        priority: row.priority,
+        description: row.description,
+        comment: row.comment,
+        developer: row.assignedDeveloper,
+        developerAccountId: row.developerAccountId,
+        descriptionAttachments: row.descriptionAttachments,
+        commentAttachments: row.commentAttachments,
+        carryOverFrom: sourceVersionName,
+        status: row.status,
+      },
+      jiraBaseUrl,
+    );
+  }
+  return result;
+}
+
 interface AddIssueForm {
   jiraTicket: string;
   priority: IssuePriority;
@@ -493,12 +547,13 @@ interface AddIssueForm {
 interface FeedbackPanelProps {
   version: JiraVersion;
   projectKey: string;
+  allVersions: JiraVersion[];
 }
 
 export const RELATED_WORK_TITLE_PREFIX = "QAlity Feedback";
 const RELATED_WORK_CATEGORY = "Documentation";
 
-export function FeedbackPanel({ version }: FeedbackPanelProps) {
+export function FeedbackPanel({ version, allVersions }: FeedbackPanelProps) {
   const { getVersionPage, setVersionPage, removeVersionPage } = useConfluenceStore();
 
   const { data: config } = useConfig();
@@ -538,8 +593,13 @@ export function FeedbackPanel({ version }: FeedbackPanelProps) {
   const [editing, setEditing] = useState(false);
   const [draftBody, setDraftBody] = useState("");
   const [showAddForm, setShowAddForm] = useState(false);
+  const [showCarryOver, setShowCarryOver] = useState(false);
+  const [carryingOver, setCarryingOver] = useState(false);
+  const [carryOverProgress, setCarryOverProgress] = useState("");
+  const [carryOverError, setCarryOverError] = useState("");
   const [filterPriority, setFilterPriority] = useState<string>("all");
   const [filterDeveloper, setFilterDeveloper] = useState<string>("all");
+  const [filterCarryOver, setFilterCarryOver] = useState<"all" | "carried" | "original">("all");
   const [addForm, setAddForm] = useState<AddIssueForm>({
     jiraTicket: "",
     priority: "",
@@ -648,6 +708,47 @@ export function FeedbackPanel({ version }: FeedbackPanelProps) {
     }
   };
 
+  const handleCarryOver = async (
+    rows: IssueRow[],
+    sourceVersionName: string,
+    sourcePageId: string,
+  ) => {
+    if (!page || page.version_number == null) return;
+    setCarryingOver(true);
+    setCarryOverError("");
+    setCarryOverProgress("Preparing carry-over…");
+    try {
+      // 1. Collect all attachment filenames from carried rows
+      const allFilenames = rows.flatMap((r) => [
+        ...r.descriptionAttachments,
+        ...r.commentAttachments,
+      ]);
+      // 2. Copy attachments from source to target page (if any)
+      if (allFilenames.length > 0) {
+        setCarryOverProgress(`Copying ${allFilenames.length} attachment${allFilenames.length > 1 ? "s" : ""}…`);
+        await copyConfluenceAttachments(sourcePageId, page.id, allFilenames);
+      }
+      // 3. Inject rows into HTML
+      setCarryOverProgress(`Injecting ${rows.length} item${rows.length > 1 ? "s" : ""}…`);
+      const currentHtml = page.body_storage ?? "";
+      const updatedHtml = injectCarryOverRows(currentHtml, rows, sourceVersionName, jiraBaseUrl);
+      // 4. Save updated page
+      setCarryOverProgress("Saving page…");
+      await updatePage.mutateAsync({
+        pageId: page.id,
+        versionNumber: page.version_number,
+        title: page.title,
+        body: updatedHtml,
+      });
+      setShowCarryOver(false);
+    } catch (err) {
+      setCarryOverError(String(err));
+    } finally {
+      setCarryingOver(false);
+      setCarryOverProgress("");
+    }
+  };
+
   const handleEditIssue = useCallback(
     async (
       rowIndex: number,
@@ -661,6 +762,7 @@ export function FeedbackPanel({ version }: FeedbackPanelProps) {
         developerAccountId: string;
         descriptionAttachments?: string[];
         commentAttachments?: string[];
+        carryOverFrom?: string | undefined;
       },
     ) => {
       if (!page || page.version_number == null) return;
@@ -694,6 +796,7 @@ export function FeedbackPanel({ version }: FeedbackPanelProps) {
         developerAccountId: row.developerAccountId,
         descriptionAttachments: row.descriptionAttachments,
         commentAttachments: row.commentAttachments,
+        carryOverFrom: row.carryOverFrom,
       });
     },
     [handleEditIssue],
@@ -793,11 +896,18 @@ export function FeedbackPanel({ version }: FeedbackPanelProps) {
         const key = r.developerAccountId || r.assignedDeveloper;
         if (key !== filterDeveloper) return false;
       }
+      if (filterCarryOver === "carried" && !r.carryOverFrom) return false;
+      if (filterCarryOver === "original" && r.carryOverFrom) return false;
       return true;
     });
-  }, [issueRows, filterPriority, filterDeveloper]);
+  }, [issueRows, filterPriority, filterDeveloper, filterCarryOver]);
 
-  const hasActiveFilters = filterPriority !== "all" || filterDeveloper !== "all";
+  const hasActiveFilters = filterPriority !== "all" || filterDeveloper !== "all" || filterCarryOver !== "all";
+
+  const carryOverCount = useMemo(
+    () => issueRows.filter((r) => r.carryOverFrom).length,
+    [issueRows],
+  );
 
   // Migration: if a local mapping exists but no Related Work entry yet, create
   // one once the page loads (so the URL is available). This migrates legacy
@@ -998,6 +1108,11 @@ export function FeedbackPanel({ version }: FeedbackPanelProps) {
                   {hasActiveFilters
                     ? `${filteredRows.length}/${issueRows.length} shown`
                     : `${issueRows.filter((r) => r.isDone).length}/${issueRows.length} done`}
+                  {carryOverCount > 0 && (
+                    <span className="ml-1 text-amber-500">
+                      · ↩ {carryOverCount}
+                    </span>
+                  )}
                 </span>
               )}
               {!showAddForm && (
@@ -1009,6 +1124,22 @@ export function FeedbackPanel({ version }: FeedbackPanelProps) {
                 >
                   <Plus className="h-3 w-3" />
                   Add Issue
+                </button>
+              )}
+              {!showAddForm && allVersions.length > 1 && (
+                <button
+                  onClick={() => setShowCarryOver(true)}
+                  disabled={carryingOver}
+                  className="flex items-center gap-1 rounded-md bg-amber-50 px-2 py-1 text-xs
+                    font-medium text-amber-600 transition-colors hover:bg-amber-100
+                    dark:bg-amber-950 dark:text-amber-400 dark:hover:bg-amber-900"
+                >
+                  {carryingOver ? (
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  ) : (
+                    <span className="text-xs">↩</span>
+                  )}
+                  Carry over
                 </button>
               )}
               <button
@@ -1073,10 +1204,41 @@ export function FeedbackPanel({ version }: FeedbackPanelProps) {
                 </div>
               )}
 
+              {/* Carry-over filter */}
+              {carryOverCount > 0 && (
+                <>
+                  <div className="h-4 w-px shrink-0 bg-slate-200 dark:bg-slate-700" />
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => setFilterCarryOver(filterCarryOver === "carried" ? "all" : "carried")}
+                      className={cn(
+                        "rounded-md border px-2 py-0.5 text-[11px] font-medium transition-colors",
+                        filterCarryOver === "carried"
+                          ? "border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-700 dark:bg-amber-950/50 dark:text-amber-300"
+                          : "border-slate-200 text-slate-500 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-400 dark:hover:bg-slate-800",
+                      )}
+                    >
+                      ↩ Carried ({carryOverCount})
+                    </button>
+                    <button
+                      onClick={() => setFilterCarryOver(filterCarryOver === "original" ? "all" : "original")}
+                      className={cn(
+                        "rounded-md border px-2 py-0.5 text-[11px] font-medium transition-colors",
+                        filterCarryOver === "original"
+                          ? "border-slate-300 bg-slate-100 text-slate-700 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"
+                          : "border-slate-200 text-slate-500 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-400 dark:hover:bg-slate-800",
+                      )}
+                    >
+                      Original ({issueRows.length - carryOverCount})
+                    </button>
+                  </div>
+                </>
+              )}
+
               {/* Clear all */}
               {hasActiveFilters && (
                 <button
-                  onClick={() => { setFilterPriority("all"); setFilterDeveloper("all"); }}
+                  onClick={() => { setFilterPriority("all"); setFilterDeveloper("all"); setFilterCarryOver("all"); }}
                   className="ml-auto flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs
                     text-slate-400 transition-colors hover:bg-red-50 hover:text-red-500
                     dark:hover:bg-red-950/30 dark:hover:text-red-400"
@@ -1221,6 +1383,21 @@ export function FeedbackPanel({ version }: FeedbackPanelProps) {
             </div>
           )}
         </div>
+      )}
+
+      {/* Carry-over modal */}
+      {showCarryOver && (
+        <CarryOverModal
+          currentVersion={version}
+          allVersions={allVersions}
+          onConfirm={(rows, srcName, srcPageId) =>
+            void handleCarryOver(rows, srcName, srcPageId)
+          }
+          onClose={() => { setShowCarryOver(false); setCarryOverError(""); }}
+          busy={carryingOver}
+          progressMessage={carryOverProgress}
+          errorMessage={carryOverError}
+        />
       )}
     </div>
   );
@@ -1956,6 +2133,7 @@ interface IssueCardProps {
     developerAccountId: string;
     descriptionAttachments?: string[];
     commentAttachments?: string[];
+    carryOverFrom?: string | undefined;
   }) => void;
   onDelete: () => void;
 }
@@ -2005,6 +2183,7 @@ function IssueCard({ row, rowIndex: _rowIndex, isSaving, pageId, allAttachments,
       priority: normalizePriority(draft.priority),
       descriptionAttachments: draftDescAttachments,
       commentAttachments: draftCommentAttachments,
+      carryOverFrom: row.carryOverFrom,
     });
     setIsEditing(false);
   };
@@ -2123,11 +2302,13 @@ function IssueCard({ row, rowIndex: _rowIndex, isSaving, pageId, allAttachments,
     <div
       className={cn(
         "group rounded-lg border px-4 py-3 transition-colors",
-        row.isDone
-          ? "border-green-200 bg-green-50 dark:border-green-800/50 dark:bg-green-950/30"
-          : row.isInProgress
-            ? "border-blue-200 bg-blue-50/50 dark:border-blue-800/50 dark:bg-blue-950/20"
-            : "border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900",
+        row.carryOverFrom
+          ? "border-l-4 border-l-amber-400 border-t-amber-200 border-r-amber-200 border-b-amber-200 bg-amber-50/30 dark:border-l-amber-500 dark:border-t-amber-800/50 dark:border-r-amber-800/50 dark:border-b-amber-800/50 dark:bg-amber-950/20"
+          : row.isDone
+            ? "border-green-200 bg-green-50 dark:border-green-800/50 dark:bg-green-950/30"
+            : row.isInProgress
+              ? "border-blue-200 bg-blue-50/50 dark:border-blue-800/50 dark:bg-blue-950/20"
+              : "border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900",
       )}
     >
       <div className="flex items-start gap-3">
@@ -2153,6 +2334,15 @@ function IssueCard({ row, rowIndex: _rowIndex, isSaving, pageId, allAttachments,
           {/* Top row: ticket + priority + status + edit button */}
           <div className="flex flex-wrap items-center gap-2">
             {row.priority && <PriorityBadge priority={row.priority} />}
+            {row.carryOverFrom && (
+              <span className="inline-flex items-center gap-1 rounded-md border border-amber-300
+                bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 shadow-sm
+                dark:border-amber-700 dark:bg-amber-950/50 dark:text-amber-300"
+              >
+                <ArrowLeftRight className="h-2.5 w-2.5" />
+                {row.carryOverFrom}
+              </span>
+            )}
             <span
               className={cn(
                 "ml-auto rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
@@ -2224,6 +2414,7 @@ function IssueCard({ row, rowIndex: _rowIndex, isSaving, pageId, allAttachments,
               {row.description}
             </p>
           )}
+
           {row.descriptionAttachments.length > 0 && (
             <MediaPreviews
               filenames={row.descriptionAttachments.filter((f) => isImageFile(f) || isVideoFile(f))}

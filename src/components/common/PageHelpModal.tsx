@@ -331,10 +331,20 @@ const PAGE_HELP: Record<PageHelpId, PageHelpContent> = {
     icon: Settings2,
     color: "text-slate-500 bg-slate-100 dark:bg-slate-700/40",
     title: "Settings",
-    summary: "Connect QAlity to your Jira and Xray Cloud workspace.",
+    summary: "Connect QAlity to your Jira and Xray Cloud workspace, choose your role, and monitor API usage.",
     intro:
-      "Settings is where you link QAlity to your Atlassian workspace. You need a working Jira connection and a working Xray connection to use all features. Credentials are encrypted and stored locally — nothing is sent to any QAlity server.",
+      "Settings has two tabs: Configuration (credentials + user role) and API Usage (live call counters for Jira and Xray). You need a working Jira connection and a working Xray connection to use all features. Credentials are encrypted and stored locally — nothing is sent to any QAlity server.",
     groups: [
+      {
+        label: "User Role",
+        type: "list",
+        items: [
+          "Select the role that matches your actual job: QA, Product, Developer, or Design.",
+          "Your role controls which sections of the app are accessible — QA gets full access; other roles see progressively fewer sections to reduce unnecessary API calls.",
+          "QA: full access to all pages. Product: Coverage + Versions + Settings. Developer and Design: Versions + Settings only.",
+          "You can change your role here at any time. Please pick honestly — unnecessary API calls can exhaust your Xray quota.",
+        ],
+      },
       {
         label: "Jira Cloud credentials",
         type: "list",
@@ -349,9 +359,25 @@ const PAGE_HELP: Record<PageHelpId, PageHelpContent> = {
         label: "Xray Cloud credentials",
         type: "list",
         items: [
-          "Client ID and Client Secret come from Xray Cloud → Global Settings → API Keys in your Jira instance.",
-          "These are workspace-level keys — a Jira admin may need to create them for you.",
+          "Client ID and Client Secret come from Jira Settings → Apps → Xray → API Keys.",
+          "Accessing that section requires Jira/Xray admin rights — there is no self-service alternative for non-admins.",
+          "If you don't have access, ask a Jira admin to open that section and generate a key tied to your account, or ask your team if a shared service key is already available.",
+          "Organisations often create one shared API key (tied to a service/bot account) and distribute it to team members who need it — this is the most common setup for non-admin users.",
           "Click Test connection to authenticate via OAuth2 and confirm the keys are valid.",
+        ],
+      },
+      {
+        label: "API Usage tab",
+        type: "list",
+        items: [
+          "Switch to the API Usage tab to see live call counters for Jira and Xray — updated every 10 seconds as the app makes requests.",
+          "Each section has an arc gauge showing used vs. available calls: green below 60%, amber 60–85%, red above 85%.",
+          "The gauge reflects live rate-limit headers returned by the API. If the API has not returned headers yet, only the call count is shown.",
+          "Jira: tracks REST API calls made this hour. API tokens are currently exempt from Jira's points-based quota but subject to burst limits (100 req/s). The gauge fills as calls accumulate and clears at the top of each UTC hour.",
+          "Xray: tracks GraphQL calls. When Xray returns a 429, the app retries automatically up to 10 times with a back-off delay. A 'Rate limit hits' counter records how many times this happened.",
+          "The countdown timer at the bottom of each section shows exactly how long until the next UTC-hour reset. All counters (calls this window, rate limit hits, and all-time totals) reset together when the timer reaches zero.",
+          "Session counters reset when the app is restarted. Window counters persist across restarts within the same hour.",
+          "If gauges are consistently near their limits, try reducing refreshes on data-heavy pages (Coverage, Versions) or switch to a more restricted role to block sections you don't need.",
         ],
       },
       {
@@ -370,6 +396,7 @@ const PAGE_HELP: Record<PageHelpId, PageHelpContent> = {
           "Credentials persist between sessions — only re-enter them if they change or expire.",
           "If you see '401 Unauthorized' errors, your Jira API token may have expired — generate a new one and re-save.",
           "The project selectors in the top bar are session-only; set them right after launching the app.",
+          "Keep an eye on the API Usage tab when loading large executions or running Load All — each page costs one Xray call.",
         ],
       },
     ],

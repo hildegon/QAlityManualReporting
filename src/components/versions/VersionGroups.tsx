@@ -5,7 +5,6 @@ import * as api from "@/services/tauri";
 import { queryKeys, useVersionRunStats } from "@/services/queries";
 import { cn } from "@/components/ui/utils";
 import { Skeleton } from "@/components/ui/skeleton";
-import { VersionKpiStrip } from "./KpiStrip";
 import { ReleaseReadinessChecklist } from "./ReleaseReadinessChecklist";
 import { VersionDashboard } from "./VersionDashboard";
 import { BugsPanel } from "./BugsPanel";
@@ -137,12 +136,6 @@ function GroupVersionContent({
     <>
       {executions.length > 0 && (
         <div className="mb-4 space-y-3">
-          <VersionKpiStrip
-            stats={stats}
-            executions={executions}
-            bugs={bugs}
-            versionIssues={versionIssues}
-          />
           <ReleaseReadinessChecklist
             stats={stats}
             executions={executions}

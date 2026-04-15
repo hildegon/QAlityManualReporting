@@ -516,6 +516,17 @@ export const fetchConfluenceAttachment = (
 ): Promise<string> =>
   invoke("fetch_confluence_attachment", { downloadUrl, mimeType });
 
+export const copyConfluenceAttachments = (
+  sourcePageId: string,
+  targetPageId: string,
+  filenames: string[],
+): Promise<number> =>
+  invoke("copy_confluence_attachments", {
+    sourcePageId,
+    targetPageId,
+    filenames,
+  });
+
 // ── API Usage ─────────────────────────────────────────────────────────────────
 
 export const getApiUsage = (): Promise<import("@/types").ApiUsageSnapshot> =>

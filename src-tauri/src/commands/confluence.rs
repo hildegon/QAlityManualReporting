@@ -156,3 +156,22 @@ pub async fn fetch_confluence_attachment(
         .await
         .map_err(format_err)
 }
+
+/// Copy specific attachments from one Confluence page to another.
+///
+/// Downloads each named file from the source page and re-uploads it to the
+/// target page, preserving the original filename and MIME type.
+/// Returns the number of successfully copied attachments.
+#[tauri::command]
+pub async fn copy_confluence_attachments(
+    app: AppHandle,
+    source_page_id: String,
+    target_page_id: String,
+    filenames: Vec<String>,
+) -> Result<u32, String> {
+    let client = make_confluence_client(&app)?;
+    client
+        .copy_attachments_between_pages(&source_page_id, &target_page_id, &filenames)
+        .await
+        .map_err(format_err)
+}

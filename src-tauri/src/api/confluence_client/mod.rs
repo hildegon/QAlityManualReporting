@@ -533,6 +533,132 @@ impl ConfluenceClient {
         Ok(all)
     }
 
+    /// Upload raw bytes as an attachment to a Confluence page.
+    ///
+    /// Similar to `upload_attachment` but takes in-memory bytes instead of a
+    /// file path — used for cross-page attachment copying.
+    pub async fn upload_attachment_from_bytes(
+        &self,
+        page_id: &str,
+        file_name: &str,
+        bytes: Vec<u8>,
+        mime_type: &str,
+    ) -> Result<ConfluenceAttachment> {
+        let url = format!(
+            "{}/rest/api/content/{}/child/attachment",
+            self.wiki_base,
+            page_id.trim()
+        );
+
+        let part = reqwest::multipart::Part::bytes(bytes)
+            .file_name(file_name.to_string())
+            .mime_str(mime_type)
+            .context("Invalid MIME type")?;
+        let form = reqwest::multipart::Form::new().part("file", part);
+
+        let resp: AttachmentV1Response = ensure_ok(
+            self.track_response(
+                self.client
+                    .post(&url)
+                    .header("Authorization", &self.auth_header)
+                    .header("X-Atlassian-Token", "nocheck")
+                    .multipart(form)
+                    .send()
+                    .await
+                    .context(
+                        "Failed to send Confluence upload-attachment-from-bytes request",
+                    )?,
+            )?,
+            "upload-attachment-from-bytes",
+        )
+        .await?
+        .json()
+        .await
+        .context("Failed to parse Confluence upload-attachment response")?;
+
+        resp.results
+            .into_iter()
+            .next()
+            .map(|r| r.into_public(&self.wiki_base))
+            .context("No attachment returned from upload")
+    }
+
+    /// Copy specific attachments from one Confluence page to another.
+    ///
+    /// Downloads each named file from the source page and re-uploads it to the
+    /// target page, preserving the original filename and MIME type. Returns
+    /// the count of successfully copied attachments.
+    pub async fn copy_attachments_between_pages(
+        &self,
+        source_page_id: &str,
+        target_page_id: &str,
+        filenames: &[String],
+    ) -> Result<u32> {
+        if filenames.is_empty() {
+            return Ok(0);
+        }
+
+        let source_attachments = self.list_attachments(source_page_id).await?;
+        let target_attachments = self.list_attachments(target_page_id).await?;
+        let existing: std::collections::HashSet<&str> = target_attachments
+            .iter()
+            .map(|a| a.title.as_str())
+            .collect();
+
+        let mut copied = 0u32;
+        for wanted in filenames {
+            // Skip if target page already has this attachment
+            if existing.contains(wanted.as_str()) {
+                copied += 1;
+                continue;
+            }
+
+            let att = match source_attachments.iter().find(|a| &a.title == wanted) {
+                Some(a) => a,
+                None => continue, // skip missing
+            };
+
+            // SSRF check: download URL must belong to our wiki instance
+            if !att.download_url.starts_with(&self.wiki_base) {
+                continue;
+            }
+
+            let bytes = self
+                .client
+                .get(&att.download_url)
+                .header("Authorization", &self.auth_header)
+                .send()
+                .await
+                .with_context(|| {
+                    format!("Failed to download attachment '{wanted}' for copying")
+                })?
+                .error_for_status()
+                .with_context(|| {
+                    format!("Attachment download for '{wanted}' returned error")
+                })?
+                .bytes()
+                .await
+                .with_context(|| {
+                    format!("Failed to read bytes for attachment '{wanted}'")
+                })?;
+
+            self.upload_attachment_from_bytes(
+                target_page_id,
+                wanted,
+                bytes.to_vec(),
+                &att.media_type,
+            )
+            .await
+            .with_context(|| {
+                format!("Failed to upload attachment '{wanted}' to target page")
+            })?;
+
+            copied += 1;
+        }
+
+        Ok(copied)
+    }
+
     /// Fetch a Confluence attachment by its download URL and return it as a
     /// base64 data URI for inline display.
     ///

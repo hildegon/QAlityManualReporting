@@ -466,7 +466,7 @@ export function VersionsPage() {
         <div className="flex-1 overflow-y-auto">
           {activeTab === "feedback" ? (
             selectedVersion ? (
-              <FeedbackPanel key={selectedVersion.id} version={selectedVersion} projectKey={executionProjectKey ?? ""} />
+              <FeedbackPanel key={selectedVersion.id} version={selectedVersion} projectKey={executionProjectKey ?? ""} allVersions={allVersions} />
             ) : (
               <div className="flex h-48 flex-col items-center justify-center gap-2 text-slate-400 dark:text-slate-500">
                 <MessageSquare className="h-8 w-8 opacity-40" />

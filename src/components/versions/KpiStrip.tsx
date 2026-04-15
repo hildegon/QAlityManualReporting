@@ -1,8 +1,9 @@
-import { Activity, XCircle, Bug, Layers, BarChart3 } from "lucide-react";
+import { Activity, Bug, Layers, BarChart3, MessageSquare } from "lucide-react";
 import type { useVersionRunStats } from "@/services/queries";
 import { CRITICAL_PRIORITIES } from "@/constants/statuses";
 import { cn } from "@/components/ui/utils";
 import type { JiraBug, TestExecution } from "@/types";
+import type { IssueRow } from "./FeedbackPanel";
 
 // ── KpiTile ────────────────────────────────────────────────────────────────────
 
@@ -94,9 +95,10 @@ interface VersionKpiStripProps {
   executions: TestExecution[];
   bugs: JiraBug[];
   versionIssues: JiraBug[];
+  feedbackRows?: IssueRow[];
 }
 
-export function VersionKpiStrip({ stats, executions, bugs, versionIssues }: VersionKpiStripProps) {
+export function VersionKpiStrip({ stats, executions, bugs, versionIssues, feedbackRows = [] }: VersionKpiStripProps) {
   const isLoading = stats.pagesLoaded < stats.pagesExpected;
 
   const passCount = stats.counts["PASS"] ?? stats.counts["PASSED"] ?? 0;
@@ -104,9 +106,23 @@ export function VersionKpiStrip({ stats, executions, bugs, versionIssues }: Vers
   const passScheme: KpiTileProps["colorScheme"] =
     passRate === null ? "slate" : passRate === 100 ? "emerald" : passRate >= 80 ? "blue" : "amber";
 
-  const failCount =
-    (stats.counts["FAIL"] ?? stats.counts["FAILED"] ?? 0) + (stats.counts["BLOCKED"] ?? 0);
-  const failScheme: KpiTileProps["colorScheme"] = failCount === 0 ? "emerald" : "red";
+  const feedbackTotal = feedbackRows.length;
+  const feedbackOpen = feedbackRows.filter((r) => !r.isDone && !r.isInProgress).length;
+  const feedbackInProgress = feedbackRows.filter((r) => r.isInProgress).length;
+  const feedbackDone = feedbackRows.filter((r) => r.isDone).length;
+  const feedbackHasCritical = feedbackRows.some(
+    (r) => !r.isDone && CRITICAL_PRIORITIES.has(r.priority?.toLowerCase() ?? ""),
+  );
+  const feedbackScheme: KpiTileProps["colorScheme"] =
+    feedbackTotal === 0
+      ? "slate"
+      : feedbackOpen === 0 && feedbackInProgress === 0
+        ? "emerald"
+        : feedbackHasCritical
+          ? "red"
+          : feedbackOpen > 0
+            ? "amber"
+            : "blue";
 
   const criticalBugCount = bugs.filter(
     (b) =>
@@ -144,12 +160,18 @@ export function VersionKpiStrip({ stats, executions, bugs, versionIssues }: Vers
         onClick={() => scrollToSection("version-section-results")}
       />
       <KpiTile
-        label="Failures & blocked"
-        value={isLoading ? "…" : failCount}
-        subValue={failCount === 0 ? "All clear" : `test runs failing`}
-        icon={XCircle}
-        colorScheme={isLoading ? "slate" : failScheme}
-        onClick={() => scrollToSection("version-section-failures")}
+        label="Feedback"
+        value={feedbackTotal === 0 ? "—" : feedbackOpen + feedbackInProgress === 0 ? "All done" : `${feedbackOpen + feedbackInProgress} open`}
+        subValue={
+          feedbackTotal === 0
+            ? "No feedback page"
+            : feedbackOpen === 0 && feedbackInProgress === 0
+              ? `${feedbackDone} resolved`
+              : `${feedbackInProgress} in progress · ${feedbackDone} done`
+        }
+        icon={MessageSquare}
+        colorScheme={feedbackScheme}
+        onClick={() => scrollToSection("version-section-feedback")}
       />
       <KpiTile
         label="Critical bugs"
