@@ -530,6 +530,7 @@ export interface ExecSummaryResult {
 /** Lightweight test-run entry for version-stats aggregation (status + test identity). */
 export interface TestRunStatEntry {
   status: TestRunStatus;
+  test_type?: TestType;
   test: {
     issue_id: string;
     jira: { key: string; summary: string };

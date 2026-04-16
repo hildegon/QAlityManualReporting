@@ -26,6 +26,10 @@ export interface TestRunHistory {
   testIssueId: string;
   testKey: string;
   testSummary: string;
+  /** Normalized test type used for failure prioritization in the Versions UI. */
+  testType: "manual" | "cucumber" | "generic" | "unknown";
+  /** Raw Xray test type name when available. */
+  testTypeName?: string;
   /**
    * One entry per execution in which this test appeared, sorted by execution
    * key ascending (proxy for chronological order since no date is available).
@@ -83,6 +87,16 @@ function classifyHistory(history: TestRunHistory["history"]): TestRunHistory["cl
     return hadPass ? "flaky" : history.length > 1 ? "failing" : "never-passed";
   }
   return "failing";
+}
+
+function normalizeTestType(
+  testType?: { name?: string; kind?: string },
+): TestRunHistory["testType"] {
+  const name = `${testType?.name ?? ""} ${testType?.kind ?? ""}`.toLowerCase();
+  if (name.includes("manual")) return "manual";
+  if (name.includes("cucumber") || name.includes("gherkin")) return "cucumber";
+  if (name.includes("generic") || name.includes("unstructured")) return "generic";
+  return "unknown";
 }
 
 /**
@@ -165,7 +179,13 @@ export function useVersionRunStats(executions: TestExecution[], bugs?: JiraBug[]
     // Map from testIssueId → { meta, status per execution (all statuses tracked) }
     const testMap = new Map<
       string,
-      { testKey: string; testSummary: string; byExec: Map<string, string> }
+      {
+        testKey: string;
+        testSummary: string;
+        testType: TestRunHistory["testType"];
+        testTypeName?: string;
+        byExec: Map<string, string>;
+      }
     >();
 
     const processPage = (page: TestRunStatsPage | undefined, executionIssueId: string) => {
@@ -173,14 +193,24 @@ export function useVersionRunStats(executions: TestExecution[], bugs?: JiraBug[]
       pagesLoaded += 1;
       for (const run of page.results) {
         const tid = run.test.issue_id;
+        const testType = normalizeTestType(run.test_type);
         if (!testMap.has(tid)) {
           testMap.set(tid, {
             testKey: run.test.jira.key,
             testSummary: run.test.jira.summary,
+            testType,
+            ...(run.test_type?.name ? { testTypeName: run.test_type.name } : {}),
             byExec: new Map(),
           });
         }
-        testMap.get(tid)!.byExec.set(executionIssueId, run.status.name);
+        const existing = testMap.get(tid)!;
+        if (existing.testType === "unknown" && testType !== "unknown") {
+          existing.testType = testType;
+          if (run.test_type?.name) {
+            existing.testTypeName = run.test_type.name;
+          }
+        }
+        existing.byExec.set(executionIssueId, run.status.name);
       }
     };
 
@@ -257,6 +287,8 @@ export function useVersionRunStats(executions: TestExecution[], bugs?: JiraBug[]
           testIssueId,
           testKey: meta.testKey,
           testSummary: meta.testSummary,
+          testType: meta.testType,
+          ...(meta.testTypeName ? { testTypeName: meta.testTypeName } : {}),
           history,
           classification: classifyHistory(history),
           linkedBugKeys: testKeyToBugKeys.get(meta.testKey) ?? [],
@@ -269,7 +301,21 @@ export function useVersionRunStats(executions: TestExecution[], bugs?: JiraBug[]
         "never-passed": 2,
         fixed: 3,
       };
-      failedTests.sort((a, b) => ORDER[a.classification] - ORDER[b.classification]);
+      const TEST_TYPE_ORDER: Record<TestRunHistory["testType"], number> = {
+        manual: 0,
+        unknown: 1,
+        cucumber: 2,
+        generic: 3,
+      };
+      failedTests.sort((a, b) => {
+        const classDiff = ORDER[a.classification] - ORDER[b.classification];
+        if (classDiff !== 0) return classDiff;
+
+        const typeDiff = TEST_TYPE_ORDER[a.testType] - TEST_TYPE_ORDER[b.testType];
+        if (typeDiff !== 0) return typeDiff;
+
+        return a.testKey.localeCompare(b.testKey);
+      });
     }
 
     return { counts, total, pagesLoaded, pagesExpected, failedTests };

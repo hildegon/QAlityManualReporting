@@ -161,6 +161,7 @@ function buildKpiRow(
   bugs: JiraBug[],
   versionIssues: JiraBug[],
   executions: TestExecution[],
+  feedbackRows: IssueRow[],
 ): string {
   const passCount = stats.counts["PASS"] ?? stats.counts["PASSED"] ?? 0;
   const failCount =
@@ -179,6 +180,12 @@ function buildKpiRow(
       i.fields.status?.category?.key === "done" ||
       /acceptance/i.test(i.fields.status?.name ?? ""),
   ).length;
+
+  const feedbackTotal = feedbackRows.length;
+  const feedbackOpen = feedbackRows.filter((r) => !r.isDone && !r.isInProgress).length;
+  const feedbackInProgress = feedbackRows.filter((r) => r.isInProgress).length;
+  const feedbackDone = feedbackRows.filter((r) => r.isDone).length;
+  const feedbackPending = feedbackOpen + feedbackInProgress;
 
   function kpi(
     label: string,
@@ -200,9 +207,12 @@ function buildKpiRow(
   const failBg     = failCount === 0 ? "#f0fdf4" : "#fef2f2";
   const bugAccent  = criticalBugs === 0 ? "#10b981" : "#ef4444";
   const bugBg      = criticalBugs === 0 ? "#f0fdf4" : "#fef2f2";
+  const fbAccent = feedbackTotal === 0 ? "#94a3b8" : feedbackPending === 0 ? "#10b981" : feedbackOpen > 0 ? "#f59e0b" : "#3b82f6";
+  const fbBg     = feedbackTotal === 0 ? "#f8fafc" : feedbackPending === 0 ? "#f0fdf4" : feedbackOpen > 0 ? "#fffbeb" : "#eff6ff";
 
   return `<div style="display:flex;flex-wrap:wrap;gap:12px;margin-bottom:24px" id="sec-kpis">
     ${kpi("Pass rate", passRate === null ? "—" : `${passRate}%`, `${passCount} / ${stats.total} tests`, passAccent, passBg)}
+    ${kpi("Feedback", feedbackTotal === 0 ? "—" : feedbackPending === 0 ? "All done" : `${feedbackPending} open`, feedbackTotal === 0 ? "No feedback page" : feedbackPending === 0 ? `${feedbackDone} resolved` : `${feedbackInProgress} in progress · ${feedbackDone} done`, fbAccent, fbBg)}
     ${kpi("Failures & blocked", String(failCount), failCount === 0 ? "All clear" : "Test runs failing", failAccent, failBg)}
     ${kpi("Critical bugs", String(criticalBugs), criticalBugs === 0 ? "No open blockers" : "Unresolved critical/blocker", bugAccent, bugBg)}
     ${kpi("Stories progress", storiesTotal === 0 ? "—" : `${storiesDone} / ${storiesTotal}`, storiesTotal === 0 ? "No issues linked" : "Done or in acceptance", "#6366f1", "#eef2ff")}
@@ -216,15 +226,32 @@ function buildChecklistSection(
   versionIssues: JiraBug[],
   executions: TestExecution[],
   version: JiraVersion,
+  feedbackRows: IssueRow[],
 ): string {
   const todoCount =
     (stats.counts["TODO"] ?? stats.counts["NOT RUN"] ?? 0) + (stats.counts["EXECUTING"] ?? 0);
   const failCount =
     (stats.counts["FAIL"] ?? stats.counts["FAILED"] ?? 0) + (stats.counts["BLOCKED"] ?? 0);
+
+  const executionRate = stats.total > 0
+    ? Math.round(((stats.total - todoCount) / stats.total) * 100)
+    : null;
+  const executionSeverity: "green" | "amber" | "red" | undefined =
+    executionRate === null
+      ? undefined
+      : executionRate >= 90
+        ? "green"
+        : executionRate >= 60
+          ? "amber"
+          : "red";
+
   const criticalBugCount = bugs.filter(
     (b) =>
       b.fields.status?.category?.key !== "done" &&
       CRITICAL_PRIORITIES.has((b.fields.priority?.name ?? "").toLowerCase()),
+  ).length;
+  const blockedCount = versionIssues.filter((i) =>
+    /block/i.test(i.fields.status?.name ?? ""),
   ).length;
   const storiesTotal = versionIssues.length;
   const storiesDone = versionIssues.filter(
@@ -233,46 +260,110 @@ function buildChecklistSection(
       /acceptance/i.test(i.fields.status?.name ?? ""),
   ).length;
 
+  const feedbackOpen = feedbackRows.filter((r) => !r.isDone && !r.isInProgress).length;
+  const feedbackInProgress = feedbackRows.filter((r) => r.isInProgress).length;
+  const feedbackPending = feedbackOpen + feedbackInProgress;
+  const feedbackHasCritical = feedbackRows.some(
+    (r) => !r.isDone && CRITICAL_PRIORITIES.has(r.priority?.toLowerCase() ?? ""),
+  );
+  const feedbackTotal = feedbackRows.length;
+
   const items = [
     {
       pass: executions.length > 0,
-      label: "Has at least one execution",
+      label: "Test executions",
       detail: executions.length === 0
         ? "No test executions linked to this version"
         : `${executions.length} execution${executions.length !== 1 ? "s" : ""} linked`,
+      metric: executions.length === 0 ? "0" : String(executions.length),
     },
     {
       pass: todoCount === 0 && stats.total > 0,
       label: "All tests executed",
-      detail: todoCount === 0 ? "No pending or in-progress tests" : `${todoCount} test${todoCount !== 1 ? "s" : ""} not yet executed`,
+      detail: stats.total === 0
+        ? "No test runs yet"
+        : todoCount === 0
+          ? "No pending tests"
+          : `${todoCount} test${todoCount !== 1 ? "s" : ""} not yet run`,
+      metric: executionRate === null ? "—" : `${executionRate}%`,
+      severity: executionSeverity,
     },
     {
       pass: failCount === 0 && stats.total > 0,
-      label: "No failures or blockers",
-      detail: failCount === 0 ? "All executed tests passed" : `${failCount} failure${failCount !== 1 ? "s" : ""} or blocked test${failCount !== 1 ? "s" : ""}`,
+      label: "No test failures",
+      detail: stats.total === 0
+        ? "No test runs yet"
+        : failCount === 0
+          ? "All executed tests passed"
+          : `${failCount} failure${failCount !== 1 ? "s" : ""} or blocked`,
+      metric: stats.total === 0 ? "—" : String(failCount),
     },
     {
       pass: criticalBugCount === 0,
-      label: "No open critical bugs",
-      detail: criticalBugCount === 0 ? "No unresolved critical or blocker bugs" : `${criticalBugCount} unresolved critical/blocker bug${criticalBugCount !== 1 ? "s" : ""}`,
+      label: "No critical bugs",
+      detail: criticalBugCount === 0
+        ? "No unresolved critical or blocker bugs"
+        : `${criticalBugCount} unresolved critical/blocker`,
+      metric: String(criticalBugCount),
+    },
+    {
+      pass: blockedCount === 0,
+      label: "No blocked stories",
+      detail: blockedCount === 0
+        ? "No developer work blocked"
+        : `${blockedCount} issue${blockedCount !== 1 ? "s" : ""} blocked`,
+      metric: blockedCount === 0 ? "✓" : String(blockedCount),
     },
     {
       pass: storiesTotal > 0 && storiesDone === storiesTotal,
-      label: "Stories in acceptance or done",
-      detail: storiesTotal === 0 ? "No issues linked to this version" : storiesDone === storiesTotal ? `All ${storiesTotal} issues done or in acceptance` : `${storiesDone} / ${storiesTotal} issues done or in acceptance`,
+      label: "Stories in acceptance",
+      detail: storiesTotal === 0
+        ? "No issues linked to this version"
+        : storiesDone === storiesTotal
+          ? `All ${storiesTotal} done or in acceptance`
+          : `${storiesDone} / ${storiesTotal} done or in acceptance`,
+      metric: storiesTotal === 0 ? "—" : `${storiesDone}/${storiesTotal}`,
+    },
+    {
+      pass: feedbackTotal > 0 && feedbackPending === 0,
+      label: "Feedback resolved",
+      detail: feedbackTotal === 0
+        ? "No feedback page linked"
+        : feedbackPending === 0
+          ? `All ${feedbackTotal} items resolved`
+          : feedbackHasCritical
+            ? `${feedbackPending} pending — includes critical`
+            : `${feedbackPending} still open or in progress`,
+      metric: feedbackTotal === 0
+        ? "—"
+        : feedbackPending === 0
+          ? "✓"
+          : String(feedbackPending),
     },
   ];
 
   const allPass = items.every((i) => i.pass);
   const passCount = items.filter((i) => i.pass).length;
 
+  const SEVERITY_COLORS: Record<string, { bg: string; fg: string }> = {
+    green: { bg: "#dcfce7", fg: "#166534" },
+    amber: { bg: "#fef9c3", fg: "#854d0e" },
+    red:   { bg: "#fef2f2", fg: "#dc2626" },
+  };
+
   const rows = items
     .map(
-      (item) => `<tr>
+      (item) => {
+        const metricStyle = "severity" in item && item.severity
+          ? `background:${SEVERITY_COLORS[item.severity]?.bg ?? "transparent"};color:${SEVERITY_COLORS[item.severity]?.fg ?? "#1e293b"};padding:2px 8px;border-radius:4px;font-weight:700;font-size:12px`
+          : "";
+        return `<tr>
       <td style="padding:10px 14px;width:24px;text-align:center">${item.pass ? "✅" : "❌"}</td>
       <td style="padding:10px 14px;font-weight:500;color:#1e293b">${esc(item.label)}</td>
       <td style="padding:10px 14px;color:${item.pass ? "#16a34a" : "#dc2626"};font-size:12px">${esc(item.detail)}</td>
-    </tr>`,
+      <td style="padding:10px 14px;text-align:right;font-size:12px">${"metric" in item ? `<span style="${metricStyle}">${esc(item.metric)}</span>` : ""}</td>
+    </tr>`;
+      },
     )
     .join("");
 
@@ -652,87 +743,127 @@ function buildFeedbackSection(feedback: FeedbackReportData | undefined): string 
 
   const { rows, confluenceUrl } = feedback;
   const total = rows.length;
+  const unresolvedItems = rows.filter((r) => !r.isDone);
   const openItems = rows.filter((r) => !r.isDone && !r.isInProgress);
   const inProgressItems = rows.filter((r) => r.isInProgress);
   const doneItems = rows.filter((r) => r.isDone);
   const donePercent = total > 0 ? Math.round((doneItems.length / total) * 100) : 0;
+  const carryOverOpenItems = unresolvedItems.filter((r) => !!r.carryOverFrom);
 
   const priorityCounts: Record<string, number> = {};
-  for (const r of openItems) {
-    const key = r.priority || "unset";
+  for (const r of unresolvedItems) {
+    const key = r.priority || "Unset";
     priorityCounts[key] = (priorityCounts[key] ?? 0) + 1;
   }
 
-  const PRIO_ORDER = ["Blocker", "Critical", "High", "Medium", "Low", "Trivial"];
+  const PRIO_ORDER = ["Blocker", "Critical", "High", "Medium", "Low", "Trivial", "Unset"];
   const sortedPriorities = Object.entries(priorityCounts).sort(([a], [b]) => {
     const ai = PRIO_ORDER.indexOf(a);
     const bi = PRIO_ORDER.indexOf(b);
     return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
   });
 
-  // Stacked progress bar
-  const barSegments: { key: string; pct: number; color: string }[] = [];
-  for (const [p, count] of sortedPriorities) {
-    barSegments.push({
-      key: p,
-      pct: (count / total) * 100,
-      color: feedbackPriorityStyle(p).dot,
-    });
-  }
-  if (inProgressItems.length > 0) {
-    barSegments.push({ key: "in-progress", pct: (inProgressItems.length / total) * 100, color: "#3b82f6" });
-  }
-  barSegments.push({ key: "done", pct: (doneItems.length / total) * 100, color: "#10b981" });
+  const allDone = openItems.length === 0 && inProgressItems.length === 0;
+  const blockerCount = priorityCounts.Blocker ?? 0;
+  const criticalCount = priorityCounts.Critical ?? 0;
+  const highCount = priorityCounts.High ?? 0;
+  const criticalAttentionCount = blockerCount + criticalCount;
 
-  const barRects = barSegments.reduce(
+  const headlineAccent = allDone
+    ? "#166534"
+    : criticalAttentionCount > 0
+      ? "#b91c1c"
+      : openItems.length > 0
+        ? "#b45309"
+        : "#1d4ed8";
+  const headlineBg = allDone
+    ? "#f0fdf4"
+    : criticalAttentionCount > 0
+      ? "#fef2f2"
+      : openItems.length > 0
+        ? "#fffbeb"
+        : "#eff6ff";
+  const headlineMessage = allDone
+    ? `All ${total} feedback item${total !== 1 ? "s are" : " is"} resolved.`
+    : criticalAttentionCount > 0
+      ? `${criticalAttentionCount} blocker/critical feedback item${criticalAttentionCount !== 1 ? "s" : ""} still need attention.`
+      : highCount > 0
+        ? `${highCount} high-priority feedback item${highCount !== 1 ? "s" : ""} still open.`
+        : `${unresolvedItems.length} unresolved feedback item${unresolvedItems.length !== 1 ? "s remain" : " remains"} for this release.`;
+
+  function summaryChip(
+    label: string,
+    value: string,
+    accent: string,
+    bg: string,
+  ): string {
+    return `<span style="display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:5px 10px;background:${bg};color:${accent};font-size:11px;font-weight:700;border:1px solid ${accent}22">${esc(value)} ${esc(label)}</span>`;
+  }
+
+  const severityChips = sortedPriorities.length > 0
+    ? sortedPriorities
+        .map(([priority, count]) => {
+          const style = feedbackPriorityStyle(priority);
+          return summaryChip(priority, String(count), style.fg, style.bg);
+        })
+        .join("")
+    : summaryChip("resolved", String(doneItems.length), "#166534", "#f0fdf4");
+
+  const statusSegments = [
+    { key: "Open", count: openItems.length, color: "#f59e0b" },
+    { key: "In Progress", count: inProgressItems.length, color: "#3b82f6" },
+    { key: "Resolved", count: doneItems.length, color: "#10b981" },
+  ].filter((segment) => segment.count > 0);
+
+  const statusBarRects = statusSegments.reduce(
     (acc, seg) => {
-      const w = Math.max(0, (seg.pct / 100) * 400);
-      acc.svg += `<rect x="${acc.x.toFixed(1)}" y="0" width="${w.toFixed(1)}" height="10" fill="${seg.color}"><title>${esc(seg.key)}: ${Math.round(seg.pct)}%</title></rect>`;
+      const w = Math.max(0, (seg.count / total) * 360);
+      acc.svg += `<rect x="${acc.x.toFixed(1)}" y="0" width="${w.toFixed(1)}" height="10" fill="${seg.color}"><title>${esc(seg.key)}: ${seg.count}</title></rect>`;
       acc.x += w;
       return acc;
     },
     { svg: "", x: 0 },
   ).svg;
-
-  const progressBar = `<svg width="400" height="10" viewBox="0 0 400 10" style="border-radius:5px;overflow:hidden;display:block;width:100%;max-width:400px">
-    <rect x="0" y="0" width="400" height="10" fill="#e2e8f0"/>${barRects}
+  const statusBar = `<svg width="360" height="10" viewBox="0 0 360 10" style="border-radius:999px;overflow:hidden;display:block;width:100%;max-width:360px">
+    <rect x="0" y="0" width="360" height="10" fill="#e2e8f0"/>${statusBarRects}
   </svg>`;
 
-  // KPI tiles for feedback
-  function feedbackTile(label: string, count: number, accent: string, bg: string): string {
-    return `<div style="flex:1;min-width:80px;text-align:center;border-radius:8px;padding:8px 6px;background:${bg};border:1px solid ${accent}30">
-      <div style="font-size:20px;font-weight:800;color:${accent}">${count}</div>
-      <div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:${accent};opacity:.8;margin-top:2px">${esc(label)}</div>
-    </div>`;
-  }
-
-  const allDone = openItems.length === 0 && inProgressItems.length === 0;
-  const tiles = [
-    feedbackTile(
-      allDone ? "All done" : "Open",
-      openItems.length,
-      allDone ? "#10b981" : "#f59e0b",
-      allDone ? "#f0fdf4" : "#fffbeb",
-    ),
-    ...sortedPriorities.map(([p, count]) => {
-      const s = feedbackPriorityStyle(p);
-      return feedbackTile(p, count, s.fg, s.bg);
-    }),
-    ...(inProgressItems.length > 0
-      ? [feedbackTile("In Progress", inProgressItems.length, "#1d4ed8", "#eff6ff")]
+  const statusChips = [
+    summaryChip("open", String(openItems.length), "#b45309", "#fffbeb"),
+    summaryChip("in progress", String(inProgressItems.length), "#1d4ed8", "#eff6ff"),
+    summaryChip("resolved", String(doneItems.length), "#166534", "#f0fdf4"),
+    ...(carryOverOpenItems.length > 0
+      ? [summaryChip("carry-over", String(carryOverOpenItems.length), "#92400e", "#fef3c7")]
       : []),
-    feedbackTile("Done", doneItems.length, "#166534", "#f0fdf4"),
   ].join("");
 
+  const priorityRank = new Map(PRIO_ORDER.map((priority, index) => [priority, index]));
+  const orderedRows = [...rows].sort((a, b) => {
+    const statusRankA = a.isDone ? 2 : a.isInProgress ? 1 : 0;
+    const statusRankB = b.isDone ? 2 : b.isInProgress ? 1 : 0;
+    if (statusRankA !== statusRankB) return statusRankA - statusRankB;
+
+    const priorityA = priorityRank.get(a.priority || "Unset") ?? 99;
+    const priorityB = priorityRank.get(b.priority || "Unset") ?? 99;
+    if (priorityA !== priorityB) return priorityA - priorityB;
+
+    return (a.jiraTicket || "").localeCompare(b.jiraTicket || "");
+  });
+
   // Feedback issues table (inside a details/summary for collapsibility)
-  const issueRows = rows
+  const issueRows = orderedRows
     .map((r, i) => {
       const prioStyle = feedbackPriorityStyle(r.priority);
       const prioBadge = r.priority
         ? `<span style="border-radius:4px;background:${prioStyle.bg};color:${prioStyle.fg};padding:2px 6px;font-size:10px;font-weight:600">${esc(r.priority)}</span>`
         : `<span style="color:#94a3b8;font-size:10px">—</span>`;
 
-      const statusIcon = r.isDone ? "✅" : r.isInProgress ? "🔄" : "⬜";
+      const statusStyle = r.isDone
+        ? "background:#f0fdf4;color:#166534;border:1px solid #bbf7d0"
+        : r.isInProgress
+          ? "background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe"
+          : "background:#fffbeb;color:#b45309;border:1px solid #fde68a";
+      const statusLabel = r.isDone ? "Done" : r.isInProgress ? "In Progress" : "Open";
 
       const descTrunc = r.description.length > 80 ? r.description.slice(0, 80) + "…" : r.description;
       const commentTrunc = r.comment.length > 80 ? r.comment.slice(0, 80) + "…" : r.comment;
@@ -749,7 +880,9 @@ function buildFeedbackSection(feedback: FeedbackReportData | undefined): string 
         : "";
 
       return `<tr style="cursor:${hasDetail ? "pointer" : "default"}" ${hasDetail ? `onclick="toggleDetail('fb-detail-${i}', this)"` : ""}>
-        <td style="padding:8px 12px;text-align:center;width:28px;font-size:14px">${statusIcon}</td>
+        <td style="padding:8px 12px;text-align:center;white-space:nowrap">
+          <span style="border-radius:999px;padding:2px 8px;font-size:10px;font-weight:700;${statusStyle}">${esc(statusLabel)}</span>
+        </td>
         <td style="padding:8px 12px;font-family:monospace;font-size:11px;color:#475569;white-space:nowrap">${esc(r.jiraTicket || "—")}</td>
         <td style="padding:8px 12px;text-align:center">${prioBadge}</td>
         <td style="padding:8px 12px;font-size:12px;color:#1e293b;max-width:260px">${esc(descTrunc)}</td>
@@ -766,13 +899,40 @@ function buildFeedbackSection(feedback: FeedbackReportData | undefined): string 
   return `<div style="margin-bottom:28px" id="sec-feedback">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
       <h2 style="font-size:15px;font-weight:700;color:#0f172a;margin:0">
-        Feedback <span style="font-size:13px;font-weight:400;color:#64748b">(${total} issues · ${donePercent}% resolved)</span>
+        Feedback <span style="font-size:13px;font-weight:400;color:#64748b">(${unresolvedItems.length} unresolved · ${donePercent}% resolved)</span>
       </h2>
       ${confluenceLink}
     </div>
 
-    <div style="margin-bottom:12px">${progressBar}</div>
-    <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px">${tiles}</div>
+    <div style="border-radius:12px;background:${headlineBg};border:1px solid ${headlineAccent}22;padding:12px 14px;margin-bottom:12px">
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:${headlineAccent};margin-bottom:4px">Release signal</div>
+      <div style="font-size:16px;font-weight:800;color:#0f172a;line-height:1.35">${esc(headlineMessage)}</div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-bottom:16px">
+      <div style="border:1px solid #e2e8f0;border-radius:12px;padding:14px;background:#fff">
+        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#64748b;margin-bottom:6px">Severity snapshot</div>
+        <div style="font-size:24px;font-weight:800;color:#0f172a;line-height:1">${unresolvedItems.length}</div>
+        <div style="font-size:12px;color:#475569;margin:4px 0 10px">
+          ${allDone
+            ? "No unresolved feedback remains."
+            : criticalAttentionCount > 0
+              ? `${criticalAttentionCount} blocker/critical item${criticalAttentionCount !== 1 ? "s" : ""} among the unresolved feedback.`
+              : "Priority mix across unresolved feedback items."}
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:8px">${severityChips}</div>
+      </div>
+
+      <div style="border:1px solid #e2e8f0;border-radius:12px;padding:14px;background:#fff">
+        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#64748b;margin-bottom:6px">Open-work status</div>
+        <div style="font-size:24px;font-weight:800;color:#0f172a;line-height:1">${openItems.length} open · ${inProgressItems.length} in progress</div>
+        <div style="font-size:12px;color:#475569;margin:4px 0 10px">
+          ${doneItems.length} resolved${carryOverOpenItems.length > 0 ? ` · ${carryOverOpenItems.length} carried over` : ""}
+        </div>
+        <div style="margin-bottom:10px">${statusBar}</div>
+        <div style="display:flex;flex-wrap:wrap;gap:8px">${statusChips}</div>
+      </div>
+    </div>
 
     <details>
       <summary style="cursor:pointer;font-size:13px;font-weight:600;color:#475569;padding:6px 0;user-select:none">
@@ -781,7 +941,7 @@ function buildFeedbackSection(feedback: FeedbackReportData | undefined): string 
       <table style="width:100%;border-collapse:collapse;border:1px solid #e2e8f0;border-radius:10px;overflow:hidden;margin-top:8px">
         <thead>
           <tr style="background:#f0f9ff">
-            <th style="padding:8px 12px;width:28px"></th>
+            <th style="padding:8px 12px;text-align:left;font-size:11px;color:#64748b;font-weight:600;text-transform:uppercase;letter-spacing:.04em">Status</th>
             <th style="padding:8px 12px;text-align:left;font-size:11px;color:#64748b;font-weight:600;text-transform:uppercase;letter-spacing:.04em">Ticket</th>
             <th style="padding:8px 12px;text-align:center;font-size:11px;color:#64748b;font-weight:600;text-transform:uppercase;letter-spacing:.04em">Priority</th>
             <th style="padding:8px 12px;text-align:left;font-size:11px;color:#64748b;font-weight:600;text-transform:uppercase;letter-spacing:.04em">Description</th>
@@ -826,8 +986,9 @@ export function buildVersionReportHTML(params: VersionReportParams): string {
     day: "numeric",
   });
 
-  const kpis = buildKpiRow(stats, bugs, versionIssues, executions);
-  const checklist = buildChecklistSection(stats, bugs, versionIssues, executions, version);
+  const feedbackRows = feedback?.rows ?? [];
+  const kpis = buildKpiRow(stats, bugs, versionIssues, executions, feedbackRows);
+  const checklist = buildChecklistSection(stats, bugs, versionIssues, executions, version, feedbackRows);
   const testResults = buildTestResultsSection(stats);
   const failedTests = buildFailedTestsSection(stats.failedTests);
   const bugsSection = buildBugsSection(bugs, stats.failedTests);

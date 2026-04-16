@@ -50,6 +50,32 @@ const CLASSIFICATION_META: Record<
   },
 };
 
+const TEST_TYPE_META: Record<
+  TestRunHistory["testType"],
+  { label: string; chipClass: string }
+> = {
+  manual: {
+    label: "Manual",
+    chipClass:
+      "bg-violet-50 text-violet-700 border-violet-200 dark:bg-violet-900/40 dark:text-violet-300 dark:border-violet-800",
+  },
+  cucumber: {
+    label: "Cucumber",
+    chipClass:
+      "bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-900/40 dark:text-blue-300 dark:border-blue-800",
+  },
+  generic: {
+    label: "Generic",
+    chipClass:
+      "bg-slate-50 text-slate-700 border-slate-200 dark:bg-slate-700/50 dark:text-slate-300 dark:border-slate-600",
+  },
+  unknown: {
+    label: "Unknown type",
+    chipClass:
+      "bg-slate-50 text-slate-600 border-slate-200 dark:bg-slate-700/50 dark:text-slate-300 dark:border-slate-600",
+  },
+};
+
 // ── StatusPip ──────────────────────────────────────────────────────────────────
 
 function StatusPip({ statusName }: { statusName: string }) {
@@ -88,6 +114,7 @@ function FailedTestRow({
 }: FailedTestRowProps) {
   const meta = CLASSIFICATION_META[test.classification];
   const Icon = meta.icon;
+  const typeMeta = TEST_TYPE_META[test.testType];
   const [pickerOpen, setPickerOpen] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
   const pickerRef = useRef<HTMLDivElement>(null);
@@ -136,6 +163,15 @@ function FailedTestRow({
             >
               <Icon className="h-3 w-3" />
               {meta.label}
+            </span>
+            <span
+              className={cn(
+                "inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-semibold",
+                typeMeta.chipClass,
+              )}
+              title={test.testTypeName ?? typeMeta.label}
+            >
+              {typeMeta.label}
             </span>
 
             {linkableBugs.length > 0 && (
@@ -311,6 +347,13 @@ export function FailedTestsAnalysis({
     acc[t.classification] = (acc[t.classification] ?? 0) + 1;
     return acc;
   }, {});
+  const byType = failedTests.reduce<Record<TestRunHistory["testType"], number>>(
+    (acc, test) => {
+      acc[test.testType] = (acc[test.testType] ?? 0) + 1;
+      return acc;
+    },
+    { manual: 0, cucumber: 0, generic: 0, unknown: 0 },
+  );
 
   const PREVIEW_COUNT = 5;
   const visible = showAll ? failedTests : failedTests.slice(0, PREVIEW_COUNT);
@@ -333,6 +376,22 @@ export function FailedTestsAnalysis({
 
         <div className="flex items-center gap-2">
           <div className="flex flex-wrap gap-2">
+            {(["manual", "cucumber", "generic", "unknown"] as const).map((type) => {
+              const count = byType[type];
+              if (!count) return null;
+              const meta = TEST_TYPE_META[type];
+              return (
+                <span
+                  key={type}
+                  className={cn(
+                    "inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-semibold",
+                    meta.chipClass,
+                  )}
+                >
+                  {count} {meta.label.toLowerCase()}
+                </span>
+              );
+            })}
             {(["failing", "flaky", "never-passed", "fixed"] as const).map((cls) => {
               const count = byClass[cls];
               if (!count) return null;

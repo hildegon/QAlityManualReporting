@@ -329,6 +329,8 @@ pub struct TestRunStatusesResult {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TestRunStatEntry {
     pub status: TestRunStatus,
+    #[serde(rename(deserialize = "testType"))]
+    pub test_type: Option<TestType>,
     pub test: TestRunTest,
 }
 

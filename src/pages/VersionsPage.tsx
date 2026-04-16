@@ -101,6 +101,9 @@ export function VersionsPage() {
 
     const toInvalidate = [
       queryClient.invalidateQueries({ queryKey: queryKeys.projectVersions(executionProjectKey) }),
+      queryClient.invalidateQueries({ queryKey: ["version-run-stats"] }),
+      queryClient.invalidateQueries({ queryKey: ["xray", "exec-summary"] }),
+      queryClient.invalidateQueries({ queryKey: ["xray", "exec-summary-batch"] }),
       ...(selectedVersion
         ? [
             queryClient.invalidateQueries({

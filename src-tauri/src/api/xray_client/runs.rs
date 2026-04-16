@@ -465,6 +465,7 @@ impl XrayClient {
                     limit
                     results {
                         status { name }
+                        testType { name kind }
                         test {
                             issueId
                             jira(fields: ["key", "summary"])

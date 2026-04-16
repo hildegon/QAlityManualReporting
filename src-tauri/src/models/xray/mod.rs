@@ -844,10 +844,12 @@ mod tests {
                 "results": [
                     {
                         "status": {"name": "PASS"},
+                        "testType": {"name": "Manual", "kind": "Steps"},
                         "test": {"issueId": "t-stat-1", "jira": "{\"key\":\"T-1\",\"summary\":\"A\"}"}
                     },
                     {
                         "status": {"name": "FAIL", "color": "#f00", "final": true},
+                        "testType": {"name": "Cucumber", "kind": "Gherkin"},
                         "test": {"issueId": "t-stat-2", "jira": "{\"key\":\"T-2\",\"summary\":\"B\"}"}
                     }
                 ]
@@ -856,6 +858,7 @@ mod tests {
         let result: TestRunStatsResult = serde_json::from_str(json).unwrap();
         assert_eq!(result.test_runs.total, 2);
         assert_eq!(result.test_runs.results[0].status.name, "PASS");
+        assert_eq!(result.test_runs.results[0].test_type.as_ref().unwrap().name, "Manual");
         assert_eq!(result.test_runs.results[1].test.jira.key, "T-2");
     }
 
@@ -1351,4 +1354,3 @@ mod tests {
         assert_eq!(result.get_test_sets.results[0].tests.results.len(), 0);
     }
 }
-
