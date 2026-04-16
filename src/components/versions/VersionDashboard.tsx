@@ -39,6 +39,8 @@ export function VersionDashboard({ stats, executions, version, projectKey, bugs 
   const executedCount = Math.max(0, stats.total - unresolvedRunCount);
   const passRate = stats.total > 0 ? Math.round((passCount / stats.total) * 100) : null;
   const executionRate = stats.total > 0 ? Math.round((executedCount / stats.total) * 100) : null;
+  const notRunRate = stats.total > 0 ? Math.round((todoCount / stats.total) * 100) : null;
+  const hasNotRunWarning = (notRunRate ?? 0) > 10;
   const failureClasses = stats.failedTests.reduce<Record<string, number>>((acc, test) => {
     acc[test.classification] = (acc[test.classification] ?? 0) + 1;
     return acc;
@@ -58,8 +60,10 @@ export function VersionDashboard({ stats, executions, version, projectKey, bugs 
       ? "border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-900/40"
       : failCount === 0 && unresolvedRunCount === 0
         ? "border-emerald-200 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950/40"
-        : failCount > 0
+      : failCount > 0
           ? "border-red-200 bg-red-50 dark:border-red-800 dark:bg-red-950/40"
+          : hasNotRunWarning
+            ? "border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/40"
           : "border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/40";
   const releaseSignal = isLoading
     ? "Loading test execution results…"
@@ -71,6 +75,8 @@ export function VersionDashboard({ stats, executions, version, projectKey, bugs 
           ? manualFailedCount > 0
             ? `${manualFailedCount} manual ${manualFailedCount === 1 ? "test needs" : "tests need"} review first.`
             : `${failedCount} ${failedCount === 1 ? "test needs" : "tests need"} review across linked executions.`
+          : hasNotRunWarning
+            ? `${todoCount} ${todoCount === 1 ? "test is" : "tests are"} still not run (${notRunRate}%).`
           : `${unresolvedRunCount} ${unresolvedRunCount === 1 ? "test run is" : "test runs are"} still pending execution.`;
   const failureSummary = [
     manualFailedCount ? `${manualFailedCount} manual first` : null,
@@ -161,21 +167,36 @@ export function VersionDashboard({ stats, executions, version, projectKey, bugs 
                 <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-3 dark:border-slate-700 dark:bg-slate-900/40">
                   <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">
                     {failCount === 0 ? (
-                      <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
+                      hasNotRunWarning ? (
+                        <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
+                      ) : (
+                        <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
+                      )
                     ) : (
                       <AlertTriangle className="h-3.5 w-3.5 text-red-500" />
                     )}
                     Result mix
                   </div>
                   <div className="mt-1 text-2xl font-bold leading-none text-slate-900 dark:text-slate-50">
-                    {failCount === 0 ? "Clean run" : `${failCount} failing / blocked`}
+                    {failCount > 0
+                      ? `${failCount} failing / blocked`
+                      : hasNotRunWarning
+                        ? `${notRunRate}% not run`
+                        : "Clean run"}
                   </div>
                   <p className="mt-1 text-xs text-slate-600 dark:text-slate-300">
                     {failedCount > 0
                       ? failureSummary || failureClassificationSummary || `${failedCount} failures to review`
+                      : hasNotRunWarning
+                        ? `${todoCount} ${todoCount === 1 ? "test remains" : "tests remain"} not run, above the 10% warning threshold`
                       : "No failing tests right now"}
                   </p>
                   <div className="mt-2 flex flex-wrap gap-1.5 text-xs">
+                    {hasNotRunWarning && (
+                      <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 font-medium text-amber-700 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
+                        Warning: {notRunRate}% not run
+                      </span>
+                    )}
                     {failureSummary && (
                       <span className="rounded-full border border-violet-200 bg-violet-50 px-2 py-0.5 font-medium text-violet-700 dark:border-violet-800 dark:bg-violet-950/40 dark:text-violet-300">
                         {failureSummary}

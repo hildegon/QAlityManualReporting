@@ -2,7 +2,11 @@ import { useMemo, useRef } from "react";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import type { JiraBug, TestExecution, TestRunStatsPage, TestRunStatusesPage } from "@/types";
 import * as api from "../tauri";
-import { FAIL_STATUSES, PASS_STATUSES } from "@/constants/statuses";
+import {
+  FAIL_STATUSES,
+  PASS_STATUSES,
+  normalizeStatusKey,
+} from "@/constants/statuses";
 import { queryKeys, EXEC_SUMMARY_PAGE_SIZE } from "./queryKeys";
 
 // ── Version run statistics ────────────────────────────────────────────────────
@@ -240,7 +244,7 @@ export function useVersionRunStats(executions: TestExecution[], bugs?: JiraBug[]
       }
       if (latestStatus === undefined) continue;
 
-      const statusKey = latestStatus.toUpperCase();
+      const statusKey = normalizeStatusKey(latestStatus);
       counts[statusKey] = (counts[statusKey] ?? 0) + 1;
       total += 1;
     }
