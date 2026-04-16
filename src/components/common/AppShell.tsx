@@ -32,8 +32,8 @@ function navClassName({ isActive }: { isActive: boolean }) {
   return cn(
     "flex items-center gap-1.5 rounded-md px-2 py-1.5 text-sm transition-colors xl:px-3",
     isActive
-      ? "bg-slate-200 font-medium text-slate-900 dark:bg-slate-700 dark:text-slate-100"
-      : "text-slate-500 hover:bg-slate-200/60 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-slate-700 dark:hover:text-slate-200",
+      ? "bg-amber-100 font-medium text-amber-900 dark:bg-slate-700 dark:text-slate-100"
+      : "text-slate-500 hover:bg-amber-50 hover:text-amber-900 dark:text-slate-400 dark:hover:bg-slate-700 dark:hover:text-slate-200",
   );
 }
 

@@ -10,6 +10,7 @@ import {
   createConfluencePage,
   updateConfluencePage,
   uploadConfluenceAttachment,
+  uploadConfluenceAttachmentBytes,
   listConfluenceAttachments,
   fetchConfluenceAttachment,
 } from "@/services/tauri";
@@ -143,3 +144,21 @@ export const useUploadConfluenceAttachment = () => {
     },
   });
 };
+
+export const useUploadConfluenceAttachmentBytes = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: {
+      pageId: string;
+      fileName: string;
+      bytes: number[];
+      mimeType: string;
+    }) => uploadConfluenceAttachmentBytes(vars.pageId, vars.fileName, vars.bytes, vars.mimeType),
+    onSuccess: (_data, vars) => {
+      void qc.invalidateQueries({
+        queryKey: queryKeys.confluenceAttachments(vars.pageId),
+      });
+    },
+  });
+};
+

@@ -34,6 +34,7 @@ import {
   useConfluencePage,
   useUpdateConfluencePage,
   useUploadConfluenceAttachment,
+  useUploadConfluenceAttachmentBytes,
   useConfluenceAttachments,
   useConfluenceAttachmentFile,
   useSearchUsers,
@@ -1595,6 +1596,36 @@ const IMAGE_EXTENSIONS = ["jpg", "jpeg", "png", "gif", "webp", "bmp"];
 const VIDEO_EXTENSIONS = ["mp4", "mov", "webm", "avi", "mkv"];
 const MEDIA_EXTENSIONS = [...IMAGE_EXTENSIONS, ...VIDEO_EXTENSIONS];
 
+/** MIME type → file extension mapping for clipboard-pasted content. */
+const MIME_TO_EXT: Record<string, string> = {
+  "image/jpeg": "jpg",
+  "image/png": "png",
+  "image/gif": "gif",
+  "image/webp": "webp",
+  "image/bmp": "bmp",
+  "video/mp4": "mp4",
+  "video/quicktime": "mov",
+  "video/webm": "webm",
+};
+
+/** Returns true if the MIME type is a supported image or video type. */
+function isMediaMimeType(mimeType: string): boolean {
+  return mimeType in MIME_TO_EXT;
+}
+
+/**
+ * Returns a sensible filename for a pasted File object.
+ * If the browser already provides a meaningful name, use it.
+ * Otherwise generate "paste-{timestamp}.{ext}" from the MIME type.
+ */
+function pasteFileName(file: File): string {
+  if (file.name && file.name !== "image.png" && file.name !== "image" && file.name !== "unknown") {
+    return file.name;
+  }
+  const ext = MIME_TO_EXT[file.type] ?? "bin";
+  return `paste-${Date.now()}.${ext}`;
+}
+
 function isImageFile(filename: string): boolean {
   const ext = filename.split(".").pop()?.toLowerCase() ?? "";
   return IMAGE_EXTENSIONS.includes(ext);
@@ -1639,6 +1670,7 @@ function MediaTextArea({
   className?: string;
 }) {
   const upload = useUploadConfluenceAttachment();
+  const uploadBytes = useUploadConfluenceAttachmentBytes();
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
@@ -1691,6 +1723,57 @@ function MediaTextArea({
       }
     },
     [upload],
+  );
+
+  /** Upload clipboard-pasted File objects (images/videos) via in-memory bytes. */
+  const doUploadFromClipboard = useCallback(
+    async (files: File[]) => {
+      const { pageId: pid, fileNames: fns, onAttachmentsChange: onChange, disabled: dis } =
+        stateRef.current;
+      if (files.length === 0 || dis) return;
+      setUploading(true);
+      setUploadError(null);
+      const errors: string[] = [];
+      try {
+        const uploaded: string[] = [];
+        for (const file of files) {
+          if (!isMediaMimeType(file.type)) {
+            errors.push(`"${file.name || file.type}" is not a supported media type`);
+            continue;
+          }
+          const fname = pasteFileName(file);
+          try {
+            const buffer = await file.arrayBuffer();
+            const bytes = Array.from(new Uint8Array(buffer));
+            const att = await uploadBytes.mutateAsync({
+              pageId: pid,
+              fileName: fname,
+              bytes,
+              mimeType: file.type,
+            });
+            uploaded.push(att.title);
+          } catch (err) {
+            const msg = String(err);
+            if (msg.toLowerCase().includes("too large") || msg.toLowerCase().includes("size")) {
+              errors.push(`"${fname}" is too large (max ${MAX_FILE_SIZE_MB} MB)`);
+            } else {
+              errors.push(`"${fname}" failed to upload: ${msg}`);
+            }
+          }
+        }
+        if (uploaded.length > 0) {
+          onChange([...fns, ...uploaded]);
+        }
+      } catch (err) {
+        errors.push(`Upload failed: ${String(err)}`);
+      } finally {
+        setUploading(false);
+        if (errors.length > 0) {
+          setUploadError(errors.join(" · "));
+        }
+      }
+    },
+    [uploadBytes],
   );
 
   // Tauri native drag-drop: use event position to hit-test this zone.
@@ -1761,6 +1844,15 @@ function MediaTextArea({
         <textarea
           value={value}
           onChange={(e) => onChange(e.target.value)}
+          onPaste={(e) => {
+            const files = Array.from(e.clipboardData.files).filter((f) =>
+              isMediaMimeType(f.type),
+            );
+            if (files.length > 0) {
+              e.preventDefault();
+              void doUploadFromClipboard(files);
+            }
+          }}
           placeholder={placeholder}
           disabled={disabled}
           rows={3}

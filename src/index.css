@@ -8,10 +8,19 @@
  * Dark-mode values are untouched.
  */
 @theme {
-  /* bg-white → warm off-white instead of #ffffff */
-  --color-white: oklch(97.5% 0.006 240);
-  /* slate-50 → one step warmer/darker so it reads as a surface, not blinding */
-  --color-slate-50: oklch(95.5% 0.008 240);
+  /* Light-mode warm palette — backgrounds shift from cool-blue slate to subtle beige.
+   * All overrides use hue ~75 (yellow-gold) with low chroma so the warmth is
+   * barely-there but clearly not the default cold-grey Tailwind palette.
+   * Dark-mode values are intentionally untouched. */
+
+  /* bg-white → warm off-white (parchment tint) */
+  --color-white: oklch(98.5% 0.008 75);
+  /* slate-50 → warm off-white surface */
+  --color-slate-50: oklch(96.5% 0.012 75);
+  /* slate-100 → subtle beige page background */
+  --color-slate-100: oklch(94% 0.015 75);
+  /* slate-200 → warm border / divider tone */
+  --color-slate-200: oklch(90% 0.014 75);
 }
 
 @layer base {

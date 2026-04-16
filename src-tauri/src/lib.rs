@@ -9,7 +9,7 @@ use commands::{
         copy_confluence_attachments, create_confluence_page, fetch_confluence_attachment,
         get_confluence_page, list_confluence_attachments, list_confluence_children,
         list_confluence_pages, list_confluence_spaces, update_confluence_page,
-        upload_confluence_attachment,
+        upload_confluence_attachment, upload_confluence_attachment_bytes,
     },
     jira::{
         add_attachment, add_jira_comment, create_bug, create_issue_link, create_version,
@@ -182,6 +182,7 @@ pub fn run() {
             create_confluence_page,
             update_confluence_page,
             upload_confluence_attachment,
+            upload_confluence_attachment_bytes,
             list_confluence_attachments,
             fetch_confluence_attachment,
             copy_confluence_attachments,

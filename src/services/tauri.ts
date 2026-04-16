@@ -505,6 +505,15 @@ export const uploadConfluenceAttachment = (
 ): Promise<ConfluenceAttachment> =>
   invoke("upload_confluence_attachment", { pageId, filePath });
 
+/** Upload raw bytes as a Confluence attachment (used for clipboard-pasted content). */
+export const uploadConfluenceAttachmentBytes = (
+  pageId: string,
+  fileName: string,
+  bytes: number[],
+  mimeType: string,
+): Promise<ConfluenceAttachment> =>
+  invoke("upload_confluence_attachment_bytes", { pageId, fileName, bytes, mimeType });
+
 export const listConfluenceAttachments = (
   pageId: string,
 ): Promise<ConfluenceAttachment[]> =>

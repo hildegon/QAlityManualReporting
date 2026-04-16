@@ -130,6 +130,25 @@ pub async fn upload_confluence_attachment(
         .map_err(format_err)
 }
 
+/// Upload raw bytes as an attachment to a Confluence page.
+///
+/// Used for clipboard-pasted content where the data is in memory (no file path).
+/// The frontend passes the file bytes as a JSON number array.
+#[tauri::command]
+pub async fn upload_confluence_attachment_bytes(
+    app: AppHandle,
+    page_id: String,
+    file_name: String,
+    bytes: Vec<u8>,
+    mime_type: String,
+) -> Result<ConfluenceAttachment, String> {
+    let client = make_confluence_client(&app)?;
+    client
+        .upload_attachment_from_bytes(&page_id, &file_name, bytes, &mime_type)
+        .await
+        .map_err(format_err)
+}
+
 /// List all attachments on a Confluence page.
 #[tauri::command]
 pub async fn list_confluence_attachments(
