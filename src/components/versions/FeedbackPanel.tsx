@@ -24,6 +24,7 @@ import {
   Upload,
   User,
   X,
+  XCircle,
 } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { open as openFilePicker } from "@tauri-apps/plugin-dialog";
@@ -57,7 +58,7 @@ import type { JiraVersion, JiraUser, ConfluenceAttachment } from "@/types";
 
 // ── Issue row parsed from the Confluence table ──────────────────────────────
 
-export type IssueStatus = "Open" | "In Progress" | "Done";
+export type IssueStatus = "Open" | "In Progress" | "Done" | "Closed";
 export type IssuePriority = "" | "Blocker" | "Critical" | "High" | "Medium" | "Low" | "Trivial";
 
 export interface IssueRow {
@@ -72,6 +73,7 @@ export interface IssueRow {
   developerAccountId: string;
   isDone: boolean;
   isInProgress: boolean;
+  isClosed: boolean;
   /** Filenames of images/videos attached to the description cell. */
   descriptionAttachments: string[];
   /** Filenames of images/videos attached to the comment cell. */
@@ -109,16 +111,19 @@ function escHtml(s: string): string {
 }
 
 /**
- * Normalise a raw status cell value to one of the three canonical statuses.
+ * Normalise a raw status cell value to one of the four canonical statuses.
  * Handles common typos and casing variants. Anything unrecognised → "Open".
  */
 function normalizeStatus(raw: string): IssueStatus {
   const s = raw.toLowerCase().trim();
 
+  // ── Closed ──────────────────────────────────────────────────────────────────
+  if (s === "closed" || s.startsWith("reject") || s.startsWith("wontfix") || s === "won't fix")
+    return "Closed";
+
   // ── Done ────────────────────────────────────────────────────────────────────
   if (
     s === "done" ||
-    s === "closed" ||
     s === "resolved" ||
     s.includes("✅") ||
     s.startsWith("complet") ||
@@ -349,6 +354,7 @@ export function parseIssueRows(html: string): IssueRow[] {
     const status = normalizeStatus(stripHtml(rawCells[5] ?? ""));
     const isDone = status === "Done";
     const isInProgress = status === "In Progress";
+    const isClosed = status === "Closed";
 
     const hasContent = jiraTicket || priority || description || comment || dev;
     if (!hasContent) continue;
@@ -362,7 +368,7 @@ export function parseIssueRows(html: string): IssueRow[] {
     rows.push({
       rawIndex: currentTrIndex,
       status, jiraTicket, priority, description, comment,
-      assignedDeveloper: dev, developerAccountId, isDone, isInProgress,
+      assignedDeveloper: dev, developerAccountId, isDone, isInProgress, isClosed,
       descriptionAttachments, commentAttachments, carryOverFrom,
     });
   }
@@ -406,12 +412,15 @@ function injectIssueRow(
     ? ` data-carryover-from="${escHtml(fields.carryOverFrom)}"`
     : "";
   const statusText = fields.status ?? "Open";
+  const descContent = statusText === "Closed"
+    ? `<s>${escHtml(fields.description)}</s>`
+    : escHtml(fields.description);
   const carryOverTag = fields.carryOverFrom
     ? `<p><em style="color: #b45309; font-size: 11px;">↩ Carried from ${escHtml(fields.carryOverFrom)}</em></p>`
     : "";
   const row =
     `<tr${trAttrs}>` +
-    `<td><p>${escHtml(fields.description)}</p>${carryOverTag}${descImages}</td>` +
+    `<td><p>${descContent}</p>${carryOverTag}${descImages}</td>` +
     `<td><p>${escHtml(fields.comment)}</p>${commentImages}</td>` +
     `<td><p>${escHtml(fields.priority)}</p></td>` +
     `<td><p>${ticketContent}</p></td>` +
@@ -471,9 +480,12 @@ function replaceIssueRow(
   const trAttrs = fields.carryOverFrom
     ? ` data-carryover-from="${escHtml(fields.carryOverFrom)}"`
     : "";
+  const descContent = fields.status === "Closed"
+    ? `<s>${escHtml(fields.description)}</s>`
+    : escHtml(fields.description);
   rows[rowIndex] =
     `<tr${trAttrs}>` +
-    `<td><p>${escHtml(fields.description)}</p>${descImages}</td>` +
+    `<td><p>${descContent}</p>${descImages}</td>` +
     `<td><p>${escHtml(fields.comment)}</p>${commentImages}</td>` +
     `<td><p>${escHtml(fields.priority)}</p></td>` +
     `<td><p>${ticketContent}</p></td>` +
@@ -796,8 +808,8 @@ export function FeedbackPanel({ version, allVersions }: FeedbackPanelProps) {
 
   const handleToggleIssue = useCallback(
     async (rowIndex: number, row: IssueRow) => {
-      // Cycle: Open → In Progress → Done → Open
-      const newStatus = row.isDone ? "Open" : row.isInProgress ? "Done" : "In Progress";
+      // Cycle: Open → In Progress → Done → Open; Closed → Open (reopen)
+      const newStatus = row.isClosed ? "Open" : row.isDone ? "Open" : row.isInProgress ? "Done" : "In Progress";
       await handleEditIssue(rowIndex, {
         status: newStatus,
         jiraTicket: row.jiraTicket,
@@ -2371,6 +2383,7 @@ const IssueCard = memo(function IssueCard({ row, rowIndex: _rowIndex, isSaving, 
             <option value="Open">Open</option>
             <option value="In Progress">In Progress</option>
             <option value="Done">Done</option>
+            <option value="Closed">Closed</option>
           </select>
           <MediaTextArea
             value={draft.description}
@@ -2415,11 +2428,13 @@ const IssueCard = memo(function IssueCard({ row, rowIndex: _rowIndex, isSaving, 
         "group overflow-hidden rounded-lg border border-l-4 transition-colors",
         row.carryOverFrom
           ? "border-l-amber-400 border-t-amber-200 border-r-amber-200 border-b-amber-200 bg-amber-50/40 dark:border-l-amber-500 dark:border-t-amber-800/50 dark:border-r-amber-800/50 dark:border-b-amber-800/50 dark:bg-amber-950/20"
-          : row.isDone
-            ? "border-l-emerald-400 border-t-emerald-200 border-r-emerald-200 border-b-emerald-200 bg-emerald-50 dark:border-l-emerald-500 dark:border-t-emerald-800/50 dark:border-r-emerald-800/50 dark:border-b-emerald-800/50 dark:bg-emerald-950/20"
-            : row.isInProgress
-              ? "border-l-blue-400 border-t-blue-200 border-r-blue-200 border-b-blue-200 bg-blue-50 dark:border-l-blue-500 dark:border-t-blue-800/50 dark:border-r-blue-800/50 dark:border-b-blue-800/50 dark:bg-blue-950/20"
-              : "border-l-slate-300 border-t-slate-200 border-r-slate-200 border-b-slate-200 bg-slate-50 dark:border-l-slate-500 dark:border-t-slate-700 dark:border-r-slate-700 dark:border-b-slate-700 dark:bg-slate-900",
+          : row.isClosed
+            ? "border-l-red-300 border-t-slate-200 border-r-slate-200 border-b-slate-200 bg-slate-50/60 opacity-70 dark:border-l-red-700 dark:border-t-slate-700 dark:border-r-slate-700 dark:border-b-slate-700 dark:bg-slate-900/60"
+            : row.isDone
+              ? "border-l-emerald-400 border-t-emerald-200 border-r-emerald-200 border-b-emerald-200 bg-emerald-50 dark:border-l-emerald-500 dark:border-t-emerald-800/50 dark:border-r-emerald-800/50 dark:border-b-emerald-800/50 dark:bg-emerald-950/20"
+              : row.isInProgress
+                ? "border-l-blue-400 border-t-blue-200 border-r-blue-200 border-b-blue-200 bg-blue-50 dark:border-l-blue-500 dark:border-t-blue-800/50 dark:border-r-blue-800/50 dark:border-b-blue-800/50 dark:bg-blue-950/20"
+                : "border-l-slate-300 border-t-slate-200 border-r-slate-200 border-b-slate-200 bg-slate-50 dark:border-l-slate-500 dark:border-t-slate-700 dark:border-r-slate-700 dark:border-b-slate-700 dark:bg-slate-900",
       )}
     >
       {/* Carry-over banner */}
@@ -2435,14 +2450,16 @@ const IssueCard = memo(function IssueCard({ row, rowIndex: _rowIndex, isSaving, 
       )}
 
       <div className="flex items-start gap-3 px-4 py-3">
-        {/* Status toggle — cycles Open → In Progress → Done → Open */}
+        {/* Status toggle — cycles Open → In Progress → Done → Open; Closed → Open */}
         <button
           onClick={onToggle}
           disabled={isSaving}
-          title={row.isDone ? "Back to open" : row.isInProgress ? "Mark as done" : "Start progress"}
+          title={row.isClosed ? "Reopen" : row.isDone ? "Back to open" : row.isInProgress ? "Mark as done" : "Start progress"}
           className="mt-0.5 shrink-0 transition-transform hover:scale-110 disabled:opacity-50"
         >
-          {row.isDone ? (
+          {row.isClosed ? (
+            <XCircle className="h-4 w-4 text-slate-400 dark:text-slate-500" />
+          ) : row.isDone ? (
             <CheckCircle2 className="h-4 w-4 text-emerald-500" />
           ) : row.isInProgress ? (
             <Loader2 className="h-4 w-4 text-blue-500" />
@@ -2460,11 +2477,13 @@ const IssueCard = memo(function IssueCard({ row, rowIndex: _rowIndex, isSaving, 
             <span
               className={cn(
                 "ml-auto rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
-                row.isDone
-                  ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-300"
-                  : row.isInProgress
-                    ? "bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300"
-                    : "bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-300",
+                row.isClosed
+                  ? "bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400"
+                  : row.isDone
+                    ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-300"
+                    : row.isInProgress
+                      ? "bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300"
+                      : "bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-300",
               )}
             >
               {row.status}
@@ -2520,9 +2539,11 @@ const IssueCard = memo(function IssueCard({ row, rowIndex: _rowIndex, isSaving, 
           {row.description && (
             <p
               className={`mt-1.5 text-sm ${
-                row.isDone
-                  ? "text-emerald-700 line-through decoration-emerald-400/50 dark:text-emerald-300"
-                  : "text-slate-700 dark:text-slate-200"
+                row.isClosed
+                  ? "text-slate-400 line-through decoration-slate-400/50 dark:text-slate-500"
+                  : row.isDone
+                    ? "text-emerald-700 line-through decoration-emerald-400/50 dark:text-emerald-300"
+                    : "text-slate-700 dark:text-slate-200"
               }`}
             >
               {row.description}
