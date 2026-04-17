@@ -467,42 +467,44 @@ export function VersionsPage() {
         </div>
 
         <div className="flex-1 overflow-y-auto">
-          {activeTab === "feedback" ? (
-            selectedVersion ? (
+          {/* FeedbackPanel stays mounted (CSS hidden) to avoid remount lag on tab switch */}
+          {selectedVersion && (
+            <div className={activeTab !== "feedback" ? "hidden" : ""}>
               <FeedbackPanel key={selectedVersion.id} version={selectedVersion} projectKey={executionProjectKey ?? ""} allVersions={allVersions} />
-            ) : (
-              <div className="flex h-48 flex-col items-center justify-center gap-2 text-slate-400 dark:text-slate-500">
-                <MessageSquare className="h-8 w-8 opacity-40" />
-                <p className="text-sm">Select a version to view or edit its feedback.</p>
-              </div>
-            )
-          ) : activeTab === "report" ? (
-            selectedGroup ? (
-              <GroupReportPanel
-                group={selectedGroup}
-                projectKey={executionProjectKey}
-                versions={allVersions}
-                onSelectExecution={setSelectedExecution}
-                onReload={handleReload}
-                isRefreshing={isRefreshing}
-                onHealthUpdate={handleHealthUpdate}
-              />
-            ) : !selectedVersion ? (
-              <div className="flex h-48 flex-col items-center justify-center gap-2 text-slate-400 dark:text-slate-500">
-                <Tag className="h-8 w-8 opacity-40" />
-                <p className="text-sm">Select a version or group to view its report.</p>
-              </div>
-            ) : (
-              <ExecutionListPanel
-                projectKey={executionProjectKey}
-                version={selectedVersion}
-                onSelectExecution={setSelectedExecution}
-                onReload={handleReload}
-                isRefreshing={isRefreshing}
-                onHealthUpdate={handleHealthUpdate}
-              />
-            )
+            </div>
+          )}
+          {!selectedVersion && activeTab === "feedback" && (
+            <div className="flex h-48 flex-col items-center justify-center gap-2 text-slate-400 dark:text-slate-500">
+              <MessageSquare className="h-8 w-8 opacity-40" />
+              <p className="text-sm">Select a version to view or edit its feedback.</p>
+            </div>
+          )}
+          {activeTab === "report" && (selectedGroup ? (
+            <GroupReportPanel
+              group={selectedGroup}
+              projectKey={executionProjectKey}
+              versions={allVersions}
+              onSelectExecution={setSelectedExecution}
+              onReload={handleReload}
+              isRefreshing={isRefreshing}
+              onHealthUpdate={handleHealthUpdate}
+            />
+          ) : !selectedVersion ? (
+            <div className="flex h-48 flex-col items-center justify-center gap-2 text-slate-400 dark:text-slate-500">
+              <Tag className="h-8 w-8 opacity-40" />
+              <p className="text-sm">Select a version or group to view its report.</p>
+            </div>
           ) : (
+            <ExecutionListPanel
+              projectKey={executionProjectKey}
+              version={selectedVersion}
+              onSelectExecution={setSelectedExecution}
+              onReload={handleReload}
+              isRefreshing={isRefreshing}
+              onHealthUpdate={handleHealthUpdate}
+            />
+          ))}
+          {activeTab === "manage" && (
             <ManageVersionsTab
               projectKey={executionProjectKey}
               versions={allVersions}

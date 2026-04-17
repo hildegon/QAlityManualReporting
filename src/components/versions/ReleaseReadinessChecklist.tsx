@@ -108,11 +108,11 @@ export function ReleaseReadinessChecklist({
         : executionRate >= 60
           ? "amber"
           : "red";
-  const feedbackOpen = feedbackRows.filter((r) => !r.isDone && !r.isInProgress).length;
+  const feedbackOpen = feedbackRows.filter((r) => !r.isDone && !r.isInProgress && !r.isClosed).length;
   const feedbackInProgress = feedbackRows.filter((r) => r.isInProgress).length;
   const feedbackPending = feedbackOpen + feedbackInProgress;
   const feedbackHasCritical = feedbackRows.some(
-    (r) => !r.isDone && CRITICAL_PRIORITIES.has(r.priority?.toLowerCase() ?? ""),
+    (r) => !r.isDone && !r.isClosed && CRITICAL_PRIORITIES.has(r.priority?.toLowerCase() ?? ""),
   );
   const feedbackTotal = feedbackRows.length;
   const criticalBugCount = bugs.filter(

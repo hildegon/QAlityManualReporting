@@ -67,10 +67,11 @@ export function FeedbackSummary({ version }: FeedbackSummaryProps) {
 
   const isLoading = rwLoading || pageLoading;
 
-  const openItems = rows.filter((r) => !r.isDone && !r.isInProgress);
+  const openItems = rows.filter((r) => !r.isDone && !r.isInProgress && !r.isClosed);
   const inProgressItems = rows.filter((r) => r.isInProgress);
-  const unresolvedItems = rows.filter((r) => !r.isDone);
+  const unresolvedItems = rows.filter((r) => !r.isDone && !r.isClosed);
   const doneCount = rows.filter((r) => r.isDone).length;
+  const closedCount = rows.filter((r) => r.isClosed).length;
   const total = rows.length;
   const carryOverItems = unresolvedItems.filter((r) => !!r.carryOverFrom);
   const carryOverTotal = rows.filter((r) => !!r.carryOverFrom).length;
@@ -109,6 +110,7 @@ export function FeedbackSummary({ version }: FeedbackSummaryProps) {
     { key: "open", count: openItems.length, className: "bg-amber-400 dark:bg-amber-500" },
     { key: "in-progress", count: inProgressItems.length, className: "bg-blue-500 dark:bg-blue-400" },
     { key: "done", count: doneCount, className: "bg-emerald-500 dark:bg-emerald-400" },
+    { key: "closed", count: closedCount, className: "bg-slate-400 dark:bg-slate-500" },
   ].filter((segment) => segment.count > 0);
 
   return (
@@ -148,7 +150,7 @@ export function FeedbackSummary({ version }: FeedbackSummaryProps) {
         <div className="space-y-2">
           <div className="flex items-center gap-2 py-1 text-sm font-medium text-emerald-600 dark:text-emerald-400">
             <CheckCircle2 className="h-4 w-4" />
-            All {total} issues resolved
+            All {total} issues resolved{closedCount > 0 ? ` (${closedCount} closed)` : ""}
           </div>
           {carryOverTotal > 0 && (
             <div className="flex items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 dark:border-amber-800 dark:bg-amber-900/40">
@@ -212,7 +214,7 @@ export function FeedbackSummary({ version }: FeedbackSummaryProps) {
                 {openItems.length} open · {inProgressItems.length} in progress
               </div>
               <p className="mt-1 text-xs text-slate-600 dark:text-slate-300">
-                {doneCount} resolved
+                {doneCount} resolved{closedCount > 0 ? ` · ${closedCount} closed` : ""}
                 {carryOverItems.length > 0
                   ? ` · ${carryOverItems.length} carry-over ${carryOverItems.length === 1 ? "item" : "items"}`
                   : ""}
@@ -236,6 +238,11 @@ export function FeedbackSummary({ version }: FeedbackSummaryProps) {
                 <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 font-medium text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300">
                   {doneCount} done
                 </span>
+                {closedCount > 0 && (
+                  <span className="rounded-full border border-slate-300 bg-slate-100 px-2 py-0.5 font-medium text-slate-500 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-400">
+                    {closedCount} closed
+                  </span>
+                )}
                 {carryOverItems.length > 0 && (
                   <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 font-medium text-amber-700 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
                     {carryOverItems.length} carry-over
