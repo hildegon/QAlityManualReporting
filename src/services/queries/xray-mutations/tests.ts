@@ -126,6 +126,10 @@ export function useUpdateTestType() {
         (old) =>
           old ? { ...old, test_type: { ...old.test_type, name: newType } } : old,
       );
+      // Invalidate version run stats so the Versions dashboard reflects the new
+      // test type immediately. The stats cache stores testType per test run and
+      // has a 15-min stale time, so without this it would show the old type.
+      void queryClient.invalidateQueries({ queryKey: ["version-run-stats"] });
     },
   });
 }

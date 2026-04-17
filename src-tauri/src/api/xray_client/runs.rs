@@ -468,6 +468,7 @@ impl XrayClient {
                         testType { name kind }
                         test {
                             issueId
+                            testType { name kind }
                             jira(fields: ["key", "summary"])
                         }
                     }

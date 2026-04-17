@@ -73,6 +73,12 @@ export interface RunStats {
    * Only populated once all pages have loaded.
    */
   failedTests: TestRunHistory[];
+  /**
+   * Per-test history for EVERY test that appeared in any execution, including
+   * always-passing tests. Used by the execution comparison panel.
+   * Only populated once all pages have loaded; empty array while loading.
+   */
+  allTests: TestRunHistory[];
 }
 
 // PASS_STATUSES and FAIL_STATUSES imported from @/constants/statuses
@@ -197,7 +203,7 @@ export function useVersionRunStats(executions: TestExecution[], bugs?: JiraBug[]
       pagesLoaded += 1;
       for (const run of page.results) {
         const tid = run.test.issue_id;
-        const testType = normalizeTestType(run.test_type);
+        const testType = normalizeTestType(run.test.test_type ?? run.test_type);
         if (!testMap.has(tid)) {
           testMap.set(tid, {
             testKey: run.test.jira.key,
@@ -252,6 +258,7 @@ export function useVersionRunStats(executions: TestExecution[], bugs?: JiraBug[]
     // Build TestRunHistory only for tests that had at least one failure/block.
     const allLoaded = pagesLoaded >= pagesExpected && pagesExpected > 0;
     const failedTests: TestRunHistory[] = [];
+    const allTests: TestRunHistory[] = [];
 
     if (allLoaded) {
       const testKeyToBugKeys = new Map<string, string[]>();
@@ -269,6 +276,27 @@ export function useVersionRunStats(executions: TestExecution[], bugs?: JiraBug[]
       }
 
       for (const [testIssueId, meta] of testMap) {
+        const history: TestRunHistory["history"] = sortedExecs
+          .filter((ex) => meta.byExec.has(ex.issue_id))
+          .map((ex) => ({
+            executionKey: ex.jira.key,
+            executionIssueId: ex.issue_id,
+            statusName: meta.byExec.get(ex.issue_id)!,
+          }));
+
+        const entry: TestRunHistory = {
+          testIssueId,
+          testKey: meta.testKey,
+          testSummary: meta.testSummary,
+          testType: meta.testType,
+          ...(meta.testTypeName ? { testTypeName: meta.testTypeName } : {}),
+          history,
+          classification: classifyHistory(history),
+          linkedBugKeys: testKeyToBugKeys.get(meta.testKey) ?? [],
+        };
+
+        allTests.push(entry);
+
         const hasPassOrFail = [...meta.byExec.values()].some(
           (s) => FAIL_STATUSES.has(s.toUpperCase()) || PASS_STATUSES.has(s.toUpperCase()),
         );
@@ -279,25 +307,10 @@ export function useVersionRunStats(executions: TestExecution[], bugs?: JiraBug[]
         );
         if (!hadFailure) continue;
 
-        const history: TestRunHistory["history"] = sortedExecs
-          .filter((ex) => meta.byExec.has(ex.issue_id))
-          .map((ex) => ({
-            executionKey: ex.jira.key,
-            executionIssueId: ex.issue_id,
-            statusName: meta.byExec.get(ex.issue_id)!,
-          }));
-
-        failedTests.push({
-          testIssueId,
-          testKey: meta.testKey,
-          testSummary: meta.testSummary,
-          testType: meta.testType,
-          ...(meta.testTypeName ? { testTypeName: meta.testTypeName } : {}),
-          history,
-          classification: classifyHistory(history),
-          linkedBugKeys: testKeyToBugKeys.get(meta.testKey) ?? [],
-        });
+        failedTests.push(entry);
       }
+
+      allTests.sort((a, b) => a.testKey.localeCompare(b.testKey, undefined, { numeric: true }));
 
       const ORDER: Record<TestRunHistory["classification"], number> = {
         failing: 0,
@@ -322,7 +335,7 @@ export function useVersionRunStats(executions: TestExecution[], bugs?: JiraBug[]
       });
     }
 
-    return { counts, total, pagesLoaded, pagesExpected, failedTests };
+    return { counts, total, pagesLoaded, pagesExpected, failedTests, allTests };
   }, [executions, extraPageQueries, page0Queries, extraQueries, bugs]);
 }
 

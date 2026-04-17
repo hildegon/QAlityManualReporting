@@ -59,6 +59,12 @@ pub struct TestRunStatus {
 pub struct TestRunTest {
     #[serde(rename(deserialize = "issueId"))]
     pub issue_id: String,
+    /// Current test type from the test entity — present only when the query
+    /// explicitly requests `test { testType { name kind } }`.  This reflects
+    /// the test's live type and overrides the snapshot `testType` stored on the
+    /// test run (which is frozen at execution-creation time).
+    #[serde(rename(deserialize = "testType"), default)]
+    pub test_type: Option<super::TestType>,
     #[serde(deserialize_with = "super::deserialize_jira_json")]
     pub jira: TestRunTestJira,
 }

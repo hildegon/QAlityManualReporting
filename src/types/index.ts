@@ -530,9 +530,12 @@ export interface ExecSummaryResult {
 /** Lightweight test-run entry for version-stats aggregation (status + test identity). */
 export interface TestRunStatEntry {
   status: TestRunStatus;
+  /** Snapshot of the test type at execution-creation time — may be stale. Prefer test.test_type. */
   test_type?: TestType;
   test: {
     issue_id: string;
+    /** Current live test type from the test entity — overrides the snapshot on the test run. */
+    test_type?: TestType;
     jira: { key: string; summary: string };
   };
 }

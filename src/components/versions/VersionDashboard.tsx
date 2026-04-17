@@ -4,9 +4,10 @@ import { buildSlicesFromCounts } from "@/components/charts/status-utils";
 import { useIssueLinkTypes } from "@/services/queries";
 import type { useVersionRunStats } from "@/services/queries";
 import { cn } from "@/components/ui/utils";
-import { AlertTriangle, CheckCircle2, ChevronDown, Clock3 } from "lucide-react";
+import { AlertTriangle, CheckCircle2, ChevronDown, Clock3, GitCompareArrows } from "lucide-react";
 import { FetchProgress } from "./FetchProgress";
 import { FailedTestsAnalysis } from "./FailedTestsAnalysis";
+import { VersionComparison } from "./ExecutionComparison";
 import type { JiraBug, JiraVersion, TestExecution } from "@/types";
 
 interface VersionDashboardProps {
@@ -26,6 +27,7 @@ export function VersionDashboard({ stats, executions, version, projectKey, bugs 
 
   const slices = useMemo(() => buildSlicesFromCounts(stats.counts, stats.total), [stats]);
   const [failedOpen, setFailedOpen] = useState(false);
+  const [comparisonOpen, setComparisonOpen] = useState(false);
 
   const isLoading = stats.pagesLoaded < stats.pagesExpected;
   const failedCount = stats.failedTests.length;
@@ -262,6 +264,45 @@ export function VersionDashboard({ stats, executions, version, projectKey, bugs 
                 linkTypeName={linkTypeName}
                 projectKey={projectKey}
                 versionName={version.name}
+              />
+            </div>
+          )}
+        </div>
+      )}
+      {/* Version comparison — show when this version has test data */}
+      {executions.length > 0 && (
+        <div
+          id="version-section-comparison"
+          className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800"
+        >
+          <button
+            onClick={() => setComparisonOpen((o) => !o)}
+            className="flex w-full items-center justify-between px-4 py-2.5 text-left hover:bg-slate-50 dark:hover:bg-slate-700/50"
+          >
+            <div>
+              <span className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                <GitCompareArrows className="h-3.5 w-3.5" />
+                Version comparison
+              </span>
+              <p className="mt-0.5 text-xs text-slate-400">
+                Compare test results between this version and another version
+              </p>
+            </div>
+            <ChevronDown
+              className={cn(
+                "h-3.5 w-3.5 shrink-0 text-slate-400 transition-transform",
+                comparisonOpen && "rotate-180",
+              )}
+            />
+          </button>
+
+          {comparisonOpen && (
+            <div className="border-t border-slate-100 p-4 dark:border-slate-700">
+              <VersionComparison
+                allTests={stats.allTests}
+                versionA={version}
+                projectKey={projectKey}
+                isLoading={isLoading}
               />
             </div>
           )}
