@@ -1,4 +1,5 @@
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo, useCallback } from "react";
+import { createPortal } from "react-dom";
 import { open as openFilePicker } from "@tauri-apps/plugin-dialog";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import {
@@ -42,16 +43,26 @@ function VersionIssueRow({
   const [detailOpen, setDetailOpen] = useState(false);
 
   const [menuOpen, setMenuOpen] = useState(false);
-  const menuRef = useRef<HTMLDivElement>(null);
+  const [dropPos, setDropPos] = useState({ top: 0, left: 0 });
+  const menuButtonRef = useRef<HTMLButtonElement>(null);
+  const menuDropRef = useRef<HTMLDivElement>(null);
   const { data: transitions, isLoading: transitionsLoading } = useIssueTransitions(
     menuOpen ? issue.key : null,
   );
   const { mutate: transitionIssue, isPending: transitioning } = useTransitionIssue();
 
+  const calcMenuPos = useCallback(() => {
+    if (!menuButtonRef.current) return;
+    const r = menuButtonRef.current.getBoundingClientRect();
+    setDropPos({ top: r.bottom + 4, left: r.right - 160 }); // align right edge
+  }, []);
+
   useEffect(() => {
     if (!menuOpen) return;
     const handler = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false);
+      const target = e.target as Node;
+      if (menuButtonRef.current?.contains(target) || menuDropRef.current?.contains(target)) return;
+      setMenuOpen(false);
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
@@ -150,9 +161,10 @@ function VersionIssueRow({
         </button>
 
         {issue.fields.status && (
-          <div className="relative shrink-0" ref={menuRef}>
+          <div className="shrink-0">
             <button
-              onClick={() => setMenuOpen((o) => !o)}
+              ref={menuButtonRef}
+              onClick={() => { calcMenuPos(); setMenuOpen((o) => !o); }}
               disabled={transitioning}
               title="Change status"
               className={cn(
@@ -166,8 +178,12 @@ function VersionIssueRow({
               {issue.fields.status.name}
             </button>
 
-            {menuOpen && (
-              <div className="absolute right-0 top-full z-20 mt-1 min-w-[160px] overflow-hidden rounded-lg border border-slate-200 bg-white shadow-lg dark:border-slate-700 dark:bg-slate-800">
+            {menuOpen && createPortal(
+              <div
+                ref={menuDropRef}
+                style={{ position: "fixed", top: dropPos.top, left: dropPos.left, zIndex: 9999 }}
+                className="min-w-[160px] overflow-hidden rounded-lg border border-slate-200 bg-white shadow-lg dark:border-slate-700 dark:bg-slate-800"
+              >
                 {transitionsLoading ? (
                   <div className="flex items-center gap-2 px-3 py-2 text-xs text-slate-400">
                     <Loader2 className="h-3 w-3 animate-spin" />Loading…
@@ -193,7 +209,8 @@ function VersionIssueRow({
                     ))}
                   </ul>
                 )}
-              </div>
+              </div>,
+              document.body,
             )}
           </div>
         )}

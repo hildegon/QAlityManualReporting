@@ -35,6 +35,11 @@ interface VersionsState {
   healthDots: Record<string, Record<string, "green" | "amber" | "red">>;
   setHealthDot: (projectKey: string, versionId: string, dot: "green" | "amber" | "red") => void;
 
+  /** versionId → comparison version id selected for that version's diff panel */
+  comparisonVersionId: Record<string, string>;
+  setComparisonVersionId: (versionId: string, comparisonId: string) => void;
+  clearComparisonVersionId: (versionId: string) => void;
+
   /** projectKey → version groups defined for that project */
   versionGroups: Record<string, VersionGroup[]>;
   addVersionGroup: (projectKey: string, group: VersionGroup) => void;
@@ -118,6 +123,22 @@ export const useVersionsStore = create<VersionsState>()(
       },
 
       versionGroups: {},
+
+      comparisonVersionId: {},
+
+      setComparisonVersionId: (versionId, comparisonId) => {
+        set((state) => ({
+          comparisonVersionId: { ...state.comparisonVersionId, [versionId]: comparisonId },
+        }));
+      },
+
+      clearComparisonVersionId: (versionId) => {
+        set((state) => {
+          const next = { ...state.comparisonVersionId };
+          delete next[versionId];
+          return { comparisonVersionId: next };
+        });
+      },
 
       addVersionGroup: (projectKey, group) => {
         set((state) => ({

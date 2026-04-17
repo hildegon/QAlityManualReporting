@@ -1,4 +1,5 @@
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo, useCallback } from "react";
+import { createPortal } from "react-dom";
 import { FileText, X, Loader2, Send, ChevronDown, User } from "lucide-react";
 import {
   useAttachmentFile,
@@ -114,14 +115,24 @@ function StatusTransitionDropdown({
   currentStatus: string;
 }) {
   const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
+  const [dropPos, setDropPos] = useState({ top: 0, left: 0 });
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
   const { data: transitions, isLoading } = useIssueTransitions(open ? issueKey : null);
   const { mutate: transitionIssue, isPending } = useTransitionIssue();
+
+  const calcPos = useCallback(() => {
+    if (!buttonRef.current) return;
+    const r = buttonRef.current.getBoundingClientRect();
+    setDropPos({ top: r.bottom + 4, left: r.left });
+  }, []);
 
   useEffect(() => {
     if (!open) return;
     const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+      const target = e.target as Node;
+      if (buttonRef.current?.contains(target) || dropdownRef.current?.contains(target)) return;
+      setOpen(false);
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
@@ -135,9 +146,13 @@ function StatusTransitionDropdown({
   })();
 
   return (
-    <div className="relative" ref={ref}>
+    <>
       <button
-        onClick={() => setOpen((o) => !o)}
+        ref={buttonRef}
+        onClick={() => {
+          calcPos();
+          setOpen((o) => !o);
+        }}
         disabled={isPending}
         className={cn(
           "flex items-center gap-1 rounded px-2 py-0.5 text-xs font-medium transition-opacity hover:opacity-80",
@@ -149,8 +164,12 @@ function StatusTransitionDropdown({
         {currentStatus}
       </button>
 
-      {open && (
-        <div className="absolute left-0 top-full z-20 mt-1 min-w-[180px] overflow-hidden rounded-lg border border-slate-200 bg-white shadow-lg dark:border-slate-700 dark:bg-slate-800">
+      {open && createPortal(
+        <div
+          ref={dropdownRef}
+          style={{ position: "fixed", top: dropPos.top, left: dropPos.left, zIndex: 9999 }}
+          className="min-w-[180px] overflow-hidden rounded-lg border border-slate-200 bg-white shadow-lg dark:border-slate-700 dark:bg-slate-800"
+        >
           {isLoading ? (
             <div className="flex items-center gap-2 px-3 py-2 text-xs text-slate-400">
               <Loader2 className="h-3 w-3 animate-spin" />Loading…
@@ -182,9 +201,10 @@ function StatusTransitionDropdown({
               ))}
             </ul>
           )}
-        </div>
+        </div>,
+        document.body,
       )}
-    </div>
+    </>
   );
 }
 

@@ -1385,6 +1385,7 @@ export function FeedbackPanel({ version, allVersions }: FeedbackPanelProps) {
                     rowIndex={row.rawIndex}
                     isSaving={updatePage.isPending}
                     pageId={mapping!.pageId}
+                    jiraBaseUrl={jiraBaseUrl}
                     allAttachments={attachments ?? []}
                     onToggle={() => void handleToggleIssue(row.rawIndex, row)}
                     onEdit={(fields) => void handleEditIssue(row.rawIndex, fields)}
@@ -2224,6 +2225,7 @@ interface IssueCardProps {
   rowIndex: number;
   isSaving: boolean;
   pageId: string;
+  jiraBaseUrl: string;
   allAttachments: ConfluenceAttachment[];
   onToggle: () => void;
   onEdit: (fields: {
@@ -2241,15 +2243,21 @@ interface IssueCardProps {
   onDelete: () => void;
 }
 
-function IssueCard({ row, rowIndex: _rowIndex, isSaving, pageId, allAttachments, onToggle, onEdit, onDelete }: IssueCardProps) {
+const IssueCard = memo(function IssueCard({ row, rowIndex: _rowIndex, isSaving, pageId, jiraBaseUrl, allAttachments, onToggle, onEdit, onDelete }: IssueCardProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [draftDescAttachments, setDraftDescAttachments] = useState<string[]>(row.descriptionAttachments);
   const [draftCommentAttachments, setDraftCommentAttachments] = useState<string[]>(row.commentAttachments);
-  const { data: config } = useConfig();
-  const jiraBaseUrl = config?.jira_url?.replace(/\/+$/, "") ?? "";
   const ticketKey = row.jiraTicket ? normalizeJiraTicket(row.jiraTicket) : null;
-  const { data: issueDetail } = useIssueDetail(ticketKey);
+  // Defer the Jira detail fetch by 300 ms so all cards don't fire IPC calls in the same
+  // render cycle when the panel first mounts — this prevents a request burst on navigation.
+  const [detailEnabled, setDetailEnabled] = useState(false);
+  useEffect(() => {
+    if (!ticketKey) return;
+    const t = setTimeout(() => setDetailEnabled(true), 300);
+    return () => clearTimeout(t);
+  }, [ticketKey]);
+  const { data: issueDetail } = useIssueDetail(detailEnabled ? ticketKey : null);
   // Use the real key returned by Jira (resolves UUIDs/numeric IDs to PROJECT-NUM format)
   const displayKey = issueDetail?.key ?? ticketKey;
   const [draft, setDraft] = useState({
@@ -2629,7 +2637,7 @@ function IssueCard({ row, rowIndex: _rowIndex, isSaving, pageId, allAttachments,
       </div>
     </div>
   );
-}
+});
 
 // ── Priority badge ───────────────────────────────────────────────────────────
 

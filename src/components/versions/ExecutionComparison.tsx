@@ -15,6 +15,7 @@ import { PASS_STATUSES, FAIL_STATUSES } from "@/constants/statuses";
 import { findSlice } from "@/components/charts/status-utils";
 import { cn } from "@/components/ui/utils";
 import { TestDetailModal } from "./TestDetailModal";
+import { useVersionsStore } from "@/stores/versionsStore";
 import {
   useProjectVersions,
   useTestExecutionsByVersion,
@@ -205,16 +206,16 @@ function ComparisonRow({ item, projectKey, versionName, versionAName, versionBNa
           <p className="mt-0.5 font-mono text-xs text-slate-400">{item.testKey}</p>
         </div>
 
-        {/* Status A → Status B */}
+        {/* Status B (previous) → Status A (current) */}
         <div className="flex shrink-0 items-center gap-1.5">
-          {item.statusA !== null ? (
-            <StatusBadge statusName={item.statusA} />
+          {item.statusB !== null ? (
+            <StatusBadge statusName={item.statusB} />
           ) : (
             <span className="text-xs text-slate-400">—</span>
           )}
           <ArrowRight className="h-3 w-3 text-slate-400" />
-          {item.statusB !== null ? (
-            <StatusBadge statusName={item.statusB} />
+          {item.statusA !== null ? (
+            <StatusBadge statusName={item.statusA} />
           ) : (
             <span className="text-xs text-slate-400">—</span>
           )}
@@ -499,7 +500,9 @@ export function VersionComparison({
   isLoading,
 }: VersionComparisonProps) {
   const { data: versions } = useProjectVersions(projectKey);
-  const [selectedVersionId, setSelectedVersionId] = useState<string>("");
+  const storedId = useVersionsStore((s) => s.comparisonVersionId[versionA.id] ?? "");
+  const setStoredId = useVersionsStore((s) => s.setComparisonVersionId);
+  const clearStoredId = useVersionsStore((s) => s.clearComparisonVersionId);
   const [searchQuery, setSearchQuery] = useState("");
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [dropPos, setDropPos] = useState({ top: 0, left: 0, width: 0 });
@@ -523,8 +526,8 @@ export function VersionComparison({
   }, [otherVersions, searchQuery]);
 
   const selectedVersion = useMemo(
-    () => otherVersions.find((v) => v.id === selectedVersionId) ?? null,
-    [otherVersions, selectedVersionId],
+    () => otherVersions.find((v) => v.id === storedId) ?? null,
+    [otherVersions, storedId],
   );
 
   const calcPos = useCallback(() => {
@@ -546,7 +549,7 @@ export function VersionComparison({
   }, [dropdownOpen]);
 
   const handleSelect = (id: string) => {
-    setSelectedVersionId(id);
+    setStoredId(versionA.id, id);
     setSearchQuery("");
     setDropdownOpen(false);
   };
@@ -600,7 +603,7 @@ export function VersionComparison({
           {selectedVersion && !dropdownOpen ? (
             <button
               onClick={() => {
-                setSelectedVersionId("");
+                clearStoredId(versionA.id);
                 setSearchQuery("");
               }}
               className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300"
@@ -644,7 +647,7 @@ export function VersionComparison({
                       }}
                       className={cn(
                         "flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs hover:bg-slate-50 dark:hover:bg-slate-600",
-                        selectedVersionId === v.id && "bg-slate-100 dark:bg-slate-600",
+                        storedId === v.id && "bg-slate-100 dark:bg-slate-600",
                       )}
                     >
                       <span className="font-medium text-slate-800 dark:text-slate-200">
@@ -676,7 +679,7 @@ export function VersionComparison({
                   }}
                   className={cn(
                     "flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs hover:bg-slate-50 dark:hover:bg-slate-600",
-                    selectedVersionId === v.id && "bg-slate-100 dark:bg-slate-600",
+                    storedId === v.id && "bg-slate-100 dark:bg-slate-600",
                   )}
                 >
                   <span className="font-medium text-slate-800 dark:text-slate-200">{v.name}</span>
