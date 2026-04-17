@@ -379,72 +379,78 @@ export function CoveragePage() {
       {/* ── Right panel: coverage dashboard ── */}
       <div className="flex min-w-0 flex-1 flex-col gap-3 overflow-hidden">
         {/* Header row */}
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2">
           <div className="flex items-center gap-2">
-            <Activity className="h-5 w-5 text-slate-400" />
-            <h1 className="text-xl font-semibold dark:text-slate-100">
+            <Activity className="h-4 w-4 text-slate-400" />
+            <h1 className="text-base font-semibold dark:text-slate-100">
               Coverage
-              <span className="ml-2 text-sm font-normal text-slate-500 dark:text-slate-400">
-                {projectKey}
-              </span>
             </h1>
+            <span className="font-mono text-xs text-slate-400 dark:text-slate-500">
+              {projectKey}
+            </span>
             <PageHelpButton pageId="coverage" />
           </div>
-          {/* Refetch results */}
-          {selectedSets.length > 0 && (
-            <button
-              onClick={() => void handleRefetchResults()}
-              disabled={isRefetchingResults}
-              className="ml-auto flex shrink-0 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 hover:border-slate-300 hover:bg-slate-50 disabled:opacity-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:border-slate-500 dark:hover:bg-slate-700"
-              title="Refetch latest results for selected test sets"
-            >
-              {isRefetchingResults ? (
-                <Spinner size="sm" />
-              ) : (
-                <RefreshCw className="h-3.5 w-3.5" />
-              )}
-              Refetch results
-            </button>
-          )}
-          {/* PDF Export */}
-          {selectedSets.length > 0 && (
-            <button
-              onClick={() => void handleExportPDF()}
-              disabled={isExporting || !allQueriesSettled}
-              className="flex shrink-0 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 hover:border-slate-300 hover:bg-slate-50 disabled:opacity-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:border-slate-500 dark:hover:bg-slate-700"
-              title={
-                !allQueriesSettled
-                  ? "Wait for all tests to finish loading"
-                  : "Export coverage report — opens in browser for printing to PDF"
-              }
-            >
-              {isExporting ? (
-                <Spinner size="sm" />
-              ) : !allQueriesSettled ? (
-                <Download className="h-3.5 w-3.5 animate-pulse" />
-              ) : (
-                <FileText className="h-3.5 w-3.5" />
-              )}
-              Export PDF
-            </button>
-          )}
+
+          <div className="ml-auto flex shrink-0 items-center gap-2">
+            {/* Refetch results */}
+            {selectedSets.length > 0 && (
+              <button
+                onClick={() => void handleRefetchResults()}
+                disabled={isRefetchingResults}
+                className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 shadow-sm hover:border-slate-300 hover:bg-slate-50 disabled:opacity-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:border-slate-500 dark:hover:bg-slate-700"
+                title="Refetch latest results for selected test sets"
+              >
+                {isRefetchingResults ? (
+                  <Spinner size="sm" />
+                ) : (
+                  <RefreshCw className="h-3.5 w-3.5" />
+                )}
+                Refetch results
+              </button>
+            )}
+            {/* PDF Export */}
+            {selectedSets.length > 0 && (
+              <button
+                onClick={() => void handleExportPDF()}
+                disabled={isExporting || !allQueriesSettled}
+                className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 shadow-sm hover:border-slate-300 hover:bg-slate-50 disabled:opacity-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:border-slate-500 dark:hover:bg-slate-700"
+                title={
+                  !allQueriesSettled
+                    ? "Wait for all tests to finish loading"
+                    : "Export coverage report — opens in browser for printing to PDF"
+                }
+              >
+                {isExporting ? (
+                  <Spinner size="sm" />
+                ) : !allQueriesSettled ? (
+                  <Download className="h-3.5 w-3.5 animate-pulse" />
+                ) : (
+                  <FileText className="h-3.5 w-3.5" />
+                )}
+                Export PDF
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Tab bar */}
         {selectedSets.length > 0 && (
-          <div className="flex items-center gap-1 border-b border-slate-200 dark:border-slate-700">
-            {(["coverage", "analysis"] as const).map((tab) => (
+          <div className="flex items-center gap-0.5 rounded-xl border border-slate-200 bg-slate-50 p-1 dark:border-slate-700 dark:bg-slate-800/60">
+            {([
+              { id: "coverage", label: "Coverage" },
+              { id: "analysis", label: "Analysis" },
+            ] as const).map(({ id, label }) => (
               <button
-                key={tab}
-                onClick={() => setCoverageTab(tab)}
+                key={id}
+                onClick={() => setCoverageTab(id)}
                 className={cn(
-                  "px-4 py-2 text-sm font-medium capitalize transition-colors",
-                  coverageTab === tab
-                    ? "border-b-2 border-slate-800 text-slate-900 dark:border-slate-300 dark:text-slate-100"
+                  "flex-1 rounded-lg px-4 py-1.5 text-xs font-semibold transition-colors",
+                  coverageTab === id
+                    ? "bg-white text-slate-900 shadow-sm dark:bg-slate-700 dark:text-slate-50"
                     : "text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200",
                 )}
               >
-                {tab}
+                {label}
               </button>
             ))}
           </div>

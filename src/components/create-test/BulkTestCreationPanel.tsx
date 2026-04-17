@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Spinner } from "@/components/ui/spinner";
+import { cn } from "@/components/ui/utils";
 import * as api from "@/services/tauri";
 import type { XrayTestSet } from "@/types";
 import { TestSetSelect } from "./TestSetSelect";
@@ -21,6 +22,10 @@ import { ComponentRow } from "./ComponentRow";
 import { CopyKeyButton } from "./CopyKeyButton";
 
 // ── Local types ───────────────────────────────────────────────────────────────
+
+type BulkTestType = "Manual" | "Generic" | "Cucumber";
+
+const BULK_TEST_TYPES: BulkTestType[] = ["Manual", "Generic", "Cucumber"];
 
 interface BulkRow {
   _id: string;
@@ -66,6 +71,7 @@ export function BulkTestCreationPanel({
   const [bulkRows, setBulkRows] = useState<BulkRow[]>([newBulkRow(), newBulkRow(), newBulkRow()]);
   const [bulkComponent, setBulkComponent] = useState("");
   const [bulkComponentSearch, setBulkComponentSearch] = useState("");
+  const [bulkTestType, setBulkTestType] = useState<BulkTestType>("Manual");
   const [isBulkCreating, setIsBulkCreating] = useState(false);
   const [bulkProgress, setBulkProgress] = useState({ done: 0, total: 0 });
   const [bulkResults, setBulkResults] = useState<BulkCreatedResult[]>([]);
@@ -112,6 +118,7 @@ export function BulkTestCreationPanel({
             row.summary.trim(),
             [],
             trimmedComponent,
+            bulkTestType,
           );
           const key = result.test?.jira.key ?? null;
           const issueId = result.test?.issue_id ?? null;
@@ -144,6 +151,7 @@ export function BulkTestCreationPanel({
     setBulkRows([newBulkRow(), newBulkRow(), newBulkRow()]);
     setBulkComponent("");
     setBulkComponentSearch("");
+    setBulkTestType("Manual");
     setBulkResults([]);
     setBulkProgress({ done: 0, total: 0 });
   };
@@ -152,6 +160,36 @@ export function BulkTestCreationPanel({
 
   return (
     <div className="space-y-6">
+      {/* Test type selector */}
+      <div className="space-y-1.5">
+        <Label>Test Type</Label>
+        <div className="flex gap-2">
+          {BULK_TEST_TYPES.map((t) => (
+            <button
+              key={t}
+              type="button"
+              disabled={isBulkCreating}
+              onClick={() => setBulkTestType(t)}
+              className={cn(
+                "rounded-full border px-3 py-1 text-xs font-semibold transition-colors disabled:opacity-50",
+                bulkTestType === t
+                  ? t === "Manual"
+                    ? "border-blue-400 bg-blue-500 text-white"
+                    : t === "Cucumber"
+                      ? "border-emerald-500 bg-emerald-500 text-white"
+                      : "border-slate-600 bg-slate-700 text-white"
+                  : "border-slate-200 bg-slate-50 text-slate-600 hover:border-slate-400 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300",
+              )}
+            >
+              {t}
+            </button>
+          ))}
+        </div>
+        <p className="text-xs text-slate-400">
+          All tests in this batch will be created as <span className="font-medium">{bulkTestType}</span>.
+        </p>
+      </div>
+
       {/* Component selector */}
       <div className="space-y-1.5">
         <Label>

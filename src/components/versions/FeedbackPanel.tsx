@@ -2034,7 +2034,7 @@ const MediaPreviewItem = memo(function MediaPreviewItem({
   }, [isVideo, videoDataUri, filename]);
 
   const effectiveUri = isVideo ? videoBlobUrl : dataUri;
-  const isMedia = !isError && !!effectiveUri && !transcodeError;
+  const isMedia = !isError && !!effectiveUri;
   const canPlay = isVideo && isMedia && !videoError;
   const showTranscoding = (transcoding || fallbackTranscoding) && !!dataUri;
 
@@ -2080,7 +2080,7 @@ const MediaPreviewItem = memo(function MediaPreviewItem({
           ${isMedia && !videoError ? "cursor-pointer transition-opacity hover:opacity-80" : ""}`}
         onClick={() => isMedia && !videoError && setLightboxOpen(true)}
         title={transcodeError
-          ? `Transcode failed — ${filename}`
+          ? `Transcode failed, trying original video — ${filename}`
           : videoError
             ? `Unsupported video format — ${filename}`
             : isMedia ? `Click to enlarge — ${filename}` : filename}
@@ -2092,7 +2092,7 @@ const MediaPreviewItem = memo(function MediaPreviewItem({
             <Loader2 className="h-4 w-4 animate-spin text-blue-500" />
             <span className="text-[8px] text-slate-500">Converting…</span>
           </div>
-        ) : transcodeError ? (
+        ) : transcodeError && !effectiveUri ? (
           <div className="flex h-20 w-28 flex-col items-center justify-center gap-0.5
             bg-red-50 text-red-400 dark:bg-red-950/30"
           >

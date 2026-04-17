@@ -331,7 +331,9 @@ export const createTest = (
   summary: string,
   steps: CreateTestStepInput[],
   component?: string,
-): Promise<CreateTestResult> => invoke("create_test", { projectKey, summary, steps, component });
+  testType?: string,
+): Promise<CreateTestResult> =>
+  invoke("create_test", { projectKey, summary, steps, component, testType });
 
 export const addTestsToTestSet = (testSetIssueId: string, testIssueIds: string[]): Promise<void> =>
   invoke("add_tests_to_test_set", { testSetIssueId, testIssueIds });
@@ -419,6 +421,10 @@ export const addTestStep = (
 /** Remove a step from a manual test definition. */
 export const removeTestStep = (issueId: string, stepId: string): Promise<void> =>
   invoke("remove_test_step", { issueId, stepId });
+
+/** Change the test type of an existing Xray test ("Manual", "Generic", or "Cucumber"). */
+export const updateTestType = (issueId: string, newType: string): Promise<void> =>
+  invoke("update_test_type", { issueId, newType });
 
 /** Create a new Bug issue in a Jira project with an affected version pre-set. */
 export const createBug = (

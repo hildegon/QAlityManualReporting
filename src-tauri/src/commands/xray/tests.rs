@@ -56,12 +56,14 @@ pub async fn create_test(
     summary: String,
     steps: Vec<StepPayload>,
     component: Option<String>,
+    test_type: Option<String>,
 ) -> Result<CreateTestResult, String> {
     let client = get_xray_client(&app, &state).await?;
     let input = CreateXrayTestInput {
         project_key,
         summary,
         component,
+        test_type,
         steps: steps
             .into_iter()
             .map(|s| CreateTestStepInput {
@@ -72,6 +74,20 @@ pub async fn create_test(
             .collect(),
     };
     client.create_test(input).await.map_err(format_err)
+}
+
+/// Update the test type of an existing Xray test.
+///
+/// `new_type` must be one of: `"Manual"`, `"Generic"`, `"Cucumber"`.
+#[tauri::command]
+pub async fn update_test_type(
+    app: AppHandle,
+    state: State<'_, XrayClientState>,
+    issue_id: String,
+    new_type: String,
+) -> Result<(), String> {
+    let client = get_xray_client(&app, &state).await?;
+    client.update_test_type(&issue_id, &new_type).await.map_err(format_err)
 }
 
 /// Fetch full Xray test detail (testType, manual steps, gherkin) for a single test by its Jira key.

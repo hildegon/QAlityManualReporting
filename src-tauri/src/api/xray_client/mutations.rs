@@ -182,13 +182,34 @@ impl XrayClient {
             .collect();
 
         let variables = serde_json::json!({
-            "testType": { "name": "Manual" },
+            "testType": { "name": input.test_type.as_deref().unwrap_or("Manual") },
             "steps": steps,
             "jira": jira,
         });
 
         let resp: CreateTestResponse = self.graphql(query, variables).await?;
         Ok(resp.create_test)
+    }
+
+    // ── Update Test Type ──────────────────────────────────────────────────────
+
+    /// Change the test type of an existing Xray test.
+    ///
+    /// `new_type` must be one of: `"Manual"`, `"Generic"`, `"Cucumber"`.
+    pub async fn update_test_type(&self, issue_id: &str, new_type: &str) -> Result<()> {
+        let query = r#"
+            mutation UpdateTestType($issueId: String!, $testType: UpdateTestTypeInput!) {
+                updateTestType(issueId: $issueId, testType: $testType) {
+                    issueId
+                }
+            }
+        "#;
+        let variables = serde_json::json!({
+            "issueId": issue_id,
+            "testType": { "name": new_type },
+        });
+        let _: serde_json::Value = self.graphql(query, variables).await?;
+        Ok(())
     }
 
     // ── Create Test Plan ──────────────────────────────────────────────────────

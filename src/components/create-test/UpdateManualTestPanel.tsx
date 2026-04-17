@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useUiStore } from "@/stores/uiStore";
-import { AlertTriangle, Plus, RotateCcw, Save, Search } from "lucide-react";
+import { AlertTriangle, ChevronDown, Plus, RotateCcw, Save, Search } from "lucide-react";
 import * as Dialog from "@radix-ui/react-dialog";
 import {
   queryKeys,
@@ -10,6 +10,7 @@ import {
   useUpdateTestStep,
   useAddTestStep,
   useRemoveTestStep,
+  useUpdateTestType,
 } from "@/services/queries";
 import type { XrayTestStepDefinition } from "@/types";
 import { Button } from "@/components/ui/button";
@@ -33,6 +34,9 @@ interface Props {
 interface EditDraftStep extends DraftStep {
   _xrayId?: string | undefined;
 }
+
+const TEST_TYPES = ["Manual", "Generic", "Cucumber"] as const;
+type TestTypeName = (typeof TEST_TYPES)[number];
 
 function stepFromDefinition(step: XrayTestStepDefinition): EditDraftStep {
   return {
@@ -58,6 +62,12 @@ function stepsChanged(original: EditDraftStep[], draft: EditDraftStep[]): boolea
   });
 }
 
+const TYPE_COLORS: Record<TestTypeName, string> = {
+  Manual: "bg-blue-50 text-blue-700 border-blue-200",
+  Generic: "bg-slate-100 text-slate-600 border-slate-300",
+  Cucumber: "bg-emerald-50 text-emerald-700 border-emerald-200",
+};
+
 export function UpdateManualTestPanel({ projectKey }: Props) {
   const queryClient = useQueryClient();
   const { confirmedLoadProjects, confirmLoadProject } = useUiStore();
@@ -77,10 +87,17 @@ export function UpdateManualTestPanel({ projectKey }: Props) {
   // ── Filters ───────────────────────────────────────────────────────────────
   const [search, setSearch] = useState("");
   const [selectedComponent, setSelectedComponent] = useState<string>("__all__");
+  const [typeFilter, setTypeFilter] = useState<"__all__" | TestTypeName>("__all__");
 
-  // ── Selected test ─────────────────────────────────────────────────────────
+  // ── Selected test (single edit) ──────────────────────────────────────────
   const [selectedTestKey, setSelectedTestKey] = useState<string | null>(null);
   const [selectedTestIssueId, setSelectedTestIssueId] = useState<string | null>(null);
+
+  // ── Multi-select (bulk type change) ──────────────────────────────────────
+  const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set());
+  const [bulkTargetType, setBulkTargetType] = useState<TestTypeName | null>(null);
+  const [isBulkChanging, setIsBulkChanging] = useState(false);
+  const [bulkProgress, setBulkProgress] = useState({ done: 0, total: 0 });
 
   // ── Toast ─────────────────────────────────────────────────────────────────
   const [toast, setToast] = useState<ToastMessage | null>(null);
@@ -90,6 +107,11 @@ export function UpdateManualTestPanel({ projectKey }: Props) {
   const [originalSteps, setOriginalSteps] = useState<EditDraftStep[]>([]);
   const [isSaving, setIsSaving] = useState(false);
 
+  // ── Test type change ──────────────────────────────────────────────────────
+  const [typeMenuOpen, setTypeMenuOpen] = useState(false);
+  const [isSavingType, setIsSavingType] = useState(false);
+  const updateTestType = useUpdateTestType();
+
   // ── Data fetching ─────────────────────────────────────────────────────────
   const { data: allTests } = useGetTests(projectKey, loadConfirmed === true);
   const { data: testDetail, isLoading: detailLoading } = useTestDetail(selectedTestKey);
@@ -98,18 +120,21 @@ export function UpdateManualTestPanel({ projectKey }: Props) {
   const addTestStep = useAddTestStep();
   const removeTestStep = useRemoveTestStep();
 
-  // ── Derived: only Manual tests ────────────────────────────────────────────
-  const manualTests = (allTests ?? []).filter((t) => t.test_type?.name === "Manual");
+  // ── Derived: show Manual + Generic + Cucumber tests ────────────────────────
+  const editableTests = (allTests ?? []).filter((t) => {
+    const typeName = t.test_type?.name;
+    return typeName === "Manual" || typeName === "Generic" || typeName === "Cucumber";
+  });
 
-  // Unique component names present in the loaded manual tests
+  // Unique component names present in the loaded editable tests
   const componentOptions: string[] = Array.from(
     new Set(
-      manualTests.flatMap((t) => (t.jira.components ?? []).map((c) => c.name)),
+      editableTests.flatMap((t) => (t.jira.components ?? []).map((c) => c.name)),
     ),
   ).sort();
 
-  // Apply text + component filters
-  const filtered = manualTests.filter((t) => {
+  // Apply text + component + type filters
+  const filtered = editableTests.filter((t) => {
     const q = search.trim().toLowerCase();
     const matchesText =
       !q ||
@@ -118,7 +143,9 @@ export function UpdateManualTestPanel({ projectKey }: Props) {
     const matchesComponent =
       selectedComponent === "__all__" ||
       (t.jira.components ?? []).some((c) => c.name === selectedComponent);
-    return matchesText && matchesComponent;
+    const matchesType =
+      typeFilter === "__all__" || t.test_type?.name === typeFilter;
+    return matchesText && matchesComponent && matchesType;
   });
 
   // ── Sync draft when test detail loads ────────────────────────────────────
@@ -185,13 +212,10 @@ export function UpdateManualTestPanel({ projectKey }: Props) {
     if (!selectedTestKey || !selectedTestIssueId) return;
     setIsSaving(true);
     try {
-      // Steps removed: in original but no longer in draft (matched by _xrayId)
       const draftXrayIds = new Set(draftSteps.map((s) => s._xrayId).filter(Boolean));
       const removedSteps = originalSteps.filter(
         (s) => s._xrayId && !draftXrayIds.has(s._xrayId),
       );
-
-      // Steps modified: same _xrayId, different content
       const modifiedSteps = draftSteps.filter((d) => {
         if (!d._xrayId) return false;
         const orig = originalSteps.find((o) => o._xrayId === d._xrayId);
@@ -200,8 +224,6 @@ export function UpdateManualTestPanel({ projectKey }: Props) {
           (orig.action !== d.action || orig.data !== d.data || orig.result !== d.result)
         );
       });
-
-      // Steps added: no _xrayId
       const addedSteps = draftSteps.filter((d) => !d._xrayId);
 
       for (const s of removedSteps) {
@@ -249,6 +271,92 @@ export function UpdateManualTestPanel({ projectKey }: Props) {
     addTestStep,
   ]);
 
+  const handleChangeType = useCallback(
+    async (newType: TestTypeName) => {
+      if (!selectedTestKey || !selectedTestIssueId) return;
+      setTypeMenuOpen(false);
+      setIsSavingType(true);
+      try {
+        await updateTestType.mutateAsync({
+          issueId: selectedTestIssueId,
+          testKey: selectedTestKey,
+          projectKey,
+          newType,
+        });
+        showToast(setToast, `Test type changed to ${newType}.`, "success");
+      } catch (err) {
+        showToast(setToast, `Failed to change type: ${String(err)}`, "error");
+      } finally {
+        setIsSavingType(false);
+      }
+    },
+    [selectedTestKey, selectedTestIssueId, projectKey, updateTestType],
+  );
+
+  // ── Bulk type change ────────────────────────────────────────────────────
+  const toggleChecked = useCallback((issueId: string) => {
+    setCheckedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(issueId)) next.delete(issueId);
+      else next.add(issueId);
+      return next;
+    });
+  }, []);
+
+  const toggleAllFiltered = useCallback(() => {
+    setCheckedIds((prev) => {
+      const allChecked = filtered.every((t) => prev.has(t.issue_id));
+      if (allChecked) {
+        // uncheck all filtered
+        const next = new Set(prev);
+        for (const t of filtered) next.delete(t.issue_id);
+        return next;
+      }
+      // check all filtered
+      const next = new Set(prev);
+      for (const t of filtered) next.add(t.issue_id);
+      return next;
+    });
+  }, [filtered]);
+
+  const handleBulkChangeType = useCallback(
+    async (targetType: TestTypeName) => {
+      const targets = editableTests.filter((t) => checkedIds.has(t.issue_id));
+      if (targets.length === 0) return;
+      setIsBulkChanging(true);
+      setBulkProgress({ done: 0, total: targets.length });
+      let successCount = 0;
+      let failCount = 0;
+      for (const t of targets) {
+        try {
+          await updateTestType.mutateAsync({
+            issueId: t.issue_id,
+            testKey: t.jira.key,
+            projectKey,
+            newType: targetType,
+          });
+          successCount++;
+        } catch {
+          failCount++;
+        }
+        setBulkProgress((p) => ({ ...p, done: p.done + 1 }));
+      }
+      setIsBulkChanging(false);
+      setBulkTargetType(null);
+      setCheckedIds(new Set());
+      if (failCount === 0) {
+        showToast(setToast, `Changed ${successCount} test(s) to ${targetType}.`, "success");
+      } else {
+        showToast(
+          setToast,
+          `${successCount} changed, ${failCount} failed.`,
+          failCount === targets.length ? "error" : "success",
+        );
+      }
+    },
+    [checkedIds, editableTests, projectKey, updateTestType],
+  );
+
   const isDirty = stepsChanged(originalSteps, draftSteps);
 
   const stepEditStatus = useCallback(
@@ -267,6 +375,11 @@ export function UpdateManualTestPanel({ projectKey }: Props) {
     },
     [originalSteps],
   );
+
+  // Current type of the selected test (from loaded detail or from test list)
+  const selectedTestType = (testDetail?.test_type?.name ??
+    editableTests.find((t) => t.jira.key === selectedTestKey)?.test_type?.name ??
+    "Manual") as TestTypeName;
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
@@ -329,7 +442,7 @@ export function UpdateManualTestPanel({ projectKey }: Props) {
 
       {/* Two-column layout */}
       <div className="flex gap-4" style={{ height: "calc(100vh - 220px)", minHeight: 400 }}>
-        {/* ── Left panel: Manual test list ─────────────────────────── */}
+        {/* ── Left panel: test list ────────────────────────────────── */}
         <div className="flex w-72 shrink-0 flex-col rounded-lg border border-slate-200 dark:border-slate-700">
           {/* Filters */}
           <div className="space-y-2 border-b border-slate-200 p-3 dark:border-slate-700">
@@ -343,6 +456,24 @@ export function UpdateManualTestPanel({ projectKey }: Props) {
                 onChange={(e) => setSearch(e.target.value)}
                 className="w-full rounded-md border border-slate-300 bg-white py-1.5 pl-8 pr-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"
               />
+            </div>
+            {/* Type filter pills */}
+            <div className="flex flex-wrap gap-1">
+              {(["__all__", ...TEST_TYPES] as const).map((t) => (
+                <button
+                  key={t}
+                  type="button"
+                  onClick={() => setTypeFilter(t)}
+                  className={cn(
+                    "rounded-full border px-2 py-0.5 text-[10px] font-semibold transition-colors",
+                    typeFilter === t
+                      ? "border-slate-600 bg-slate-700 text-white dark:border-slate-400 dark:bg-slate-500"
+                      : "border-slate-200 bg-slate-50 text-slate-500 hover:border-slate-400 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-400",
+                  )}
+                >
+                  {t === "__all__" ? "All" : t}
+                </button>
+              ))}
             </div>
             {componentOptions.length > 0 && (
               <select
@@ -360,41 +491,133 @@ export function UpdateManualTestPanel({ projectKey }: Props) {
             )}
           </div>
 
+          {/* Select-all + bulk bar */}
+          {loadConfirmed === true && filtered.length > 0 && (
+            <div className="flex items-center gap-2 border-b border-slate-200 px-3 py-1.5 dark:border-slate-700">
+              <input
+                type="checkbox"
+                checked={filtered.length > 0 && filtered.every((t) => checkedIds.has(t.issue_id))}
+                onChange={toggleAllFiltered}
+                disabled={isBulkChanging}
+                className="h-3.5 w-3.5 rounded border-slate-300 accent-slate-700"
+              />
+              <span className="text-[10px] text-slate-400">
+                {checkedIds.size > 0 ? `${checkedIds.size} selected` : "Select all"}
+              </span>
+              {checkedIds.size > 0 && !isBulkChanging && (
+                <div className="ml-auto flex items-center gap-1">
+                  <span className="text-[10px] text-slate-400">→</span>
+                  {TEST_TYPES.map((t) => (
+                    <button
+                      key={t}
+                      type="button"
+                      onClick={() => setBulkTargetType(t)}
+                      className={cn(
+                        "rounded-full border px-2 py-0.5 text-[9px] font-semibold transition-colors",
+                        bulkTargetType === t
+                          ? TYPE_COLORS[t]
+                          : "border-slate-200 bg-slate-50 text-slate-500 hover:border-slate-400 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-400",
+                      )}
+                    >
+                      {t}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {isBulkChanging && (
+                <span className="ml-auto text-[10px] font-medium text-slate-500">
+                  {bulkProgress.done}/{bulkProgress.total}…
+                </span>
+              )}
+            </div>
+          )}
+
+          {/* Bulk confirm bar */}
+          {bulkTargetType && checkedIds.size > 0 && !isBulkChanging && (
+            <div className="flex items-center justify-between border-b border-amber-200 bg-amber-50 px-3 py-1.5 dark:border-amber-800 dark:bg-amber-900/30">
+              <span className="text-xs text-amber-700 dark:text-amber-300">
+                Change {checkedIds.size} test(s) → <span className="font-semibold">{bulkTargetType}</span>?
+              </span>
+              <div className="flex gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setBulkTargetType(null)}
+                  className="rounded px-2 py-0.5 text-[10px] font-medium text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-700"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handleBulkChangeType(bulkTargetType)}
+                  className="rounded bg-amber-500 px-2 py-0.5 text-[10px] font-semibold text-white hover:bg-amber-600"
+                >
+                  Confirm
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Test list */}
           <div className="min-h-0 flex-1 overflow-y-auto">
             {loadConfirmed !== true ? (
               <div className="flex h-full items-center justify-center p-4 text-center text-sm text-slate-400">
                 <div className="space-y-2">
                   <p>Load tests to see the list.</p>
-                  <Button size="sm" variant="outline" onClick={() => setLoadConfirmed(false)} title="Show load confirmation dialog">
+                  <Button size="sm" variant="outline" onClick={() => setLoadConfirmed(false)}>
                     Load Tests
                   </Button>
                 </div>
               </div>
             ) : filtered.length === 0 ? (
-              <p className="p-4 text-center text-sm text-slate-400">No manual tests found.</p>
+              <p className="p-4 text-center text-sm text-slate-400">No tests found.</p>
             ) : (
-              filtered.map((test) => (
-                <button
-                  key={test.issue_id}
-                  type="button"
-                  onClick={() => {
-                    setSelectedTestKey(test.jira.key);
-                    setSelectedTestIssueId(test.issue_id);
-                  }}
-                  className={cn(
-                    "w-full border-b border-slate-100 px-3 py-2 text-left last:border-b-0 dark:border-slate-700",
-                    selectedTestKey === test.jira.key
-                      ? "bg-slate-100 dark:bg-slate-700"
-                      : "hover:bg-slate-50 dark:hover:bg-slate-800",
-                  )}
-                >
-                  <p className="truncate text-sm font-medium text-slate-800 dark:text-slate-200">
-                    {test.jira.summary}
-                  </p>
-                  <p className="font-mono text-xs text-slate-400">{test.jira.key}</p>
-                </button>
-              ))
+              filtered.map((test) => {
+                const typeName = (test.test_type?.name ?? "Manual") as TestTypeName;
+                const isChecked = checkedIds.has(test.issue_id);
+                return (
+                  <div
+                    key={test.issue_id}
+                    className={cn(
+                      "flex items-start gap-2 border-b border-slate-100 px-3 py-2 last:border-b-0 dark:border-slate-700",
+                      selectedTestKey === test.jira.key
+                        ? "bg-slate-100 dark:bg-slate-700"
+                        : "hover:bg-slate-50 dark:hover:bg-slate-800",
+                    )}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={isChecked}
+                      onChange={() => toggleChecked(test.issue_id)}
+                      disabled={isBulkChanging}
+                      className="mt-1 h-3.5 w-3.5 shrink-0 rounded border-slate-300 accent-slate-700"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedTestKey(test.jira.key);
+                        setSelectedTestIssueId(test.issue_id);
+                        setTypeMenuOpen(false);
+                      }}
+                      className="min-w-0 flex-1 text-left"
+                    >
+                      <div className="flex items-start justify-between gap-1">
+                        <p className="min-w-0 truncate text-sm font-medium text-slate-800 dark:text-slate-200">
+                          {test.jira.summary}
+                        </p>
+                        <span
+                          className={cn(
+                            "shrink-0 rounded-full border px-1.5 py-0 text-[9px] font-semibold",
+                            TYPE_COLORS[typeName],
+                          )}
+                        >
+                          {typeName}
+                        </span>
+                      </div>
+                      <p className="font-mono text-xs text-slate-400">{test.jira.key}</p>
+                    </button>
+                  </div>
+                );
+              })
             )}
           </div>
         </div>
@@ -403,20 +626,52 @@ export function UpdateManualTestPanel({ projectKey }: Props) {
         <div className="flex min-w-0 flex-1 flex-col rounded-lg border border-slate-200 dark:border-slate-700">
           {!selectedTestKey ? (
             <div className="flex h-full items-center justify-center text-sm text-slate-400">
-              ← Select a manual test to edit its steps.
+              ← Select a test to edit its steps or change its type.
             </div>
           ) : detailLoading ? (
             <div className="flex h-full items-center justify-center text-sm text-slate-400">
-              Loading steps…
+              Loading…
             </div>
           ) : (
             <>
               {/* Header */}
               <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3 dark:border-slate-700">
-                <p className="min-w-0 truncate text-sm font-semibold text-slate-800 dark:text-slate-200">
-                  {selectedTestKey} —{" "}
-                  {draftSteps.length} step{draftSteps.length !== 1 ? "s" : ""}
-                </p>
+                <div className="flex min-w-0 items-center gap-2">
+                  <p className="min-w-0 truncate text-sm font-semibold text-slate-800 dark:text-slate-200">
+                    {selectedTestKey} — {draftSteps.length} step{draftSteps.length !== 1 ? "s" : ""}
+                  </p>
+                  {/* Test type badge + dropdown */}
+                  <div className="relative">
+                    <button
+                      type="button"
+                      disabled={isSavingType || isSaving}
+                      onClick={() => setTypeMenuOpen((o) => !o)}
+                      title="Change test type"
+                      className={cn(
+                        "flex items-center gap-0.5 rounded-full border px-2 py-0.5 text-[10px] font-semibold transition-colors",
+                        TYPE_COLORS[selectedTestType],
+                        "hover:brightness-95",
+                      )}
+                    >
+                      {isSavingType ? "Saving…" : selectedTestType}
+                      <ChevronDown className="h-2.5 w-2.5 opacity-60" />
+                    </button>
+                    {typeMenuOpen && (
+                      <div className="absolute left-0 top-full z-20 mt-1 w-32 rounded-lg border border-slate-200 bg-white py-1 shadow-lg dark:border-slate-700 dark:bg-slate-800">
+                        {TEST_TYPES.filter((t) => t !== selectedTestType).map((t) => (
+                          <button
+                            key={t}
+                            type="button"
+                            onClick={() => void handleChangeType(t)}
+                            className="w-full px-3 py-1.5 text-left text-xs font-medium text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-700"
+                          >
+                            {t}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
                 <div className="ml-3 flex shrink-0 items-center gap-2">
                   <Button
                     type="button"

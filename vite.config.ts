@@ -21,6 +21,11 @@ export default defineConfig(async () => ({
     port: 1420,
     strictPort: true,
     host: host || false,
+    // Required for SharedArrayBuffer (FFmpeg.wasm) in dev mode
+    headers: {
+      "Cross-Origin-Opener-Policy": "same-origin",
+      "Cross-Origin-Embedder-Policy": "require-corp",
+    },
     hmr: host
       ? {
           protocol: "ws",

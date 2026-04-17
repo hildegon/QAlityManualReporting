@@ -41,7 +41,7 @@ use commands::{
         get_xray_statuses, remove_tests_from_test_plan, remove_tests_from_test_set,
         update_iteration_status, update_test_run_comment, update_test_run_status,
         update_test_run_step, update_test_run_step_status,
-        update_test_step, add_test_step, remove_test_step,
+        update_test_step, add_test_step, remove_test_step, update_test_type,
     },
 };
 use state::XrayClientState;
@@ -174,6 +174,7 @@ pub fn run() {
             update_test_step,
             add_test_step,
             remove_test_step,
+            update_test_type,
             // Confluence
             list_confluence_spaces,
             list_confluence_pages,

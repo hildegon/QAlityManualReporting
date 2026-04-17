@@ -1,10 +1,9 @@
 import { useMemo } from "react";
-import { TrendingUp } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Clock3 } from "lucide-react";
 import { cn } from "@/components/ui/utils";
-import { DonutChart, StatCard, StackedBar } from "@/components/charts/StatusCharts";
+import { DonutChart, MiniStackedBar } from "@/components/charts/StatusCharts";
 import { buildSlicesFromTests } from "@/components/charts/status-utils";
 import type { XrayTestWithStatus } from "@/types";
-import { MetricTile, CoverageTile } from "./MetricTile";
 import { type SetQueryMap, passRate, hasFail } from "./utils";
 
 export interface OverallDashboardProps {
@@ -21,10 +20,11 @@ export function OverallDashboard({
   const slices = useMemo(() => buildSlicesFromTests(allTests), [allTests]);
   const total = allTests.length;
 
-  // Derived metrics
   const passedSlice = slices.find((s) => s.key === "PASS");
   const failedSlice = slices.find((s) => s.key === "FAIL");
-  const overallPassRate = total > 0 && passedSlice ? passedSlice.pct : null;
+  const passCount = passedSlice?.count ?? 0;
+  const failCount = failedSlice?.count ?? 0;
+  const overallPassRate = total > 0 ? passCount / total : null;
 
   const setsWithFailures = useMemo(() => {
     let count = 0;
@@ -43,7 +43,6 @@ export function OverallDashboard({
   }, [queryBySetId]);
 
   // "Not run" = status absent or not a final status (is_final !== true).
-  // Using is_final is more robust than name-matching custom Xray statuses.
   const neverRunCount = useMemo(
     () => allTests.filter((t) => t.latest_status?.is_final !== true).length,
     [allTests],
@@ -51,156 +50,135 @@ export function OverallDashboard({
 
   const runAtLeastOnce = total - neverRunCount;
   const coveragePct = total > 0 ? Math.round((runAtLeastOnce / total) * 100) : 0;
+  const notRunPct = total > 0 ? Math.round((neverRunCount / total) * 100) : 0;
+  const hasNotRunWarning = notRunPct > 10;
 
-  const healthLabel =
+  // Coverage signal banner — mirrors the release signal on the Versions page.
+  const signalBg =
     total === 0
-      ? "No data"
-      : overallPassRate === 1
-        ? "All passing"
-        : overallPassRate !== null
-          ? `${Math.round(overallPassRate * 100)}% passing`
-          : "—";
+      ? "border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-900/40"
+      : failCount > 0
+        ? "border-red-200 bg-red-50 dark:border-red-800 dark:bg-red-950/40"
+        : hasNotRunWarning
+          ? "border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/40"
+          : overallPassRate === 1 && neverRunCount === 0
+            ? "border-emerald-200 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950/40"
+            : "border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950/40";
 
-  const healthColor =
+  const signalText =
     total === 0
-      ? "text-slate-400 bg-slate-50 border-slate-200 dark:text-slate-400 dark:bg-slate-800/50 dark:border-slate-600"
-      : overallPassRate === 1
-        ? "text-emerald-600 bg-emerald-50 border-emerald-200 dark:text-emerald-400 dark:bg-emerald-900/40 dark:border-emerald-800"
-        : overallPassRate !== null && overallPassRate >= 0.8
-          ? "text-blue-600 bg-blue-50 border-blue-200 dark:text-blue-400 dark:bg-blue-900/40 dark:border-blue-800"
-          : failedSlice && failedSlice.count > 0
-            ? "text-red-600 bg-red-50 border-red-200 dark:text-red-400 dark:bg-red-900/40 dark:border-red-800"
-            : "text-slate-500 bg-slate-50 border-slate-200 dark:text-slate-400 dark:bg-slate-800/50 dark:border-slate-600";
+      ? "No tests loaded for the selected sets."
+      : failCount > 0
+        ? `${failCount} test${failCount !== 1 ? "s" : ""} failing across ${setsWithFailures} set${setsWithFailures !== 1 ? "s" : ""} — review required.`
+        : hasNotRunWarning
+          ? `${neverRunCount} test${neverRunCount !== 1 ? "s" : ""} not yet run (${notRunPct}%) — coverage gap.`
+          : overallPassRate === 1 && neverRunCount === 0
+            ? `All ${total} tests run and passing across ${selectedCount} set${selectedCount !== 1 ? "s" : ""}.`
+            : `${Math.round((overallPassRate ?? 0) * 100)}% pass rate — ${runAtLeastOnce} of ${total} tests run.`;
 
   if (total === 0) return null;
 
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-800">
-      <div className="mb-4 flex items-start justify-between gap-4">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">
-            Overall coverage
-          </p>
-          <h2 className="mt-0.5 text-lg font-bold text-slate-900 dark:text-slate-100">
-            {selectedCount} set{selectedCount !== 1 ? "s" : ""} selected
-          </h2>
-        </div>
-        <span
-          className={cn(
-            "shrink-0 rounded-full border px-3 py-1 text-xs font-semibold",
-            healthColor,
-          )}
-        >
-          {healthLabel}
-        </span>
+    <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+      <div className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+        Coverage summary
       </div>
 
-      <div className="space-y-5">
-        {total > 0 && (
-          <>
-            <div className="flex flex-wrap items-center gap-5">
-              <DonutChart slices={slices} total={total} label="tests" />
-              <div
-                className="grid flex-1 gap-2"
-                style={{
-                  gridTemplateColumns: `repeat(${Math.min(slices.length, 3)}, minmax(0, 1fr))`,
-                  minWidth: 220,
-                }}
-              >
-                {slices.map((sl) => (
-                  <StatCard key={sl.key} sl={sl} />
-                ))}
-              </div>
-            </div>
-            <div>
-              <p className="mb-2 text-xs font-medium text-slate-400">Status distribution</p>
-              <StackedBar slices={slices} />
-            </div>
-          </>
-        )}
+      {/* Coverage signal */}
+      <div className={cn("mb-3 rounded-xl border px-3 py-2", signalBg)}>
+        <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">
+          Coverage signal
+        </div>
+        <div className="mt-1 text-sm font-semibold text-slate-800 dark:text-slate-100">
+          {signalText}
+        </div>
+      </div>
 
-        {/* ── Smarter metrics grid ── */}
-        <div className="grid grid-cols-2 gap-3 border-t border-slate-100 pt-4 dark:border-slate-700 sm:grid-cols-4">
-          <MetricTile
-            label="Test sets"
-            value={String(selectedCount)}
-            sub="selected"
-            color="slate"
-          />
-          <MetricTile
-            label="Total tests"
-            value={String(total)}
-            sub="across all sets"
-            color="slate"
-          />
-          <MetricTile
-            label="Sets with failures"
-            value={String(setsWithFailures)}
-            sub={`of ${selectedCount} set${selectedCount !== 1 ? "s" : ""}`}
-            color={setsWithFailures > 0 ? "red" : "slate"}
-          />
-          <MetricTile
-            label="Sets fully passing"
-            value={String(setsFullyPassing)}
-            sub={`of ${selectedCount} set${selectedCount !== 1 ? "s" : ""}`}
-            color={setsFullyPassing === selectedCount && selectedCount > 0 ? "emerald" : "slate"}
-          />
+      {/* Chart + metric tiles */}
+      <div className="flex flex-col gap-4 xl:flex-row xl:items-start">
+        {/* Donut + pass rate */}
+        <div className="flex shrink-0 items-center gap-4">
+          <DonutChart slices={slices} total={total} label="tests" />
+          <div className="min-w-[120px]">
+            <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">
+              Pass rate
+            </div>
+            <div className="mt-1 text-3xl font-bold leading-none text-slate-900 dark:text-slate-50">
+              {overallPassRate === null ? "—" : `${Math.round(overallPassRate * 100)}%`}
+            </div>
+            <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+              {passCount} / {total} passing
+            </div>
+            <MiniStackedBar slices={slices} className="mt-2 max-w-32" />
+          </div>
         </div>
 
-        {/* ── Coverage completeness (trend/history) ── */}
-        <div className="rounded-xl border border-slate-100 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800/60">
-          <div className="mb-3 flex items-center gap-1.5">
-            <TrendingUp className="h-3.5 w-3.5 text-slate-400" />
-            <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">
-              Coverage completeness
+        {/* 2-col metric tiles */}
+        <div className="grid flex-1 gap-3 md:grid-cols-2">
+          {/* Test coverage tile */}
+          <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-3 dark:border-slate-700 dark:bg-slate-900/40">
+            <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">
+              <Clock3 className="h-3.5 w-3.5" />
+              Test coverage
+            </div>
+            <div className="mt-1 text-2xl font-bold leading-none text-slate-900 dark:text-slate-50">
+              {coveragePct}%
+            </div>
+            <p className="mt-1 text-xs text-slate-600 dark:text-slate-300">
+              {runAtLeastOnce} run · {neverRunCount} not yet run
             </p>
-          </div>
-          <div className="grid grid-cols-3 gap-3">
-            <CoverageTile
-              label="Run at least once"
-              value={runAtLeastOnce}
-              total={total}
-              color="emerald"
-            />
-            <CoverageTile
-              label="Not yet run"
-              value={neverRunCount}
-              total={total}
-              color={neverRunCount > 0 ? "amber" : "slate"}
-            />
-            <CoverageTile
-              label="Currently failing"
-              value={failedSlice?.count ?? 0}
-              total={total}
-              color={(failedSlice?.count ?? 0) > 0 ? "red" : "slate"}
-            />
-          </div>
-          {/* Coverage progress bar */}
-          <div className="mt-3">
-            <div className="mb-1 flex items-center justify-between text-[10px] text-slate-400">
-              <span>Coverage</span>
-              <span className="font-semibold text-slate-600 dark:text-slate-300">
-                {coveragePct}%
+            <div className="mt-2 flex flex-wrap gap-1.5 text-xs">
+              <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 font-medium text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
+                {runAtLeastOnce} run
               </span>
+              {neverRunCount > 0 && (
+                <span
+                  className={cn(
+                    "rounded-full border px-2 py-0.5 font-medium",
+                    hasNotRunWarning
+                      ? "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-300"
+                      : "border-slate-200 bg-slate-100 text-slate-600 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-300",
+                  )}
+                >
+                  {neverRunCount} not run
+                </span>
+              )}
             </div>
-            <div className="h-2 w-full overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700">
-              <div
-                className={cn(
-                  "h-full rounded-full transition-all duration-700",
-                  coveragePct === 100
-                    ? "bg-emerald-500"
-                    : coveragePct >= 80
-                      ? "bg-blue-500"
-                      : coveragePct >= 50
-                        ? "bg-amber-400"
-                        : "bg-slate-400",
-                )}
-                style={{ width: `${coveragePct}%` }}
-              />
+          </div>
+
+          {/* Set health tile */}
+          <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-3 dark:border-slate-700 dark:bg-slate-900/40">
+            <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">
+              {setsWithFailures > 0 ? (
+                <AlertTriangle className="h-3.5 w-3.5 text-red-500" />
+              ) : (
+                <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
+              )}
+              Set health
+            </div>
+            <div className="mt-1 text-2xl font-bold leading-none text-slate-900 dark:text-slate-50">
+              {setsWithFailures > 0
+                ? `${setsWithFailures} with failures`
+                : `All ${selectedCount} passing`}
+            </div>
+            <p className="mt-1 text-xs text-slate-600 dark:text-slate-300">
+              {setsFullyPassing} fully passing · {selectedCount - setsFullyPassing} partial or
+              pending
+            </p>
+            <div className="mt-2 flex flex-wrap gap-1.5 text-xs">
+              {setsFullyPassing > 0 && (
+                <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 font-medium text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
+                  {setsFullyPassing} clean
+                </span>
+              )}
+              {setsWithFailures > 0 && (
+                <span className="rounded-full border border-red-200 bg-red-50 px-2 py-0.5 font-medium text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">
+                  {setsWithFailures} failing
+                </span>
+              )}
             </div>
           </div>
         </div>
-
       </div>
     </div>
   );

@@ -160,6 +160,8 @@ pub struct CreateXrayTestInput {
     pub steps: Vec<CreateTestStepInput>,
     /// Optional Jira component name to assign to the created test issue.
     pub component: Option<String>,
+    /// Xray test type name: "Manual", "Generic", or "Cucumber". Defaults to "Manual".
+    pub test_type: Option<String>,
 }
 
 /// The `Step` object returned by `createTest { test { steps { ... } } }`.
