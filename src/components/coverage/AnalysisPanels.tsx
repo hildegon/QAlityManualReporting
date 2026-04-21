@@ -3,10 +3,12 @@ import {
   Activity,
   AlertTriangle,
   CheckCircle2,
+  Clock3,
   ShieldAlert,
   BarChart3,
   Eye,
   Flame,
+  type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/components/ui/utils";
 import type { XrayTestSet, XrayTestWithStatus } from "@/types";
@@ -20,44 +22,70 @@ function KpiCard({
   value,
   sub,
   accent,
+  icon: Icon,
 }: {
   label: string;
   value: string | number;
   sub?: string;
   accent: "emerald" | "red" | "amber" | "blue" | "slate";
+  icon: LucideIcon;
 }) {
-  const border = {
-    emerald: "border-emerald-200 dark:border-emerald-800",
-    red: "border-red-200 dark:border-red-800",
-    amber: "border-amber-200 dark:border-amber-800",
-    blue: "border-blue-200 dark:border-blue-800",
-    slate: "border-slate-200 dark:border-slate-700",
-  }[accent];
-  const bg = {
-    emerald: "bg-emerald-50 dark:bg-emerald-950/40",
-    red: "bg-red-50 dark:bg-red-950/40",
-    amber: "bg-amber-50 dark:bg-amber-950/40",
-    blue: "bg-blue-50 dark:bg-blue-950/40",
-    slate: "bg-slate-50/70 dark:bg-slate-900/40",
-  }[accent];
-  const valColor = {
-    emerald: "text-emerald-700 dark:text-emerald-300",
-    red: "text-red-700 dark:text-red-300",
-    amber: "text-amber-700 dark:text-amber-300",
-    blue: "text-blue-700 dark:text-blue-300",
-    slate: "text-slate-900 dark:text-slate-50",
+  const schemes = {
+    emerald: {
+      border: "border-emerald-200 dark:border-emerald-800",
+      bg: "bg-emerald-50 dark:bg-emerald-950/40",
+      iconCls: "text-emerald-500 dark:text-emerald-400",
+      labelCls: "text-emerald-700 dark:text-emerald-400",
+      valueCls: "text-emerald-700 dark:text-emerald-300",
+      subCls: "text-emerald-600/70 dark:text-emerald-400/70",
+    },
+    red: {
+      border: "border-red-200 dark:border-red-800",
+      bg: "bg-red-50 dark:bg-red-950/40",
+      iconCls: "text-red-500 dark:text-red-400",
+      labelCls: "text-red-700 dark:text-red-400",
+      valueCls: "text-red-700 dark:text-red-300",
+      subCls: "text-red-600/70 dark:text-red-400/70",
+    },
+    amber: {
+      border: "border-amber-200 dark:border-amber-800",
+      bg: "bg-amber-50 dark:bg-amber-950/40",
+      iconCls: "text-amber-500 dark:text-amber-400",
+      labelCls: "text-amber-700 dark:text-amber-400",
+      valueCls: "text-amber-700 dark:text-amber-300",
+      subCls: "text-amber-600/70 dark:text-amber-400/70",
+    },
+    blue: {
+      border: "border-blue-200 dark:border-blue-800",
+      bg: "bg-blue-50 dark:bg-blue-950/40",
+      iconCls: "text-blue-500 dark:text-blue-400",
+      labelCls: "text-blue-700 dark:text-blue-400",
+      valueCls: "text-blue-700 dark:text-blue-300",
+      subCls: "text-blue-600/70 dark:text-blue-400/70",
+    },
+    slate: {
+      border: "border-slate-200 dark:border-slate-700",
+      bg: "bg-slate-50/70 dark:bg-slate-900/40",
+      iconCls: "text-slate-400 dark:text-slate-500",
+      labelCls: "text-slate-500 dark:text-slate-400",
+      valueCls: "text-slate-900 dark:text-slate-50",
+      subCls: "text-slate-400 dark:text-slate-500",
+    },
   }[accent];
 
   return (
-    <div className={cn("rounded-xl border p-3", border, bg)}>
-      <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">
-        {label}
-      </p>
-      <p className={cn("mt-1 text-2xl font-bold tabular-nums leading-none", valColor)}>
+    <div className={cn("rounded-xl border px-4 py-3 shadow-sm", schemes.border, schemes.bg)}>
+      <div className="mb-1 flex items-center gap-1.5">
+        <Icon className={cn("h-3.5 w-3.5", schemes.iconCls)} />
+        <p className={cn("text-xs font-semibold uppercase tracking-wider", schemes.labelCls)}>
+          {label}
+        </p>
+      </div>
+      <p className={cn("text-2xl font-bold tabular-nums leading-none", schemes.valueCls)}>
         {value}
       </p>
       {sub && (
-        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{sub}</p>
+        <p className={cn("mt-1 text-xs", schemes.subCls)}>{sub}</p>
       )}
     </div>
   );
@@ -121,6 +149,7 @@ function SetProgressBar({
   maxCount,
   barColor,
   countColor,
+  hoverAccent,
 }: {
   label: string;
   subLabel: string;
@@ -129,12 +158,22 @@ function SetProgressBar({
   maxCount: number;
   barColor: string;
   countColor: string;
+  hoverAccent: "red" | "amber";
 }) {
   const pct = total > 0 ? Math.round((count / total) * 100) : 0;
   const barWidth = maxCount > 0 ? (count / maxCount) * 100 : 0;
+  const hoverCls =
+    hoverAccent === "red"
+      ? "hover:border-red-400 hover:bg-red-50/50 dark:hover:border-red-700"
+      : "hover:border-amber-400 hover:bg-amber-50/50 dark:hover:border-amber-700";
 
   return (
-    <div className="group rounded-xl border border-slate-100 bg-white px-3.5 py-2.5 transition-colors hover:border-slate-200 dark:border-slate-700/60 dark:bg-slate-800/40 dark:hover:border-slate-600">
+    <div
+      className={cn(
+        "group rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 transition-colors dark:border-slate-700 dark:bg-slate-800",
+        hoverCls,
+      )}
+    >
       <div className="mb-1.5 flex items-center justify-between gap-2">
         <div className="min-w-0 flex-1">
           <p className="truncate text-xs font-medium text-slate-700 dark:text-slate-200">
@@ -294,7 +333,7 @@ export function InsightsPanel({
 
   return (
     <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm dark:border-slate-700 dark:bg-slate-800">
-      <div className="mb-3 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+      <div className="mb-3 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-slate-400">
         <Activity className="h-3.5 w-3.5" />
         Insights
       </div>
@@ -306,24 +345,28 @@ export function InsightsPanel({
           value={`${kpis.coveragePct}%`}
           sub={`${kpis.total - kpis.neverRun} of ${kpis.total} run`}
           accent={kpis.coveragePct === 100 ? "emerald" : kpis.coveragePct >= 70 ? "blue" : "amber"}
+          icon={Clock3}
         />
         <KpiCard
           label="Pass Rate"
           value={`${kpis.passRatePct}%`}
           sub={`${kpis.passed} passed`}
           accent={kpis.passRatePct >= 90 ? "emerald" : kpis.passRatePct >= 60 ? "amber" : "red"}
+          icon={CheckCircle2}
         />
         <KpiCard
           label="Failures"
           value={kpis.failed}
           sub={kpis.failed > 0 ? `${Math.round((kpis.failed / kpis.total) * 100)}% of tests` : "None"}
           accent={kpis.failed === 0 ? "emerald" : kpis.failed <= 3 ? "amber" : "red"}
+          icon={AlertTriangle}
         />
         <KpiCard
           label="Not Run"
           value={kpis.neverRun}
           sub={kpis.neverRun > 0 ? `${Math.round((kpis.neverRun / kpis.total) * 100)}% untested` : "All executed"}
           accent={kpis.neverRun === 0 ? "emerald" : kpis.neverRun <= 5 ? "amber" : "slate"}
+          icon={Eye}
         />
       </div>
 
@@ -331,7 +374,7 @@ export function InsightsPanel({
       {findings.length > 0 && (
         <div>
           <div className="mb-2 flex items-center gap-1.5">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+            <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">
               Findings
             </p>
             <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold tabular-nums text-slate-500 dark:bg-slate-700 dark:text-slate-400">
@@ -371,7 +414,7 @@ function StackedBar({
     : ["bg-amber-500", "bg-amber-400", "bg-amber-300", "bg-amber-200"];
 
   return (
-    <div className="rounded-lg border border-slate-100 bg-slate-50/60 p-3 dark:border-slate-700/50 dark:bg-slate-800/40">
+    <div className="rounded-lg border border-slate-200 bg-slate-50/70 p-3 dark:border-slate-700 dark:bg-slate-900/40">
       {/* Stacked bar */}
       <div className="mb-2 flex h-3 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-700/60">
         {items.map((it, i) => (
@@ -443,10 +486,10 @@ export function FailureConcentrationPanel({
     <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm dark:border-slate-700 dark:bg-slate-800">
       <div className="mb-3 flex items-center gap-1.5">
         <ShieldAlert className="h-3.5 w-3.5 text-red-500" />
-        <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+        <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">
           Failure Concentration
         </p>
-        <span className="ml-auto rounded-full border border-red-200 bg-red-50 px-2 py-0.5 text-[10px] font-semibold tabular-nums text-red-600 dark:border-red-800 dark:bg-red-900/30 dark:text-red-400">
+        <span className="ml-auto rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold tabular-nums text-red-600 dark:bg-red-900/40 dark:text-red-400">
           {totalFails} failure{totalFails !== 1 ? "s" : ""} · {ranked.length} set{ranked.length !== 1 ? "s" : ""}
         </span>
       </div>
@@ -471,6 +514,7 @@ export function FailureConcentrationPanel({
             maxCount={maxFails}
             barColor="bg-gradient-to-r from-red-400 to-red-500"
             countColor="text-red-600 dark:text-red-400"
+            hoverAccent="red"
           />
         ))}
       </div>
@@ -507,10 +551,10 @@ export function NeverRunPanel({
     <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm dark:border-slate-700 dark:bg-slate-800">
       <div className="mb-3 flex items-center gap-1.5">
         <BarChart3 className="h-3.5 w-3.5 text-amber-500" />
-        <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+        <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">
           Never-Run Tests
         </p>
-        <span className="ml-auto rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold tabular-nums text-amber-600 dark:border-amber-800 dark:bg-amber-900/30 dark:text-amber-400">
+        <span className="ml-auto rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold tabular-nums text-amber-600 dark:bg-amber-900/40 dark:text-amber-400">
           {totalNever} test{totalNever !== 1 ? "s" : ""} · {ranked.length} set{ranked.length !== 1 ? "s" : ""}
         </span>
       </div>
@@ -535,6 +579,7 @@ export function NeverRunPanel({
             maxCount={maxNever}
             barColor="bg-gradient-to-r from-amber-300 to-amber-400"
             countColor="text-amber-600 dark:text-amber-400"
+            hoverAccent="amber"
           />
         ))}
       </div>

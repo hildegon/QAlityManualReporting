@@ -9,16 +9,36 @@ import {
   Tag,
   FilePlus,
   Settings2,
+  CheckCircle2,
+  MessageSquare,
+  Bug,
+  Search,
+  CheckSquare,
+  Settings,
+  Keyboard,
+  Zap,
   type LucideIcon,
 } from "lucide-react";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-interface ContentGroup {
+interface ShortcutItem {
+  keys: string[];
   label: string;
-  type: "list" | "tip" | "note";
-  items: string[];
 }
+
+interface FeatureItem {
+  icon: LucideIcon;
+  color: string;
+  title: string;
+  description: string;
+}
+
+type ContentGroup =
+  | { label: string; icon?: LucideIcon; type: "list"; items: string[] }
+  | { label: string; icon?: LucideIcon; type: "tip" | "note"; items: string[] }
+  | { label: string; icon?: LucideIcon; type: "shortcuts"; items: ShortcutItem[] }
+  | { label: string; icon?: LucideIcon; type: "features"; items: FeatureItem[] };
 
 interface PageHelpContent {
   icon: LucideIcon;
@@ -31,6 +51,7 @@ interface PageHelpContent {
 
 export type PageHelpId =
   | "executions"
+  | "execution-detail"
   | "test-plans"
   | "tests"
   | "coverage"
@@ -78,6 +99,118 @@ const PAGE_HELP: Record<PageHelpId, PageHelpContent> = {
           "Use the Execution project selector (top bar, left side) to separate executions in different Jira projects.",
           "Executions are sorted newest first. Clone + re-execute when your test list hasn't changed between builds.",
           "If status updates feel slow, Xray may be rate-limiting requests — a banner will appear at the top and the app will automatically retry.",
+        ],
+      },
+    ],
+  },
+
+  "execution-detail": {
+    icon: PlayCircle,
+    color: "text-blue-500 bg-blue-50 dark:bg-blue-950/40",
+    title: "Inside a Test Execution",
+    summary: "Everything you can do while running a test execution — fast.",
+    intro:
+      "When you open an execution you get a fast view of every test run. The toolbar, keyboard shortcuts, and per-row controls below are designed so one tester can move through a full session without ever leaving this screen.",
+    groups: [
+      {
+        label: "Toolbar features",
+        icon: Settings,
+        type: "features",
+        items: [
+          {
+            icon: Bug,
+            color: "text-red-500 bg-red-50 dark:bg-red-950/40",
+            title: "Auto Fail Kit",
+            description:
+              "Toggle 'Kit on' in the toolbar. Every time you mark a run as FAIL, the comment editor and defect picker open automatically — capture failure notes and link bugs in one motion without extra clicks.",
+          },
+          {
+            icon: CheckSquare,
+            color: "text-indigo-500 bg-indigo-50 dark:bg-indigo-950/40",
+            title: "Bulk Select",
+            description:
+              "Click 'Select' to enter select mode. Tick individual rows or a whole section header, then use the floating action bar at the bottom to apply a status or link a defect to dozens of runs at once.",
+          },
+          {
+            icon: Search,
+            color: "text-slate-500 bg-slate-100 dark:bg-slate-700/40",
+            title: "Search & Filter",
+            description:
+              "Type in the search box to filter by test key or summary. Use the status chips below the toolbar to show only a specific status. Toggle 'Sort by Status' to push failures and blocks to the top.",
+          },
+          {
+            icon: Zap,
+            color: "text-amber-500 bg-amber-50 dark:bg-amber-950/40",
+            title: "Jump to next FAIL / TODO",
+            description:
+              "The ⚠ button (or press 'f') jumps directly to the next FAIL run. The 🕐 button (or 'n') jumps to the next TODO. Skip past passing tests instantly during a triage session.",
+          },
+        ],
+      },
+      {
+        label: "Running tests",
+        icon: CheckCircle2,
+        type: "list",
+        items: [
+          "Click any status button (PASS / FAIL / TODO / BLOCKED…) to update the run instantly — updates are optimistic and sync silently to Xray in the background.",
+          "Click the row title or chevron (or press Enter on the focused row) to expand it and see manual steps, Gherkin definition, or dataset iterations.",
+          "Inside the steps panel, set a status per step and edit the actual-result/comment fields inline. Use the bulk-status buttons at the top of the steps panel to mark all steps at once.",
+          "For dataset-driven tests, the iterations panel shows one column per iteration with per-step results.",
+        ],
+      },
+      {
+        label: "Comments & defects",
+        icon: MessageSquare,
+        type: "list",
+        items: [
+          "Click the speech-bubble icon on a row (or press 'c' on the focused row) to open the inline comment editor. Recent comments are suggested as chips for one-click reuse.",
+          "Click the bug icon (or press 'd') to open the defect picker — paste or type Jira issue keys (comma-separated) to attach them as Xray defects. Linked defects appear as clickable badges on the row.",
+          "Enable Auto Fail Kit (Bug icon in toolbar) to have comment + defect picker open automatically on every FAIL — perfect for capturing failure context in one motion.",
+        ],
+      },
+      {
+        label: "Execution-level actions",
+        icon: Settings,
+        type: "list",
+        items: [
+          "Click the status pill in the header to open the workflow transitions menu and advance the whole execution in Jira.",
+          "Click the assignee chip to reassign the execution — search any Jira user by name.",
+          "Click the Link icon next to the execution key to copy a direct Jira URL to your clipboard.",
+          "Click 'Add tests' in the toolbar to add more tests to this execution from your project's test catalogue.",
+        ],
+      },
+      {
+        label: "Keyboard shortcuts",
+        icon: Keyboard,
+        type: "shortcuts",
+        items: [
+          { keys: ["↑", "k"], label: "Previous run" },
+          { keys: ["↓", "j"], label: "Next run" },
+          { keys: ["Enter"], label: "Expand / collapse focused row" },
+          { keys: ["1–9"], label: "Set status (1 = first chip in header)" },
+          { keys: ["c"], label: "Open comment editor on focused run" },
+          { keys: ["d"], label: "Open defect picker on focused run" },
+          { keys: ["f"], label: "Jump to next FAIL run" },
+          { keys: ["n"], label: "Jump to next TODO run" },
+          { keys: ["Esc"], label: "Clear focus / close popovers" },
+          { keys: ["?"], label: "Open this help panel" },
+        ],
+      },
+      {
+        label: "Tips",
+        type: "tip",
+        items: [
+          "Re-opening an execution? The app scrolls back to the last run you touched and pulses it so you can pick up exactly where you left off.",
+          "Use the in-row Link icon to copy a Jira URL for any test — handy when sharing a failing test with a developer.",
+          "Status updates queue and de-duplicate automatically; you can click rapidly without flooding the API.",
+          "If you see partial results, use the Load more / Load all buttons in the pagination banner to fetch remaining runs.",
+        ],
+      },
+      {
+        label: "Note",
+        type: "note",
+        items: [
+          "All data is read from and written to Xray Cloud / Jira — no local copy. If a save fails the row reverts to its previous status and a toast explains why.",
         ],
       },
     ],
@@ -405,21 +538,41 @@ const PAGE_HELP: Record<PageHelpId, PageHelpContent> = {
 
 // ── PageHelpButton ─────────────────────────────────────────────────────────────
 
-export function PageHelpButton({ pageId }: { pageId: PageHelpId }) {
+export function PageHelpButton({
+  pageId,
+  open,
+  onOpenChange,
+  hideTrigger,
+}: {
+  pageId: PageHelpId;
+  /** Optional controlled open state. When provided, makes the dialog controlled. */
+  open?: boolean;
+  /** Required when `open` is provided. */
+  onOpenChange?: (open: boolean) => void;
+  /** When true, render only the dialog (no trigger button). Useful when you
+   *  want to drive the modal entirely from external state (e.g. keyboard). */
+  hideTrigger?: boolean;
+}) {
   const content = PAGE_HELP[pageId];
   const Icon = content.icon;
 
+  const controlled: { open?: boolean; onOpenChange?: (o: boolean) => void } = {};
+  if (open !== undefined) controlled.open = open;
+  if (onOpenChange !== undefined) controlled.onOpenChange = onOpenChange;
+
   return (
-    <Dialog.Root>
-      <Dialog.Trigger asChild>
-        <button
-          type="button"
-          title={`Help — ${content.title}`}
-          className="flex h-8 w-8 items-center justify-center rounded-md text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-700 dark:hover:text-slate-300"
-        >
-          <Info className="h-4 w-4" />
-        </button>
-      </Dialog.Trigger>
+    <Dialog.Root {...controlled}>
+      {!hideTrigger && (
+        <Dialog.Trigger asChild>
+          <button
+            type="button"
+            title={`Help — ${content.title}`}
+            className="flex h-8 w-8 items-center justify-center rounded-md text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-700 dark:hover:text-slate-300"
+          >
+            <Info className="h-4 w-4" />
+          </button>
+        </Dialog.Trigger>
+      )}
 
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-50 bg-black/30 backdrop-blur-[2px]" />
@@ -475,7 +628,84 @@ export function PageHelpButton({ pageId }: { pageId: PageHelpId }) {
 
 // ── HelpGroup ─────────────────────────────────────────────────────────────────
 
+function GroupLabel({ label, icon: Icon }: { label: string; icon?: LucideIcon }) {
+  return (
+    <p className="mb-2.5 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
+      {Icon && <Icon className="h-3.5 w-3.5 shrink-0" />}
+      {label}
+    </p>
+  );
+}
+
 function HelpGroup({ group }: { group: ContentGroup }) {
+  const labelProps: { label: string; icon?: LucideIcon } = { label: group.label };
+  if (group.icon) labelProps.icon = group.icon;
+
+  if (group.type === "features") {
+    return (
+      <div>
+        <GroupLabel {...labelProps} />
+        <div className="grid grid-cols-1 gap-2">
+          {group.items.map((item, i) => {
+            const ItemIcon = item.icon;
+            return (
+              <div
+                key={i}
+                className="flex gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-800/60"
+              >
+                <span
+                  className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md ${item.color}`}
+                >
+                  <ItemIcon className="h-4 w-4" />
+                </span>
+                <div className="min-w-0">
+                  <p className="mb-0.5 text-xs font-semibold text-slate-800 dark:text-slate-200">
+                    {item.title}
+                  </p>
+                  <p className="text-xs leading-relaxed text-slate-500 dark:text-slate-400">
+                    {item.description}
+                  </p>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
+
+  if (group.type === "shortcuts") {
+    return (
+      <div>
+        <GroupLabel {...labelProps} />
+        <div className="rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden">
+          {group.items.map((item, i) => (
+            <div
+              key={i}
+              className={`flex items-center justify-between gap-3 px-3 py-2 text-xs ${
+                i % 2 === 0
+                  ? "bg-white dark:bg-slate-900"
+                  : "bg-slate-50 dark:bg-slate-800/50"
+              }`}
+            >
+              <span className="text-slate-600 dark:text-slate-300">{item.label}</span>
+              <span className="flex shrink-0 items-center gap-1">
+                {item.keys.map((k, ki) => (
+                  <kbd
+                    key={ki}
+                    className="rounded border border-slate-300 bg-white px-1.5 py-0.5 font-mono text-[10px] font-semibold text-slate-700 shadow-sm dark:border-slate-600 dark:bg-slate-700 dark:text-slate-300"
+                  >
+                    {k}
+                  </kbd>
+                ))}
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
   if (group.type === "tip") {
     return (
       <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 dark:border-blue-800/50 dark:bg-blue-950/30">
@@ -524,11 +754,10 @@ function HelpGroup({ group }: { group: ContentGroup }) {
     );
   }
 
+  // default: list
   return (
     <div>
-      <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
-        {group.label}
-      </p>
+      <GroupLabel {...labelProps} />
       <ul className="space-y-2">
         {group.items.map((item, i) => (
           <li key={i} className="flex gap-2.5 text-sm text-slate-600 dark:text-slate-300">

@@ -75,12 +75,12 @@ export const TestSetDropTarget = memo(function TestSetDropTarget({
       className={cn(
         "overflow-hidden rounded-lg border transition-all duration-150",
         isHoveredTarget
-          ? "border-slate-700 bg-slate-50 ring-2 ring-slate-700 dark:border-slate-400 dark:bg-slate-700 dark:ring-slate-400"
+          ? "border-indigo-500 bg-indigo-50 ring-2 ring-indigo-500 dark:border-indigo-400 dark:bg-indigo-900/20 dark:ring-indigo-400"
           : isDragging
             ? "border-slate-300 bg-white ring-1 ring-slate-200 dark:border-slate-600 dark:bg-slate-800 dark:ring-slate-600"
             : isSetDeprecated
               ? "border-red-200 bg-white dark:border-red-900/50 dark:bg-slate-800"
-              : "border-slate-200 bg-white dark:border-slate-600 dark:bg-slate-800",
+              : "border-slate-200 bg-white hover:border-slate-300 dark:border-slate-700 dark:bg-slate-800 dark:hover:border-slate-600",
       )}
     >
       {isSetDeprecated && <div className="h-1 w-full bg-red-400 dark:bg-red-600" />}
@@ -96,7 +96,7 @@ export const TestSetDropTarget = memo(function TestSetDropTarget({
           <Layers
             className={cn(
               "h-4 w-4 shrink-0",
-              isSetDeprecated ? "text-red-300 dark:text-red-700" : "text-slate-400",
+              isSetDeprecated ? "text-red-300 dark:text-red-700" : "text-emerald-500",
             )}
           />
           <span

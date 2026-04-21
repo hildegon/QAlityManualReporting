@@ -53,6 +53,16 @@ const TestSetHealthRow = memo(function TestSetHealthRow({
     }
   }, [selectedIds.size, tests?.length]);
 
+  // Esc clears selection
+  useEffect(() => {
+    if (selectedIds.size === 0) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setSelectedIds(new Set());
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [selectedIds.size]);
+
   const handleRemoveSelected = useCallback(async () => {
     const ids = [...selectedIds];
     try {
@@ -177,21 +187,24 @@ const TestSetHealthRow = memo(function TestSetHealthRow({
         <div className="border-t border-slate-100 dark:border-slate-800">
           {/* Bulk selection bar */}
           {selectedIds.size > 0 && (
-            <div className="flex items-center gap-2 border-b border-slate-700 bg-slate-800 px-3 py-2">
-              <span className="text-sm font-medium text-slate-200">{selectedIds.size} selected</span>
+            <div className="flex items-center gap-2 border-b border-indigo-200 bg-indigo-50 px-3 py-2 dark:border-indigo-900/60 dark:bg-indigo-950/40">
+              <span className="text-sm font-medium text-indigo-700 dark:text-indigo-300">
+                {selectedIds.size} selected
+              </span>
               <div className="flex-1" />
               <button
                 type="button"
                 onClick={() => void handleRemoveSelected()}
                 disabled={removeTests.isPending}
-                className="rounded px-2 py-0.5 text-xs font-medium text-red-400 hover:bg-red-900/20 disabled:opacity-50"
+                className="rounded px-2 py-0.5 text-xs font-medium text-red-600 hover:bg-red-100 disabled:opacity-50 dark:text-red-300 dark:hover:bg-red-900/30"
               >
                 Remove from set
               </button>
               <button
                 type="button"
                 onClick={() => setSelectedIds(new Set())}
-                className="text-slate-400 hover:text-slate-200"
+                className="text-indigo-500 hover:text-indigo-700 dark:text-indigo-400 dark:hover:text-indigo-200"
+                title="Clear selection (Esc)"
               >
                 <X className="h-4 w-4" />
               </button>
@@ -238,7 +251,7 @@ const TestSetHealthRow = memo(function TestSetHealthRow({
                     className={cn(
                       "group grid grid-cols-[2.5rem_1fr_9rem_2.5rem] items-center border-b border-slate-50 dark:border-slate-800/50",
                       isSelected
-                        ? "bg-teal-50 dark:bg-teal-900/20"
+                        ? "bg-indigo-50 dark:bg-indigo-950/30"
                         : isDeprecated
                           ? "bg-red-50/40 dark:bg-red-900/10"
                           : "hover:bg-slate-50 dark:hover:bg-slate-800/50",
@@ -383,19 +396,31 @@ export function TestSetsHealthPanel({
 
   return (
     <div className="flex h-full flex-col">
-      {/* Search */}
-      <div className="mb-3 flex items-center gap-3">
+      {/* Search (sticky) */}
+      <div className="sticky top-0 z-10 mb-3 flex items-center gap-3 bg-white/95 pb-2 backdrop-blur dark:bg-slate-900/95">
         <div className="relative flex-1">
           <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
           <Input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Filter test sets…"
-            className="h-8 pl-8 text-sm"
+            className="h-8 pl-8 pr-8 text-sm"
           />
+          {search && (
+            <button
+              type="button"
+              onClick={() => setSearch("")}
+              className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-0.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-700"
+              aria-label="Clear search"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          )}
         </div>
         <span className="shrink-0 text-xs text-slate-500">
-          {filtered.length} set{filtered.length !== 1 ? "s" : ""}
+          {search
+            ? `${filtered.length} of ${testSets.length} sets`
+            : `${filtered.length} set${filtered.length !== 1 ? "s" : ""}`}
         </span>
       </div>
       <p className="mb-2 text-xs text-slate-400">

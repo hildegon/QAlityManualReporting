@@ -33,7 +33,7 @@ export const TestRow = memo(function TestRow({
       className={cn(
         "group flex cursor-pointer select-none items-start gap-2.5 rounded-lg border px-3 py-2.5 transition-colors",
         selected
-          ? "border-slate-700 bg-slate-700 text-white"
+          ? "border-indigo-600 bg-indigo-600 text-white shadow-sm"
           : "border-slate-200 bg-white text-slate-800 hover:border-slate-300 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200 dark:hover:border-slate-500 dark:hover:bg-slate-700",
       )}
     >
@@ -50,7 +50,7 @@ export const TestRow = memo(function TestRow({
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm font-medium">{test.jira.summary}</p>
         <p
-          className={cn("mt-0.5 font-mono text-xs", selected ? "text-slate-300" : "text-slate-400")}
+          className={cn("mt-0.5 font-mono text-xs", selected ? "text-indigo-100" : "text-slate-400")}
         >
           {test.jira.key}
         </p>
@@ -66,7 +66,7 @@ export const TestRow = memo(function TestRow({
                   "inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] font-medium",
                   selected
                     ? "border-white/30 bg-white/10 text-white/80"
-                    : "border-slate-200 bg-slate-100 text-slate-500 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-400",
+                    : "border-violet-200 bg-violet-50 text-violet-600 dark:border-violet-900/50 dark:bg-violet-900/20 dark:text-violet-300",
                 )}
               >
                 <Layers className="h-2.5 w-2.5 shrink-0" />

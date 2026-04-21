@@ -14,6 +14,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { cn } from "@/components/ui/utils";
 import { ListChecks, Plus, RefreshCw } from "lucide-react";
 import { TestExecutionDetail } from "@/components/test-execution/TestExecutionDetail";
 import type { TestExecution } from "@/types";
@@ -52,6 +53,9 @@ export function TestExecutionsPage() {
   const [search, setSearch] = useState("");
   const deferredSearch = useDeferredValue(search);
   const [showDone, setShowDone] = useState(false);
+  const [progressFilter, setProgressFilter] = useState<
+    "all" | "fail" | "in_progress" | "pass" | "todo"
+  >("all");
   /** The issue key currently being renamed inline, or null when not editing. */
   const [renameKey, setRenameKey] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
@@ -63,7 +67,7 @@ export function TestExecutionsPage() {
   // Reset to page 1 whenever the visible set changes so the user isn't stuck
   // on an empty page after toggling a filter or typing in the search box.
   const prevFilterKey = useRef("");
-  const filterKey = `${q}|${String(showDone)}`;
+  const filterKey = `${q}|${String(showDone)}|${progressFilter}`;
   if (filterKey !== prevFilterKey.current) {
     prevFilterKey.current = filterKey;
     setExecPage(1);
@@ -115,6 +119,43 @@ export function TestExecutionsPage() {
   );
   const { data: summariesMap, isLoading: summariesLoading } =
     useExecutionSummariesBatch(visibleExecIds);
+
+  /** Apply the progress filter using batch summaries. Rows without a loaded summary pass through. */
+  const progressMatches = useCallback(
+    (execId: string): boolean => {
+      if (progressFilter === "all") return true;
+      const s = summariesMap?.[execId];
+      if (!s) return true;
+      const counts = s.counts;
+      const total = s.total;
+      const failCount = (counts["FAIL"] ?? 0) + (counts["FAILED"] ?? 0);
+      const passCount = (counts["PASS"] ?? 0) + (counts["PASSED"] ?? 0);
+      const todoCount = counts["TODO"] ?? 0;
+      switch (progressFilter) {
+        case "fail":
+          return failCount > 0;
+        case "pass":
+          return total > 0 && passCount === total;
+        case "todo":
+          return total > 0 && todoCount === total;
+        case "in_progress":
+          return total > 0 && failCount === 0 && passCount < total && todoCount < total;
+        default:
+          return true;
+      }
+    },
+    [progressFilter, summariesMap],
+  );
+
+  const displayedFavs = useMemo(
+    () => favouriteExecs.filter((e) => progressMatches(e.issue_id)),
+    [favouriteExecs, progressMatches],
+  );
+  const displayedRegulars = useMemo(
+    () => visibleRegularExecs.filter((e) => progressMatches(e.issue_id)),
+    [visibleRegularExecs, progressMatches],
+  );
+  const displayedTotal = displayedFavs.length + displayedRegulars.length;
 
   function handleToggleExecFavourite(e: React.MouseEvent, issueId: string) {
     e.stopPropagation();
@@ -231,8 +272,8 @@ export function TestExecutionsPage() {
         <h1 className="text-xl font-semibold">
           Test Executions
           <span className="ml-2 text-sm font-normal text-slate-500">
-            {executionProjectKey} · {filtered.length}
-            {filtered.length !== (executions?.length ?? 0) && (
+            {executionProjectKey} · {displayedTotal}
+            {displayedTotal !== (executions?.length ?? 0) && (
               <span> / {executions?.length ?? 0}</span>
             )}
           </span>
@@ -248,6 +289,33 @@ export function TestExecutionsPage() {
             New execution
           </Button>
         </div>
+      </div>
+
+      {/* Progress filter chips */}
+      <div className="mb-2 flex items-center gap-2">
+        {(["all", "fail", "in_progress", "pass", "todo"] as const).map((f) => {
+          const labels: Record<string, string> = {
+            all: "All",
+            fail: "Has failures",
+            in_progress: "In progress",
+            pass: "All passing",
+            todo: "Not started",
+          };
+          return (
+            <button
+              key={f}
+              onClick={() => setProgressFilter(f)}
+              className={cn(
+                "rounded-full border px-3 py-0.5 text-xs font-medium transition-colors",
+                progressFilter === f
+                  ? "border-blue-600 bg-blue-600 text-white"
+                  : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:border-slate-500",
+              )}
+            >
+              {labels[f]}
+            </button>
+          );
+        })}
       </div>
 
       {/* Filters row */}
@@ -297,9 +365,9 @@ export function TestExecutionsPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
-              {favouriteExecs.length > 0 && (
+              {displayedFavs.length > 0 && (
                 <>
-                  {favouriteExecs.map((exec) => (
+                  {displayedFavs.map((exec) => (
                     <ExecRow
                       key={exec.issue_id}
                       exec={exec}
@@ -320,7 +388,7 @@ export function TestExecutionsPage() {
                       onClone={handleClone}
                     />
                   ))}
-                  {regularExecs.length > 0 && (
+                  {displayedRegulars.length > 0 && (
                     <tr>
                       <td
                         colSpan={6}
@@ -332,7 +400,7 @@ export function TestExecutionsPage() {
                   )}
                 </>
               )}
-              {visibleRegularExecs.map((exec) => (
+              {displayedRegulars.map((exec) => (
                 <ExecRow
                   key={exec.issue_id}
                   exec={exec}

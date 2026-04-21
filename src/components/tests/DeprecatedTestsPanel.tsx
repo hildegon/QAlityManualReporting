@@ -110,6 +110,16 @@ export function DeprecatedTestsPanel({
     if (parentRef.current) parentRef.current.scrollTop = 0;
   }, [search]);
 
+  // Esc clears selection
+  useEffect(() => {
+    if (selectedIds.size === 0) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setSelectedIds(new Set());
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [selectedIds.size]);
+
   const ROW_HEIGHT = 41;
   const virtualizer = useVirtualizer({
     count: filtered.length,
@@ -135,33 +145,50 @@ export function DeprecatedTestsPanel({
 
   if (deprecated.length === 0) {
     return (
-      <EmptyState
-        icon={Archive}
-        message="No deprecated tests found. All tests have active statuses."
-      />
+      <div className="flex h-full flex-col items-center justify-center gap-3 rounded-md border border-dashed border-emerald-200 bg-emerald-50/40 p-8 text-center dark:border-emerald-900/40 dark:bg-emerald-950/10">
+        <div className="flex h-12 w-12 items-center justify-center rounded-full bg-emerald-100 dark:bg-emerald-900/40">
+          <Archive className="h-6 w-6 text-emerald-600 dark:text-emerald-300" />
+        </div>
+        <div className="space-y-1">
+          <p className="font-medium text-emerald-700 dark:text-emerald-300">
+            All clear — no deprecated tests 🎉
+          </p>
+          <p className="text-sm text-slate-500 dark:text-slate-400">
+            Every test in this project has an active status.
+          </p>
+        </div>
+      </div>
     );
   }
 
   return (
     <div className="flex h-full flex-col">
-      {/* Search + stats */}
-      <div className="mb-3 flex items-center gap-3">
+      {/* Search + stats (sticky) */}
+      <div className="sticky top-0 z-10 mb-3 flex items-center gap-3 bg-white/95 pb-2 backdrop-blur dark:bg-slate-900/95">
         <div className="relative flex-1">
           <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
           <Input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Filter by key or name…"
-            className="h-8 pl-8 text-sm"
+            className="h-8 pl-8 pr-8 text-sm"
           />
+          {search && (
+            <button
+              type="button"
+              onClick={() => setSearch("")}
+              className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-0.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-700"
+              aria-label="Clear search"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          )}
         </div>
         <div className="flex shrink-0 items-center gap-3 text-xs text-slate-500">
           <span>
-            {filtered.length}
-            {filtered.length !== deprecated.length
-              ? ` / ${deprecated.length}`
-              : ""}{" "}
-            deprecated
+            {search
+              ? `${filtered.length} of ${deprecated.length} deprecated`
+              : `${filtered.length} deprecated`}
             {isStreaming ? "…" : ""}
           </span>
         </div>
@@ -169,11 +196,11 @@ export function DeprecatedTestsPanel({
 
       {/* Bulk action bar */}
       {selectedIds.size > 0 && (
-        <div className="mb-2 flex items-center gap-2 rounded-md border border-slate-700 bg-slate-800 px-3 py-2 dark:border-slate-600">
-          <span className="shrink-0 text-sm font-medium text-slate-200">
+        <div className="mb-2 flex items-center gap-2 rounded-md border border-indigo-200 bg-indigo-50 px-3 py-2 dark:border-indigo-900/60 dark:bg-indigo-950/40">
+          <span className="shrink-0 text-sm font-medium text-indigo-700 dark:text-indigo-300">
             {selectedIds.size} selected
           </span>
-          <div className="mx-1 h-4 w-px bg-slate-600" />
+          <div className="mx-1 h-4 w-px bg-indigo-200 dark:bg-indigo-800" />
           {bulkTransitionsLoading || bulkApplying ? (
             <Spinner size="sm" />
           ) : (
@@ -196,8 +223,8 @@ export function DeprecatedTestsPanel({
           <button
             type="button"
             onClick={() => setSelectedIds(new Set())}
-            className="text-slate-400 hover:text-slate-200"
-            title="Clear selection"
+            className="text-indigo-500 hover:text-indigo-700 dark:text-indigo-400 dark:hover:text-indigo-200"
+            title="Clear selection (Esc)"
           >
             <X className="h-4 w-4" />
           </button>
@@ -276,7 +303,7 @@ export function DeprecatedTestsPanel({
                     className={cn(
                       "group grid cursor-pointer grid-cols-[2.5rem_7rem_1fr_8rem_5rem] items-center border-b border-slate-100 transition-colors dark:border-slate-800",
                       isSelected
-                        ? "bg-teal-50 dark:bg-teal-900/20"
+                        ? "bg-indigo-50 dark:bg-indigo-950/30"
                         : "hover:bg-slate-50 dark:hover:bg-slate-800/50",
                     )}
                   >

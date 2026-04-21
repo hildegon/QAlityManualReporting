@@ -22,9 +22,16 @@ import {
   useProjectVersions,
   useAddDefectsToTestRun,
   useExecutionSummariesBatch,
+  useConfig,
+  useIssueTransitions,
+  useTransitionIssue,
+  useUpdateAssignee,
+  useSearchUsers,
   queryKeys,
   TEST_RUNS_PAGE_SIZE,
 } from "@/services/queries";
+import { useCommentTemplatesStore } from "@/stores/commentTemplatesStore";
+import { useExecutionResumeStore } from "@/stores/executionResumeStore";
 import * as api from "@/services/tauri";
 import type { TestRunsPage } from "@/types";
 import { parseRateLimitError } from "@/stores/uiStore";
@@ -36,6 +43,7 @@ import { Badge } from "@/components/ui/badge";
 import { statusVariant } from "@/components/ui/badge-utils";
 import { cn } from "@/components/ui/utils";
 import {
+  AlertTriangle,
   ArrowLeft,
   ArrowUpDown,
   Bug,
@@ -43,7 +51,10 @@ import {
   ChevronDown,
   ChevronRight,
   ClipboardList,
+  Clock,
+  HelpCircle,
   Info,
+  Link2,
   Loader2,
   MessageSquare,
   Pencil,
@@ -54,6 +65,7 @@ import {
 import { Toast } from "@/components/ui/toast";
 import { showToast } from "@/components/ui/toast-utils";
 import type { ToastMessage } from "@/components/ui/toast-utils";
+import { PageHelpButton } from "@/components/common/PageHelpModal";
 import type {
   CucumberResult,
   JiraVersion,
@@ -157,6 +169,29 @@ export function TestExecutionDetail({
   const updateFixVersion = useUpdateExecutionFixVersion();
   const [versionPickerOpen, setVersionPickerOpen] = useState(false);
   const [versionSearch, setVersionSearch] = useState("");
+
+  // ── Phase 1/2 — UX state ───────────────────────────────────────────────────
+  const { data: config } = useConfig();
+  const { recentByProject, addRecent } = useCommentTemplatesStore();
+  const { lastRunByExecution, setLastRun } = useExecutionResumeStore();
+  const [focusedRunId, setFocusedRunId] = useState<string | null>(null);
+  const [helpOpen, setHelpOpen] = useState(false);
+  const [resumeHighlightId, setResumeHighlightId] = useState<string | null>(null);
+  const [autoOpenFailKit, setAutoOpenFailKit] = useState(
+    () => localStorage.getItem("qality:autoOpenFailKit") !== "false",
+  );
+  useEffect(() => {
+    localStorage.setItem("qality:autoOpenFailKit", String(autoOpenFailKit));
+  }, [autoOpenFailKit]);
+  const [bulkDefectOpen, setBulkDefectOpen] = useState(false);
+  const [bulkDefectInput, setBulkDefectInput] = useState("");
+  const [transitionOpen, setTransitionOpen] = useState(false);
+  const [assigneeOpen, setAssigneeOpen] = useState(false);
+  const [assigneeSearch, setAssigneeSearch] = useState("");
+  const { data: execTransitions } = useIssueTransitions(execution.jira.key);
+  const transitionIssue = useTransitionIssue();
+  const updateAssignee = useUpdateAssignee();
+  const { data: assigneeUserResults } = useSearchUsers(assigneeOpen ? assigneeSearch : "");
 
   const filteredVersions = useMemo(() => {
     const q = versionSearch.toLowerCase();
@@ -508,17 +543,21 @@ export function TestExecutionDetail({
   const stepStatuses: XrayStepStatus[] =
     xrayStepStatuses && xrayStepStatuses.length > 0 ? xrayStepStatuses : FALLBACK_STEP_STATUSES;
 
-  const toggleExpanded = (runId: string) => {
-    setExpandedRuns((prev) => {
-      const next = new Set(prev);
-      if (next.has(runId)) {
-        next.delete(runId);
-      } else {
-        next.add(runId);
-      }
-      return next;
-    });
-  };
+  const toggleExpanded = useCallback(
+    (runId: string) => {
+      setLastRun(execution.issue_id, runId);
+      setExpandedRuns((prev) => {
+        const next = new Set(prev);
+        if (next.has(runId)) {
+          next.delete(runId);
+        } else {
+          next.add(runId);
+        }
+        return next;
+      });
+    },
+    [execution.issue_id, setLastRun],
+  );
 
   const toggleCollapsed = (setIssueId: string) => {
     setCollapsedSets((prev) => {
@@ -683,8 +722,15 @@ export function TestExecutionDetail({
             ),
         },
       );
+      setLastRun(execution.issue_id, run.id);
+      if (autoOpenFailKit && ["FAIL", "FAILED"].includes(newStatus.toUpperCase())) {
+        setActiveComment(run.id);
+        setCommentValue(run.comment ?? "");
+        setDefectPickerOpen(run.id);
+        setDefectInputValue("");
+      }
     },
-    [updateStatus, execution.issue_id, addSavingKey, removeSavingKey],
+    [updateStatus, execution.issue_id, addSavingKey, removeSavingKey, autoOpenFailKit, setLastRun],
   );
 
   const handleStepStatusChange = useCallback(
@@ -723,10 +769,19 @@ export function TestExecutionDetail({
           onError: (err) => showToast(setToast, `Failed to save comment: ${String(err)}`, "error"),
         },
       );
+      addRecent(execProjectKey ?? "", commentValue);
       setActiveComment(null);
       setCommentValue("");
     },
-    [updateComment, commentValue, execution.issue_id, addSavingKey, removeSavingKey],
+    [
+      updateComment,
+      commentValue,
+      execution.issue_id,
+      addSavingKey,
+      removeSavingKey,
+      addRecent,
+      execProjectKey,
+    ],
   );
 
   const handleSaveStepField = useCallback(
@@ -778,7 +833,212 @@ export function TestExecutionDetail({
     [updateStepStatus, execution.issue_id, addSavingKey, removeSavingKey],
   );
 
-  // ── Add-tests panel JSX (reused in both empty state and toolbar) ─────────────
+  // ── Phase 1/2 — derived helpers, callbacks, effects ─────────────────────────
+  const visibleRunItems = useMemo(
+    () =>
+      virtualRows.filter(
+        (item): item is { type: "run"; run: TestRun; sectionId: string } => item.type === "run",
+      ),
+    [virtualRows],
+  );
+
+  const focusRun = useCallback(
+    (runId: string) => {
+      setFocusedRunId(runId);
+      setLastRun(execution.issue_id, runId);
+      const vIdx = virtualRows.findIndex((r) => r.type === "run" && r.run.id === runId);
+      if (vIdx >= 0) virtualizer.scrollToIndex(vIdx, { align: "center" });
+    },
+    [execution.issue_id, setLastRun, virtualRows, virtualizer],
+  );
+
+  const jumpToStatus = useCallback(
+    (statusNames: string[]) => {
+      const upperNames = statusNames.map((s) => s.toUpperCase());
+      const matchingItems = visibleRunItems.filter((item) =>
+        upperNames.includes(item.run.status.name.toUpperCase()),
+      );
+      if (matchingItems.length === 0) return;
+      const currentIdx = matchingItems.findIndex((item) => item.run.id === focusedRunId);
+      const nextIdx = (currentIdx + 1) % matchingItems.length;
+      const next = matchingItems[nextIdx];
+      if (next) focusRun(next.run.id);
+    },
+    [visibleRunItems, focusedRunId, focusRun],
+  );
+
+  const copyTestLink = useCallback(
+    (jiraKey: string) => {
+      const base = (config?.jira_url ?? "").replace(/\/$/, "");
+      const url = `${base}/browse/${jiraKey}`;
+      void navigator.clipboard.writeText(url).then(() => {
+        showToast(setToast, "Link copied to clipboard", "success");
+      });
+    },
+    [config?.jira_url],
+  );
+
+  const handleBulkDefect = useCallback(async () => {
+    const keys = bulkDefectInput
+      .split(",")
+      .map((k) => k.trim())
+      .filter(Boolean);
+    if (keys.length === 0) return;
+    const ids = [...selectedRunIds];
+    setBulkDefectOpen(false);
+    setBulkDefectInput("");
+    setSelectedRunIds(new Set());
+    setIsSelectMode(false);
+    for (const id of ids) {
+      const key = `run:${id}`;
+      addSavingKey(key);
+      try {
+        await addDefects.mutateAsync({
+          testRunId: id,
+          issueKeys: keys,
+          executionIssueId: execution.issue_id,
+        });
+      } catch (err) {
+        showToast(setToast, `Failed to link defect: ${String(err)}`, "error");
+      } finally {
+        removeSavingKey(key);
+      }
+    }
+  }, [
+    bulkDefectInput,
+    selectedRunIds,
+    addDefects,
+    execution.issue_id,
+    addSavingKey,
+    removeSavingKey,
+  ]);
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handler = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target) {
+        const tag = target.tagName;
+        if (tag === "INPUT" || tag === "TEXTAREA" || target.isContentEditable) return;
+      }
+      if (event.ctrlKey || event.metaKey || event.altKey) return;
+
+      const items = visibleRunItems;
+      const currentIdx = items.findIndex((it) => it.run.id === focusedRunId);
+
+      const move = (delta: number) => {
+        if (items.length === 0) return;
+        const nextIdx =
+          currentIdx < 0 ? (delta > 0 ? 0 : items.length - 1) : (currentIdx + delta + items.length) % items.length;
+        const next = items[nextIdx];
+        if (next) focusRun(next.run.id);
+      };
+
+      const focusedRun = currentIdx >= 0 ? (items[currentIdx]?.run ?? null) : null;
+
+      switch (event.key) {
+        case "ArrowDown":
+        case "j":
+          event.preventDefault();
+          move(1);
+          return;
+        case "ArrowUp":
+        case "k":
+          event.preventDefault();
+          move(-1);
+          return;
+        case "Escape":
+          setFocusedRunId(null);
+          return;
+        case "?":
+          event.preventDefault();
+          setHelpOpen((prev) => !prev);
+          return;
+        case "n":
+          event.preventDefault();
+          jumpToStatus(["TODO"]);
+          return;
+        case "f":
+          event.preventDefault();
+          jumpToStatus(["FAIL", "FAILED"]);
+          return;
+        default:
+          break;
+      }
+
+      if (!focusedRun) return;
+
+      if (event.key >= "1" && event.key <= "9") {
+        const idx = Number(event.key) - 1;
+        const targetStatus = statuses[idx];
+        if (targetStatus) {
+          event.preventDefault();
+          handleStatusChange(focusedRun, targetStatus.name);
+        }
+        return;
+      }
+
+      switch (event.key) {
+        case "c":
+          event.preventDefault();
+          setActiveComment(focusedRun.id);
+          setCommentValue(focusedRun.comment ?? "");
+          setLastRun(execution.issue_id, focusedRun.id);
+          return;
+        case "d":
+          event.preventDefault();
+          setDefectPickerOpen(focusedRun.id);
+          setDefectInputValue("");
+          setLastRun(execution.issue_id, focusedRun.id);
+          return;
+        case "Enter": {
+          const isCucumber =
+            focusedRun.test_type?.name?.toLowerCase() === "cucumber" || !!focusedRun.gherkin;
+          const isManual =
+            focusedRun.test_type?.name?.toLowerCase() === "manual" ||
+            (!focusedRun.test_type && !isCucumber);
+          if (isManual || isCucumber) {
+            event.preventDefault();
+            toggleExpanded(focusedRun.id);
+            setLastRun(execution.issue_id, focusedRun.id);
+          }
+          return;
+        }
+        default:
+          return;
+      }
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [
+    visibleRunItems,
+    focusedRunId,
+    statuses,
+    focusRun,
+    handleStatusChange,
+    jumpToStatus,
+    execution.issue_id,
+    setLastRun,
+    toggleExpanded,
+  ]);
+
+  // Resume marker — scroll to last-touched run on first load
+  const resumedRef = useRef(false);
+  useEffect(() => {
+    if (resumedRef.current || runs.length === 0) return;
+    const lastRunId = lastRunByExecution[execution.issue_id];
+    if (!lastRunId) return;
+    if (!runs.some((r) => r.id === lastRunId)) return;
+    resumedRef.current = true;
+    setFocusedRunId(lastRunId);
+    setResumeHighlightId(lastRunId);
+    const vIdx = virtualRows.findIndex((r) => r.type === "run" && r.run.id === lastRunId);
+    if (vIdx >= 0) {
+      setTimeout(() => virtualizer.scrollToIndex(vIdx, { align: "center" }), 100);
+    }
+    setTimeout(() => setResumeHighlightId(null), 5000);
+  }, [runs, execution.issue_id, lastRunByExecution, virtualRows, virtualizer]);
+
   const addTestsPanel = addPanelOpen ? (
     <div className="rounded-lg border border-blue-200 bg-blue-50 shadow-sm dark:border-blue-800 dark:bg-blue-950/40">
       {/* Panel header */}
@@ -1045,7 +1305,6 @@ export function TestExecutionDetail({
       return acc;
     }, {});
     return buildSlicesFromCounts(rawCounts, runs.length);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [allRunsLoaded, filteredRuns, batchSummary, runs]);
 
   return (
@@ -1063,6 +1322,109 @@ export function TestExecutionDetail({
           <h1 className="text-xl font-semibold">{execution.jira.summary}</h1>
           <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
             <p className="font-mono text-xs text-slate-400">{execution.jira.key}</p>
+            <button
+              title={`Copy Jira link for ${execution.jira.key}`}
+              onClick={() => copyTestLink(execution.jira.key)}
+              className="rounded p-0.5 text-slate-400 hover:text-slate-600"
+            >
+              <Link2 className="h-3.5 w-3.5" />
+            </button>
+            {/* Execution status pill with transition dropdown */}
+            {execution.jira.status && (
+              <div className="relative">
+                <button
+                  onClick={() => setTransitionOpen((v) => !v)}
+                  className="flex items-center gap-1 rounded px-1.5 py-0.5 text-xs hover:bg-slate-100 dark:hover:bg-slate-700"
+                >
+                  <span className="text-slate-400">status:</span>
+                  <span className="font-medium text-slate-600 dark:text-slate-300">
+                    {execution.jira.status.name}
+                  </span>
+                  <ChevronDown className="h-3 w-3 opacity-50" />
+                </button>
+                {transitionOpen && execTransitions && execTransitions.length > 0 && (
+                  <div className="absolute left-0 top-full z-20 mt-1 w-48 rounded-md border border-slate-200 bg-white shadow-lg dark:border-slate-700 dark:bg-slate-800">
+                    {execTransitions.map((t) => (
+                      <button
+                        key={t.id}
+                        className="flex w-full items-center px-3 py-1.5 text-left text-xs hover:bg-slate-50 dark:hover:bg-slate-700"
+                        onClick={() => {
+                          setTransitionOpen(false);
+                          transitionIssue.mutate({
+                            issueKey: execution.jira.key,
+                            transitionId: t.id,
+                            executionProjectKey: execProjectKey ?? "",
+                          });
+                        }}
+                      >
+                        {t.name}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Assignee picker */}
+            <div className="relative">
+              <button
+                onClick={() => {
+                  setAssigneeOpen((v) => !v);
+                  setAssigneeSearch("");
+                }}
+                className="flex items-center gap-1 rounded px-1.5 py-0.5 text-xs text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-700"
+                title="Set assignee"
+              >
+                <span className="text-slate-400">assignee:</span>
+                <span className="font-medium text-slate-600 dark:text-slate-300">
+                  {execution.jira.assignee?.display_name ?? "Unassigned"}
+                </span>
+                <Pencil className="h-3 w-3 opacity-50" />
+              </button>
+              {assigneeOpen && (
+                <div className="absolute left-0 top-full z-20 mt-1 w-56 rounded-md border border-slate-200 bg-white shadow-lg dark:border-slate-700 dark:bg-slate-800">
+                  <div className="p-1.5">
+                    <input
+                      autoFocus
+                      placeholder="Search users…"
+                      value={assigneeSearch}
+                      onChange={(e) => setAssigneeSearch(e.target.value)}
+                      className="w-full rounded border border-slate-200 px-2 py-1 text-xs outline-none focus:border-blue-400 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100"
+                    />
+                  </div>
+                  <div className="max-h-48 overflow-y-auto">
+                    <button
+                      className="flex w-full items-center px-3 py-1.5 text-left text-xs text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700"
+                      onClick={() => {
+                        setAssigneeOpen(false);
+                        updateAssignee.mutate({
+                          issueKey: execution.jira.key,
+                          executionProjectKey: execProjectKey ?? "",
+                        });
+                      }}
+                    >
+                      — Unassign —
+                    </button>
+                    {(assigneeUserResults ?? []).map((u) => (
+                      <button
+                        key={u.account_id}
+                        className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs hover:bg-slate-50 dark:hover:bg-slate-700"
+                        onClick={() => {
+                          setAssigneeOpen(false);
+                          updateAssignee.mutate({
+                            issueKey: execution.jira.key,
+                            accountId: u.account_id,
+                            executionProjectKey: execProjectKey ?? "",
+                          });
+                        }}
+                      >
+                        <span>{u.display_name}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
             {/* Fix Version display + picker */}
             <div className="relative">
               <button
@@ -1212,149 +1574,200 @@ export function TestExecutionDetail({
 
       {runs.length > 0 && (
         <>
-          {/* Filters */}
-          <div className="mb-3 space-y-2">
-            {/* Key / name search + sort toggle + add tests */}
-            <div className="flex items-center gap-2">
-              <div className="flex flex-1 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 shadow-sm dark:border-slate-700 dark:bg-slate-800">
-                <Search className="h-3.5 w-3.5 shrink-0 text-slate-400" />
-                <input
-                  autoCorrect="off" autoCapitalize="off" spellCheck={false}
-                  type="text"
-                  placeholder="Filter by key or name…"
-                  value={testSearch}
-                  onChange={(e) => setTestSearch(e.target.value)}
-                  className="flex-1 bg-transparent text-sm text-slate-700 placeholder:text-slate-400 focus:outline-none dark:text-slate-200 dark:placeholder:text-slate-500"
-                />
-                {testSearch && (
-                  <button
-                    onClick={() => setTestSearch("")}
-                    className="text-slate-400 hover:text-slate-600"
-                    aria-label="Clear search"
-                  >
-                    <X className="h-3.5 w-3.5" />
-                  </button>
+          {/* Sticky toolbar: filters + progress + status filter */}
+          <div className="sticky top-0 z-10 -mx-1 border-b border-slate-200 bg-white/95 px-1 pb-2 shadow-[0_2px_8px_-4px_rgba(15,23,42,0.08)] backdrop-blur dark:border-slate-700 dark:bg-slate-900/95">
+            <div className="mb-2 space-y-2">
+              {/* Key / name search + sort toggle + jump buttons + add tests */}
+              <div className="flex items-center gap-2">
+                <div className="flex flex-1 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+                  <Search className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+                  <input
+                    autoCorrect="off" autoCapitalize="off" spellCheck={false}
+                    type="text"
+                    placeholder="Filter by key or name…"
+                    value={testSearch}
+                    onChange={(e) => setTestSearch(e.target.value)}
+                    className="flex-1 bg-transparent text-sm text-slate-700 placeholder:text-slate-400 focus:outline-none dark:text-slate-200 dark:placeholder:text-slate-500"
+                  />
+                  {testSearch && (
+                    <button
+                      onClick={() => setTestSearch("")}
+                      className="text-slate-400 hover:text-slate-600"
+                      aria-label="Clear search"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                </div>
+                <button
+                  onClick={() => setSortByStatus((prev) => !prev)}
+                  title={sortByStatus ? "Restore original order" : "Sort by status"}
+                  className={cn(
+                    "flex items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-medium shadow-sm transition-colors",
+                    sortByStatus
+                      ? "border-slate-800 bg-slate-800 text-white"
+                      : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:border-slate-500 dark:hover:bg-slate-700",
+                  )}
+                >
+                  <ArrowUpDown className="h-3.5 w-3.5" />
+                  Status
+                </button>
+                <button
+                  onClick={() => jumpToStatus(["FAIL", "FAILED"])}
+                  title="Jump to next FAIL run"
+                  className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium shadow-sm hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
+                >
+                  <AlertTriangle className="h-3.5 w-3.5 text-red-500" />
+                </button>
+                <button
+                  onClick={() => jumpToStatus(["TODO"])}
+                  title="Jump to next TODO run"
+                  className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium shadow-sm hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
+                >
+                  <Clock className="h-3.5 w-3.5 text-slate-400" />
+                </button>
+                <button
+                  onClick={() => setAutoOpenFailKit((prev) => !prev)}
+                  title={
+                    autoOpenFailKit
+                      ? "Auto fail-kit: ON (click to disable)"
+                      : "Auto fail-kit: OFF (click to enable)"
+                  }
+                  className={cn(
+                    "flex items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-medium shadow-sm transition-colors",
+                    autoOpenFailKit
+                      ? "border-red-300 bg-red-50 text-red-700 dark:border-red-700 dark:bg-red-950/40 dark:text-red-300"
+                      : "border-slate-200 bg-white text-slate-400 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:hover:bg-slate-700",
+                  )}
+                >
+                  <Bug className="h-3.5 w-3.5" />
+                  {autoOpenFailKit ? "Kit on" : "Kit off"}
+                </button>
+                <span className="mx-0.5 h-6 w-px shrink-0 bg-slate-200 dark:bg-slate-700" aria-hidden />
+                <button
+                  onClick={() => setAddPanelOpen((prev) => !prev)}
+                  title="Add tests to this execution"
+                  className={cn(
+                    "flex items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-medium shadow-sm transition-colors",
+                    addPanelOpen
+                      ? "border-blue-600 bg-blue-600 text-white"
+                      : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:border-slate-500 dark:hover:bg-slate-700",
+                  )}
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  Add tests
+                </button>
+                <button
+                  onClick={() => {
+                    setIsSelectMode((prev) => !prev);
+                    setSelectedRunIds(new Set());
+                  }}
+                  title={isSelectMode ? "Exit select mode" : "Select runs to bulk-update status"}
+                  className={cn(
+                    "flex items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-medium shadow-sm transition-colors",
+                    isSelectMode
+                      ? "border-blue-600 bg-blue-600 text-white"
+                      : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:border-slate-500 dark:hover:bg-slate-700",
+                  )}
+                >
+                  <CheckCheck className="h-3.5 w-3.5" />
+                  {isSelectMode ? "Cancel" : "Select"}
+                </button>
+                <span className="mx-0.5 h-6 w-px shrink-0 bg-slate-200 dark:bg-slate-700" aria-hidden />
+                <button
+                  onClick={() => setHelpOpen(true)}
+                  title="Help & keyboard shortcuts (press ?)"
+                  className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium shadow-sm hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
+                  aria-label="Help"
+                >
+                  <HelpCircle className="h-3.5 w-3.5 text-blue-500" />
+                </button>
+              </div>
+            </div>
+
+            {/* Progress summary */}
+            <div className="mb-2 rounded-lg border border-slate-200 bg-white px-4 py-3 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+              <p className="mb-1.5 truncate text-sm font-medium text-slate-700 dark:text-slate-200">
+                {execution.jira.summary}
+              </p>
+              <div className="mb-2 flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
+                <span className="font-medium">
+                  {summaryTotal} test{summaryTotal !== 1 ? "s" : ""}
+                  {!allRunsLoaded && ` (${runs.length} loaded)`}
+                </span>
+                <span className="text-slate-400">
+                  {summarySlices.map((sl, i) => (
+                    <span key={sl.key}>
+                      {i > 0 && " · "}
+                      <span style={{ color: sl.color }}>{sl.count}</span> {sl.label.toLowerCase()}
+                    </span>
+                  ))}
+                </span>
+              </div>
+              {/* Progress bar — one segment per status, each coloured by its palette entry */}
+              <div className="flex h-2 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-700">
+                {summarySlices.map((sl) =>
+                  sl.count > 0 ? (
+                    <div
+                      key={sl.key}
+                      style={{ width: `${sl.pct * 100}%`, backgroundColor: sl.color }}
+                    />
+                  ) : null,
                 )}
               </div>
-              <button
-                onClick={() => setSortByStatus((prev) => !prev)}
-                title={sortByStatus ? "Restore original order" : "Sort by status"}
-                className={cn(
-                  "flex items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-medium shadow-sm transition-colors",
-                  sortByStatus
-                    ? "border-slate-800 bg-slate-800 text-white"
-                    : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:border-slate-500 dark:hover:bg-slate-700",
-                )}
-              >
-                <ArrowUpDown className="h-3.5 w-3.5" />
-                Status
-              </button>
-              <button
-                onClick={() => setAddPanelOpen((prev) => !prev)}
-                title="Add tests to this execution"
-                className={cn(
-                  "flex items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-medium shadow-sm transition-colors",
-                  addPanelOpen
-                    ? "border-blue-600 bg-blue-600 text-white"
-                    : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:border-slate-500 dark:hover:bg-slate-700",
-                )}
-              >
-                <Plus className="h-3.5 w-3.5" />
-                Add tests
-              </button>
-              <button
-                onClick={() => {
-                  setIsSelectMode((prev) => !prev);
-                  setSelectedRunIds(new Set());
-                }}
-                title={isSelectMode ? "Exit select mode" : "Select runs to bulk-update status"}
-                className={cn(
-                  "flex items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-medium shadow-sm transition-colors",
-                  isSelectMode
-                    ? "border-blue-600 bg-blue-600 text-white"
-                    : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:border-slate-500 dark:hover:bg-slate-700",
-                )}
-              >
-                <CheckCheck className="h-3.5 w-3.5" />
-                {isSelectMode ? "Cancel" : "Select"}
-              </button>
             </div>
 
-            {/* ── Add-tests panel ────────────────────────────────────────────── */}
-            {addTestsPanel}
-          </div>
-
-          {/* Progress summary */}
-          <div className="mb-4 rounded-lg border border-slate-200 bg-white px-4 py-3 shadow-sm dark:border-slate-700 dark:bg-slate-800">
-            <p className="mb-1.5 truncate text-sm font-medium text-slate-700 dark:text-slate-200">
-              {execution.jira.summary}
-            </p>
-            <div className="mb-2 flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
-              <span className="font-medium">
-                {summaryTotal} test{summaryTotal !== 1 ? "s" : ""}
-                {!allRunsLoaded && ` (${runs.length} loaded)`}
-              </span>
-              <span className="text-slate-400">
-                {summarySlices.map((sl, i) => (
-                  <span key={sl.key}>
-                    {i > 0 && " · "}
-                    <span style={{ color: sl.color }}>{sl.count}</span> {sl.label.toLowerCase()}
-                  </span>
-                ))}
-              </span>
-            </div>
-            {/* Progress bar — one segment per status, each coloured by its palette entry */}
-            <div className="flex h-2 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-700">
-              {summarySlices.map((sl) =>
-                sl.count > 0 ? (
-                  <div
-                    key={sl.key}
-                    style={{ width: `${sl.pct * 100}%`, backgroundColor: sl.color }}
-                  />
-                ) : null,
+            {/* Status filter */}
+            <div className="mb-2 flex items-center gap-2">
+              <span className="text-xs font-medium text-slate-500 dark:text-slate-400">Filter:</span>
+              {statuses.map((s) => {
+                const isActive = statusFilter?.toUpperCase() === s.name.toUpperCase();
+                return (
+                  <button
+                    key={s.name}
+                    title={isActive ? `Clear filter: ${s.name}` : `Show only ${s.name}`}
+                    onClick={() =>
+                      setStatusFilter((prev) =>
+                        prev?.toUpperCase() === s.name.toUpperCase() ? null : s.name,
+                      )
+                    }
+                    style={statusButtonStyle(s.color, isActive)}
+                    className={cn(
+                      "rounded border px-2 py-0.5 text-xs font-medium transition-colors",
+                      !s.color && isActive
+                        ? "border-slate-600 bg-slate-600 text-white"
+                        : !s.color
+                          ? "border-transparent bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600"
+                          : "",
+                    )}
+                  >
+                    {s.name}
+                  </button>
+                );
+              })}
+              {statusFilter && (
+                <button
+                  onClick={() => setStatusFilter(null)}
+                  className="ml-1 text-slate-400 hover:text-slate-600"
+                  title="Clear filter"
+                  aria-label="Clear status filter"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
               )}
             </div>
           </div>
 
-          {/* Status filter */}
-          <div className="mb-3 flex items-center gap-2">
-            <span className="text-xs font-medium text-slate-500 dark:text-slate-400">Filter:</span>
-            {statuses.map((s) => {
-              const isActive = statusFilter?.toUpperCase() === s.name.toUpperCase();
-              return (
-                <button
-                  key={s.name}
-                  title={isActive ? `Clear filter: ${s.name}` : `Show only ${s.name}`}
-                  onClick={() =>
-                    setStatusFilter((prev) =>
-                      prev?.toUpperCase() === s.name.toUpperCase() ? null : s.name,
-                    )
-                  }
-                  style={statusButtonStyle(s.color, isActive)}
-                  className={cn(
-                    "rounded border px-2 py-0.5 text-xs font-medium transition-colors",
-                    !s.color && isActive
-                      ? "border-slate-600 bg-slate-600 text-white"
-                      : !s.color
-                        ? "border-transparent bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600"
-                        : "",
-                  )}
-                >
-                  {s.name}
-                </button>
-              );
-            })}
-            {statusFilter && (
-              <button
-                onClick={() => setStatusFilter(null)}
-                className="ml-1 text-slate-400 hover:text-slate-600"
-                title="Clear filter"
-                aria-label="Clear status filter"
-              >
-                <X className="h-3.5 w-3.5" />
-              </button>
-            )}
-          </div>
+          {/* Add-tests panel — outside sticky to avoid covering the list */}
+          {addTestsPanel && <div className="mb-3">{addTestsPanel}</div>}
+
+          {/* Help modal — driven by toolbar button or `?` shortcut */}
+          <PageHelpButton
+            pageId="execution-detail"
+            open={helpOpen}
+            onOpenChange={setHelpOpen}
+            hideTrigger
+          />
 
           <div className="rounded-lg border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
             {/* Table header */}
@@ -1485,6 +1898,7 @@ export function TestExecutionDetail({
                         key={`h:${item.setIssueId}`}
                         data-index={virtualRow.index}
                         ref={virtualizer.measureElement}
+                        className="bg-white dark:bg-slate-800"
                         style={{
                           position: "absolute",
                           top: 0,
@@ -1560,6 +1974,10 @@ export function TestExecutionDetail({
                       key={run.id}
                       data-index={virtualRow.index}
                       ref={virtualizer.measureElement}
+                      className={cn(
+                        "bg-white dark:bg-slate-800",
+                        isExpanded && "z-[1]",
+                      )}
                       style={{
                         position: "absolute",
                         top: 0,
@@ -1574,6 +1992,9 @@ export function TestExecutionDetail({
                           isSelectMode
                             ? "grid-cols-[auto_2fr_1fr_auto_auto_auto]"
                             : "grid-cols-[2fr_1fr_auto_auto_auto]",
+                          focusedRunId === run.id &&
+                            "ring-2 ring-blue-400 bg-blue-50/40 dark:bg-blue-900/20",
+                          resumeHighlightId === run.id && "animate-pulse",
                         )}
                       >
                         {/* Select checkbox (only in select mode) */}
@@ -1678,26 +2099,41 @@ export function TestExecutionDetail({
                           })}
                         </div>
 
-                        {/* Comment toggle */}
-                        <button
-                          title={run.comment ? `Comment: ${run.comment}` : "Add comment"}
-                          onClick={() => {
-                            if (activeComment === run.id) {
-                              setActiveComment(null);
-                            } else {
-                              setActiveComment(run.id);
-                              setCommentValue(run.comment ?? "");
-                            }
-                          }}
-                          className={cn(
-                            "rounded p-1 hover:bg-slate-100",
-                            run.comment
-                              ? "text-blue-500 hover:text-blue-700"
-                              : "text-slate-400 hover:text-slate-700",
-                          )}
-                        >
-                          <MessageSquare className="h-4 w-4" />
-                        </button>
+                        {/* Comment toggle + copy link */}
+                        <div className="flex items-center gap-1">
+                          <button
+                            title={run.comment ? `Comment: ${run.comment}` : "Add comment"}
+                            onClick={() => {
+                              if (activeComment === run.id) {
+                                setActiveComment(null);
+                              } else {
+                                setActiveComment(run.id);
+                                setCommentValue(run.comment ?? "");
+                                setLastRun(execution.issue_id, run.id);
+                              }
+                            }}
+                            className={cn(
+                              "rounded p-1 hover:bg-slate-100",
+                              run.comment
+                                ? "text-blue-500 hover:text-blue-700"
+                                : "text-slate-400 hover:text-slate-700",
+                            )}
+                          >
+                            <MessageSquare className="h-4 w-4" />
+                          </button>
+
+                          {/* Copy Jira link */}
+                          <button
+                            title={`Copy Jira link for ${run.test.jira.key}`}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              copyTestLink(run.test.jira.key);
+                            }}
+                            className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-700"
+                          >
+                            <Link2 className="h-4 w-4" />
+                          </button>
+                        </div>
 
                         {/* Defect chips + bug link button */}
                         <div className="flex items-center gap-1">
@@ -1804,29 +2240,46 @@ export function TestExecutionDetail({
 
                       {/* Inline comment editor */}
                       {activeComment === run.id && (
-                        <div className="flex items-center gap-2 border-b border-slate-100 bg-slate-50 px-4 py-2 dark:border-slate-700 dark:bg-slate-700/40">
-                          <input
-                            autoCorrect="off" autoCapitalize="off" spellCheck={false}
-                            autoFocus
-                            className="flex-1 rounded border border-slate-200 bg-white px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200 dark:focus:ring-slate-500"
-                            placeholder="Add a comment..."
-                            value={commentValue}
-                            onChange={(e) => setCommentValue(e.target.value)}
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter") handleSaveComment(run);
-                              if (e.key === "Escape") setActiveComment(null);
-                            }}
-                          />
-                          <Button
-                            size="sm"
-                            disabled={updateComment.isPending}
-                            onClick={() => handleSaveComment(run)}
-                          >
-                            Save
-                          </Button>
-                          <Button size="sm" variant="ghost" onClick={() => setActiveComment(null)}>
-                            Cancel
-                          </Button>
+                        <div className="flex flex-col gap-2 border-b border-slate-100 bg-slate-50 px-4 py-2 dark:border-slate-700 dark:bg-slate-700/40">
+                          {(recentByProject[execProjectKey ?? ""] ?? []).slice(0, 5).length > 0 && (
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              <span className="text-[10px] text-slate-400">Recent:</span>
+                              {(recentByProject[execProjectKey ?? ""] ?? []).slice(0, 5).map((c, i) => (
+                                <button
+                                  key={i}
+                                  onClick={() => setCommentValue(c)}
+                                  title={c}
+                                  className="max-w-[200px] truncate rounded border border-slate-200 bg-white px-2 py-0.5 text-[10px] text-slate-600 hover:bg-slate-100 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600"
+                                >
+                                  {c.length > 50 ? c.slice(0, 50) + "…" : c}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                          <div className="flex items-center gap-2">
+                            <input
+                              autoCorrect="off" autoCapitalize="off" spellCheck={false}
+                              autoFocus
+                              className="flex-1 rounded border border-slate-200 bg-white px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200 dark:focus:ring-slate-500"
+                              placeholder="Add a comment..."
+                              value={commentValue}
+                              onChange={(e) => setCommentValue(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") handleSaveComment(run);
+                                if (e.key === "Escape") setActiveComment(null);
+                              }}
+                            />
+                            <Button
+                              size="sm"
+                              disabled={updateComment.isPending}
+                              onClick={() => handleSaveComment(run)}
+                            >
+                              Save
+                            </Button>
+                            <Button size="sm" variant="ghost" onClick={() => setActiveComment(null)}>
+                              Cancel
+                            </Button>
+                          </div>
                         </div>
                       )}
 
@@ -1956,6 +2409,49 @@ export function TestExecutionDetail({
                   {s.name}
                 </button>
               ))}
+              <div className="mx-1 h-4 w-px bg-slate-200 dark:bg-slate-700" />
+              {bulkDefectOpen ? (
+                <div className="flex items-center gap-1.5">
+                  <input
+                    autoFocus
+                    value={bulkDefectInput}
+                    onChange={(e) => setBulkDefectInput(e.target.value)}
+                    placeholder="BUG-1, BUG-2"
+                    className="w-36 rounded border border-slate-200 px-2 py-0.5 text-xs focus:outline-none dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200"
+                    onKeyDown={(e) => {
+                      e.stopPropagation();
+                      if (e.key === "Enter") void handleBulkDefect();
+                      if (e.key === "Escape") {
+                        setBulkDefectOpen(false);
+                        setBulkDefectInput("");
+                      }
+                    }}
+                  />
+                  <button
+                    onClick={() => void handleBulkDefect()}
+                    className="rounded bg-slate-800 px-2 py-0.5 text-xs text-white hover:bg-slate-700 dark:bg-slate-600"
+                  >
+                    Apply
+                  </button>
+                  <button
+                    onClick={() => {
+                      setBulkDefectOpen(false);
+                      setBulkDefectInput("");
+                    }}
+                    className="rounded px-2 py-0.5 text-xs text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              ) : (
+                <button
+                  title="Link defect to all selected"
+                  onClick={() => setBulkDefectOpen(true)}
+                  className="rounded-full p-1.5 text-slate-400 hover:bg-slate-100 hover:text-red-500 dark:hover:bg-slate-700"
+                >
+                  <Bug className="h-3.5 w-3.5" />
+                </button>
+              )}
             </div>
           )}
         </>

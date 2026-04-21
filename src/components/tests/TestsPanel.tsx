@@ -1,6 +1,6 @@
 import { useState, useMemo, useRef, useCallback, useEffect } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { FlaskConical, Search, Download } from "lucide-react";
+import { FlaskConical, Search, Download, X } from "lucide-react";
 import { save as saveDialog } from "@tauri-apps/plugin-dialog";
 
 import { useGetTests } from "@/services/queries";
@@ -47,6 +47,19 @@ export function TestsPanel({
   const { data: tests, isLoading, isError, error } = useGetTests(projectKey, enabled);
 
   const [search, setSearch] = useState("");
+  const searchRef = useRef<HTMLInputElement>(null);
+
+  // F2: `/` focuses search input when tab is active
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "/" && document.activeElement?.tagName !== "INPUT" && document.activeElement?.tagName !== "TEXTAREA") {
+        e.preventDefault();
+        searchRef.current?.focus();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   const q = search.trim().toLowerCase();
   const filtered = useMemo(
@@ -199,54 +212,76 @@ export function TestsPanel({
 
   return (
     <div className="flex h-full flex-col gap-3">
-      {/* Search */}
-      <div className="relative">
-        <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
-        <Input
-          className="pl-8"
-          placeholder="Filter tests…"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
-      </div>
-
-      {/* Select-all / clear */}
-      <div className="flex items-center justify-between text-xs text-slate-500">
-        <span className="flex flex-wrap items-center gap-1.5">
-          {filtered.length} test{filtered.length !== 1 ? "s" : ""}
-          {selectedIds.size > 0 && (
-            <span className="rounded-full bg-slate-700 px-1.5 py-0.5 text-white">
-              {selectedIds.size} selected
-            </span>
-          )}
-          {hiddenCount > 0 && (
+      {/* Sticky toolbar: search + select row */}
+      <div className="sticky top-0 z-10 flex flex-col gap-2 bg-white/95 pb-1 backdrop-blur dark:bg-slate-900/95">
+        {/* Search */}
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+          <Input
+            ref={searchRef}
+            className="pl-8 pr-8"
+            placeholder="Filter tests…  (press /)"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+          {search && (
             <button
-              onClick={onToggleShowHidden}
-              className="rounded-full border border-dashed border-slate-300 px-1.5 py-0.5 text-slate-400 hover:border-slate-400 hover:text-slate-600 dark:border-slate-600 dark:text-slate-500 dark:hover:text-slate-300"
+              type="button"
+              onClick={() => setSearch("")}
+              title="Clear"
+              className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-0.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-700"
             >
-              {showHidden ? "hide" : `${hiddenCount} deprecated`}
+              <X className="h-3.5 w-3.5" />
             </button>
           )}
-        </span>
-        <span className="flex items-center gap-2">
-          {allFilteredSelected ? (
-            <button className="hover:text-slate-700" onClick={onClearAll}>
-              Deselect all
+        </div>
+
+        {/* Select-all / clear */}
+        <div className="flex items-center justify-between text-xs text-slate-500">
+          <span className="flex flex-wrap items-center gap-1.5">
+            {q ? (
+              <span>
+                {filtered.length} of {(tests ?? []).length} test{(tests ?? []).length !== 1 ? "s" : ""}
+              </span>
+            ) : (
+              <span>
+                {filtered.length} test{filtered.length !== 1 ? "s" : ""}
+              </span>
+            )}
+            {selectedIds.size > 0 && (
+              <span className="rounded-full bg-indigo-600 px-1.5 py-0.5 font-medium text-white">
+                {selectedIds.size} selected
+              </span>
+            )}
+            {hiddenCount > 0 && (
+              <button
+                onClick={onToggleShowHidden}
+                className="rounded-full border border-dashed border-slate-300 px-1.5 py-0.5 text-slate-400 hover:border-slate-400 hover:text-slate-600 dark:border-slate-600 dark:text-slate-500 dark:hover:text-slate-300"
+              >
+                {showHidden ? "hide" : `${hiddenCount} deprecated`}
+              </button>
+            )}
+          </span>
+          <span className="flex items-center gap-2">
+            {allFilteredSelected ? (
+              <button className="hover:text-slate-700" onClick={onClearAll}>
+                Deselect all
+              </button>
+            ) : (
+              <button className="hover:text-slate-700" onClick={() => onSelectAll(filteredIds)}>
+                Select all
+              </button>
+            )}
+            <button
+              onClick={() => void handleExportJson()}
+              disabled={isExporting || filtered.length === 0}
+              title="Export as JSON"
+              className="rounded p-0.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 disabled:opacity-40 dark:hover:bg-slate-700"
+            >
+              <Download className="h-3.5 w-3.5" />
             </button>
-          ) : (
-            <button className="hover:text-slate-700" onClick={() => onSelectAll(filteredIds)}>
-              Select all
-            </button>
-          )}
-          <button
-            onClick={() => void handleExportJson()}
-            disabled={isExporting || filtered.length === 0}
-            title="Export as JSON"
-            className="rounded p-0.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 disabled:opacity-40 dark:hover:bg-slate-700"
-          >
-            <Download className="h-3.5 w-3.5" />
-          </button>
-        </span>
+          </span>
+        </div>
       </div>
 
       {/* List (virtualised) */}
@@ -298,7 +333,7 @@ export function TestsPanel({
       </div>
 
       {selectedIds.size > 0 && (
-        <p className="rounded-lg border border-dashed border-slate-300 px-3 py-2 text-center text-xs text-slate-400 dark:border-slate-500 dark:text-slate-400">
+        <p className="rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-center text-xs text-indigo-700 dark:border-indigo-700/50 dark:bg-indigo-900/20 dark:text-indigo-300">
           Drag selected tests onto a test set →
         </p>
       )}

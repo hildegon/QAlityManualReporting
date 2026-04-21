@@ -17,6 +17,8 @@ import { EmptyState } from "@/components/common/EmptyState";
 import { PageHelpButton } from "@/components/common/PageHelpModal";
 import { Button } from "@/components/ui/button";
 import { AlertTriangle, FlaskConical, Layers, RefreshCw, Plus, Activity, ShieldAlert, Archive } from "lucide-react";
+import { isDeprecatingStatus } from "@/components/tests/utils";
+import { useGetTestSets } from "@/services/queries";
 import * as Dialog from "@radix-ui/react-dialog";
 import { cn } from "@/components/ui/utils";
 import { useHealthStore } from "@/stores/healthStore";
@@ -52,7 +54,30 @@ export function TestsPage() {
       setLoadConfirmed(true);
     }
   }, [confirmedLoadProjects, projectKey, loadConfirmed]);
-  const [activeTab, setActiveTab] = useState<"tests" | "health" | "sets-health" | "deprecated">("tests");
+  const [activeTab, setActiveTab] = useState<"tests" | "health" | "sets-health" | "deprecated">(
+    () => {
+      if (typeof window === "undefined") return "tests";
+      try {
+        const stored = window.localStorage.getItem(`qality:tests:activeTab:${projectKey ?? ""}`);
+        if (stored === "tests" || stored === "health" || stored === "sets-health" || stored === "deprecated") {
+          return stored;
+        }
+      } catch {
+        // ignore
+      }
+      return "tests";
+    },
+  );
+
+  // Persist tab per project
+  useEffect(() => {
+    if (!projectKey) return;
+    try {
+      window.localStorage.setItem(`qality:tests:activeTab:${projectKey}`, activeTab);
+    } catch {
+      // ignore
+    }
+  }, [activeTab, projectKey]);
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [pendingSetId, setPendingSetId] = useState<string | null>(null);
@@ -153,6 +178,15 @@ export function TestsPage() {
   // ── Health data — persisted in Zustand so it survives tab/route switches ──────
   const { data: allTests } = useGetTests(projectKey ?? "", loadConfirmed === true);
   const isTestsStreaming = useIsTestsStreaming(projectKey ?? "");
+  const { data: allTestSets } = useGetTestSets(projectKey ?? "");
+
+  // Counts for tab badges
+  const deprecatedCount = (allTests ?? []).filter(
+    (t) => t.jira.status?.name && isDeprecatingStatus(t.jira.status.name),
+  ).length;
+  const setsHealthCount = (allTestSets ?? []).filter(
+    (ts) => ts.jira.status?.name && isDeprecatingStatus(ts.jira.status.name),
+  ).length;
   const healthStore = useHealthStore();
   const projectHealth = healthStore.getProjectHealth(projectKey ?? "");
   const healthMap = projectHealth.healthMap;
@@ -273,11 +307,11 @@ export function TestsPage() {
       {/* Header */}
       <div className="mb-4 flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <FlaskConical className="h-5 w-5 text-slate-400" />
-          <h1 className="text-xl font-semibold">
-            Tests
-            <span className="ml-2 text-sm font-normal text-slate-500">{projectKey}</span>
-          </h1>
+          <FlaskConical className="h-4 w-4 text-teal-500" />
+          <h1 className="text-lg font-semibold text-slate-800 dark:text-slate-100">Tests</h1>
+          <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 font-mono text-xs text-slate-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400">
+            {projectKey}
+          </span>
         </div>
         <div className="flex items-center gap-2">
           <PageHelpButton pageId="tests" />
@@ -295,13 +329,13 @@ export function TestsPage() {
         <button
           onClick={() => setActiveTab("tests")}
           className={cn(
-            "flex items-center gap-1.5 border-b-2 px-3 pb-2 text-sm font-medium transition-colors",
+            "flex items-center gap-1.5 border-b-2 px-3 pb-2.5 text-xs font-medium transition-colors",
             activeTab === "tests"
-              ? "border-blue-500 text-blue-600 dark:border-blue-400 dark:text-blue-400"
-              : "border-transparent text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-300",
+              ? "border-indigo-500 text-indigo-600 dark:border-indigo-400 dark:text-indigo-400"
+              : "border-transparent text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200",
           )}
         >
-          <Layers className="h-4 w-4" />
+          <Layers className="h-3.5 w-3.5" />
           Tests &amp; Sets
         </button>
         <button
@@ -310,26 +344,31 @@ export function TestsPage() {
             if (loadConfirmed === null) setLoadConfirmed(false);
           }}
           className={cn(
-            "flex items-center gap-1.5 border-b-2 px-3 pb-2 text-sm font-medium transition-colors",
+            "flex items-center gap-1.5 border-b-2 px-3 pb-2.5 text-xs font-medium transition-colors",
             activeTab === "health"
-              ? "border-blue-500 text-blue-600 dark:border-blue-400 dark:text-blue-400"
-              : "border-transparent text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-300",
+              ? "border-indigo-500 text-indigo-600 dark:border-indigo-400 dark:text-indigo-400"
+              : "border-transparent text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200",
           )}
         >
-          <Activity className="h-4 w-4" />
+          <Activity className="h-3.5 w-3.5" />
           Health
         </button>
         <button
           onClick={() => setActiveTab("sets-health")}
           className={cn(
-            "flex items-center gap-1.5 border-b-2 px-3 pb-2 text-sm font-medium transition-colors",
+            "flex items-center gap-1.5 border-b-2 px-3 pb-2.5 text-xs font-medium transition-colors",
             activeTab === "sets-health"
-              ? "border-blue-500 text-blue-600 dark:border-blue-400 dark:text-blue-400"
-              : "border-transparent text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-300",
+              ? "border-indigo-500 text-indigo-600 dark:border-indigo-400 dark:text-indigo-400"
+              : "border-transparent text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200",
           )}
         >
-          <ShieldAlert className="h-4 w-4" />
+          <ShieldAlert className="h-3.5 w-3.5" />
           Sets Health
+          {setsHealthCount > 0 && (
+            <span className="ml-0.5 rounded-full bg-red-100 px-1.5 text-[10px] font-semibold text-red-700 dark:bg-red-900/40 dark:text-red-300">
+              {setsHealthCount}
+            </span>
+          )}
         </button>
         <button
           onClick={() => {
@@ -337,14 +376,19 @@ export function TestsPage() {
             if (loadConfirmed === null) setLoadConfirmed(false);
           }}
           className={cn(
-            "flex items-center gap-1.5 border-b-2 px-3 pb-2 text-sm font-medium transition-colors",
+            "flex items-center gap-1.5 border-b-2 px-3 pb-2.5 text-xs font-medium transition-colors",
             activeTab === "deprecated"
-              ? "border-blue-500 text-blue-600 dark:border-blue-400 dark:text-blue-400"
-              : "border-transparent text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-300",
+              ? "border-indigo-500 text-indigo-600 dark:border-indigo-400 dark:text-indigo-400"
+              : "border-transparent text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200",
           )}
         >
-          <Archive className="h-4 w-4" />
+          <Archive className="h-3.5 w-3.5" />
           Deprecated
+          {deprecatedCount > 0 && (
+            <span className="ml-0.5 rounded-full bg-amber-100 px-1.5 text-[10px] font-semibold text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
+              {deprecatedCount}
+            </span>
+          )}
         </button>
       </div>
 
@@ -354,7 +398,8 @@ export function TestsPage() {
           {/* Left: all tests */}
           <div className="flex min-w-0 flex-1 flex-col">
             <div className="mb-3 flex items-center justify-between">
-              <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+              <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-slate-400">
+                <FlaskConical className="h-3.5 w-3.5 text-teal-500" />
                 All Tests
               </p>
               <button
@@ -391,7 +436,8 @@ export function TestsPage() {
           {/* Right: test sets */}
           <div className="flex min-w-0 flex-1 flex-col">
             <div className="mb-3 flex items-center justify-between">
-              <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+              <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-slate-400">
+                <Layers className="h-3.5 w-3.5 text-emerald-500" />
                 Test Sets
               </p>
               <button

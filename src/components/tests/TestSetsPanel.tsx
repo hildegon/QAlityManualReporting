@@ -1,5 +1,5 @@
-import { useState, useMemo, useCallback, useEffect } from "react";
-import { Search } from "lucide-react";
+import { useState, useMemo, useCallback, useEffect, useRef } from "react";
+import { Search, X } from "lucide-react";
 
 import { useGetTestSets } from "@/services/queries";
 import { Input } from "@/components/ui/input";
@@ -42,6 +42,7 @@ export function TestSetsPanel({
   }, [onRegisterReload, refetch]);
 
   const [search, setSearch] = useState("");
+  const searchRef = useRef<HTMLInputElement>(null);
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
 
   const q = search.trim().toLowerCase();
@@ -130,38 +131,60 @@ export function TestSetsPanel({
 
   return (
     <div className="flex h-full flex-col gap-3">
-      {/* Search */}
-      <div className="relative">
-        <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
-        <Input
-          className="pl-8"
-          placeholder="Filter test sets…"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
-      </div>
-
-      <div className="flex items-center justify-between text-xs text-slate-500">
-        <span className="flex flex-wrap items-center gap-1.5">
-          {filtered.length} set{filtered.length !== 1 ? "s" : ""}
-          {isDragging && <span className="text-slate-400">— drop onto a set to add</span>}
-          {hiddenCount > 0 && (
+      {/* Sticky toolbar: search + stats */}
+      <div className="sticky top-0 z-10 flex flex-col gap-2 bg-white/95 pb-1 backdrop-blur dark:bg-slate-900/95">
+        {/* Search */}
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+          <Input
+            ref={searchRef}
+            className="pl-8 pr-8"
+            placeholder="Filter test sets…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+          {search && (
             <button
-              onClick={onToggleShowHidden}
-              className="rounded-full border border-dashed border-slate-300 px-1.5 py-0.5 text-slate-400 hover:border-slate-400 hover:text-slate-600 dark:border-slate-600 dark:text-slate-500 dark:hover:text-slate-300"
+              type="button"
+              onClick={() => setSearch("")}
+              title="Clear"
+              className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-0.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-700"
             >
-              {showHidden ? "hide" : `${hiddenCount} deprecated`}
+              <X className="h-3.5 w-3.5" />
             </button>
           )}
-        </span>
-        {filtered.length > 0 && (
-          <button
-            className="hover:text-slate-700 dark:hover:text-slate-200"
-            onClick={allExpanded ? handleCollapseAll : handleExpandAll}
-          >
-            {allExpanded ? "Collapse all" : "Expand all"}
-          </button>
-        )}
+        </div>
+
+        <div className="flex items-center justify-between text-xs text-slate-500">
+          <span className="flex flex-wrap items-center gap-1.5">
+            {q ? (
+              <span>
+                {filtered.length} of {(testSets ?? []).length} set{(testSets ?? []).length !== 1 ? "s" : ""}
+              </span>
+            ) : (
+              <span>
+                {filtered.length} set{filtered.length !== 1 ? "s" : ""}
+              </span>
+            )}
+            {isDragging && <span className="text-indigo-500">— drop onto a set to add</span>}
+            {hiddenCount > 0 && (
+              <button
+                onClick={onToggleShowHidden}
+                className="rounded-full border border-dashed border-slate-300 px-1.5 py-0.5 text-slate-400 hover:border-slate-400 hover:text-slate-600 dark:border-slate-600 dark:text-slate-500 dark:hover:text-slate-300"
+              >
+                {showHidden ? "hide" : `${hiddenCount} deprecated`}
+              </button>
+            )}
+          </span>
+          {filtered.length > 0 && (
+            <button
+              className="hover:text-slate-700 dark:hover:text-slate-200"
+              onClick={allExpanded ? handleCollapseAll : handleExpandAll}
+            >
+              {allExpanded ? "Collapse all" : "Expand all"}
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Drop target list */}
