@@ -35,13 +35,29 @@ function escHtml(s: string): string {
     .replace(/"/g, "&quot;");
 }
 
+/**
+ * Decode ALL HTML entities — named (`&eacute;`), decimal (`&#233;`), and hex (`&#xE9;`) —
+ * by delegating to the browser's built-in HTML parser via a textarea element.
+ * This handles the full 250+ named entity set that Confluence may produce.
+ */
 function unescHtml(s: string): string {
-  return s
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&amp;/g, "&");
+  if (!s) return s;
+  try {
+    const ta = document.createElement("textarea");
+    ta.innerHTML = s;
+    return ta.value;
+  } catch {
+    // Fallback: manually decode the most common entities.
+    return s
+      .replace(/&nbsp;/g, "\u00a0")
+      .replace(/&apos;/g, "'")
+      .replace(/&quot;/g, '"')
+      .replace(/&lt;/g, "<")
+      .replace(/&gt;/g, ">")
+      .replace(/&#([0-9]+);/g, (_, n: string) => String.fromCodePoint(parseInt(n, 10)))
+      .replace(/&#x([0-9a-fA-F]+);/g, (_, h: string) => String.fromCodePoint(parseInt(h, 16)))
+      .replace(/&amp;/g, "&");
+  }
 }
 
 /** Strip HTML tags from a fragment to get plain visible text. */

@@ -4,6 +4,7 @@ import { save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { openPath } from "@tauri-apps/plugin-opener";
 import { useBugsByVersion, useVersionIssues, useVersionRunStats, useVersionRelatedWork, useConfluencePage } from "@/services/queries";
 import { cn } from "@/components/ui/utils";
+import { Skeleton } from "@/components/ui/skeleton";
 import { ReleaseReadinessChecklist } from "./ReleaseReadinessChecklist";
 import { QaApprovalBanner, parseQaApprovalFromBody } from "./QaApprovalBanner";
 import { VersionDashboard } from "./VersionDashboard";
@@ -19,17 +20,22 @@ import type { JiraVersion, TestExecution } from "@/types";
 interface VersionContentProps {
   projectKey: string;
   executions: TestExecution[];
+  /** True while the parent is still fetching executions — used to show skeletons. */
+  executionsLoading?: boolean;
   version: JiraVersion;
   onSelectExecution: (exec: TestExecution) => void;
   onHealthUpdate: (versionId: string, dot: "green" | "amber" | "red") => void;
+  onApprovalUpdate: (versionId: string, approved: boolean) => void;
 }
 
 export function VersionContent({
   projectKey,
   executions,
+  executionsLoading = false,
   version,
   onSelectExecution,
   onHealthUpdate,
+  onApprovalUpdate,
 }: VersionContentProps) {
   const { data: bugs,
     isLoading: bugsLoading,
@@ -106,6 +112,13 @@ export function VersionContent({
     onHealthUpdate(version.id, dot);
   }, [allLoaded, stats.counts, stats.total, version.id, onHealthUpdate]);
 
+  // Report QA approval status upward so the version card can show the shield.
+  // Fires whenever the Confluence page body is loaded/updated.
+  useEffect(() => {
+    if (feedbackPage === undefined) return; // page not yet loaded — don't reset
+    onApprovalUpdate(version.id, qaApproval !== null);
+  }, [qaApproval, feedbackPage, version.id, onApprovalUpdate]);
+
   return (
     <>
       {/* Export button — always visible once version card is expanded */}
@@ -127,28 +140,54 @@ export function VersionContent({
 
       <div className="mb-3 space-y-3">
         <QaApprovalBanner version={version} projectKey={projectKey} {...(feedbackPage ? { feedbackPage } : {})} />
-        <ReleaseReadinessChecklist
-          stats={stats}
-          executions={executions}
-          bugs={bugs ?? []}
-          versionIssues={versionIssues ?? []}
-          version={version}
-          feedbackRows={feedbackRows}
-          qaApproval={qaApproval}
-        />
+        {executionsLoading ? (
+          <div className="space-y-2 rounded-2xl border border-slate-100 bg-white p-4 dark:border-slate-700 dark:bg-slate-800">
+            <Skeleton className="h-3 w-32" />
+            <Skeleton className="h-2 w-full" />
+            <Skeleton className="h-2 w-4/5" />
+            <Skeleton className="h-2 w-3/5" />
+          </div>
+        ) : (
+          <ReleaseReadinessChecklist
+            stats={stats}
+            executions={executions}
+            bugs={bugs ?? []}
+            versionIssues={versionIssues ?? []}
+            version={version}
+            feedbackRows={feedbackRows}
+            qaApproval={qaApproval}
+          />
+        )}
       </div>
 
       {/* Feedback + Test Results — equal visual weight, stacked */}
       <div id="version-section-feedback" className="mt-4">
         <FeedbackSummary version={version} />
       </div>
-      <VersionDashboard
-        stats={stats}
-        executions={executions}
-        version={version}
-        projectKey={projectKey}
-        bugs={bugs ?? []}
-      />
+      {executionsLoading ? (
+        <div className="mt-4 overflow-hidden rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+          <Skeleton className="mb-3 h-3 w-24" />
+          <div className="flex items-end gap-2">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <Skeleton
+                key={i}
+                className={cn(
+                  "flex-1 rounded",
+                  i % 3 === 0 ? "h-5" : i % 3 === 1 ? "h-8" : "h-6",
+                )}
+              />
+            ))}
+          </div>
+        </div>
+      ) : (
+        <VersionDashboard
+          stats={stats}
+          executions={executions}
+          version={version}
+          projectKey={projectKey}
+          bugs={bugs ?? []}
+        />
+      )}
 
       <BugsPanel
         bugs={bugs}
@@ -164,7 +203,14 @@ export function VersionContent({
         <VersionIssuesPanel projectKey={projectKey} versionName={version.name} />
       </div>
 
-      {executions.length > 0 && (
+      {executionsLoading ? (
+        <div className="mt-4 overflow-hidden rounded-2xl border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+          <div className="flex items-center justify-between">
+            <Skeleton className="h-3 w-28" />
+            <Skeleton className="h-3 w-3" />
+          </div>
+        </div>
+      ) : executions.length > 0 ? (
         <div id="version-section-executions" className="mt-4 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
           <button
             onClick={() => setExecsOpen((o) => !o)}
@@ -193,7 +239,7 @@ export function VersionContent({
             </div>
           )}
         </div>
-      )}
+      ) : null}
     </>
   );
 }

@@ -57,10 +57,11 @@ export const useConfluencePage = (pageId: string | undefined) =>
     queryKey: queryKeys.confluencePage(pageId ?? ""),
     queryFn: () => getConfluencePage(pageId!),
     enabled: !!pageId,
-    // staleTime: 0 so the page is always considered stale and refetched on every
-    // mount. This ensures the approval state (stored in the page body) is always
-    // current — even if it was changed in Confluence outside the app.
-    staleTime: 0,
+    // Approval data is written infrequently; after any save the mutation
+    // explicitly calls invalidateQueries, so 30 s gives a fast UX on repeated
+    // version switches while still picking up external Confluence edits after a
+    // short grace period.
+    staleTime: 30_000,
   });
 
 // ── Mutations ─────────────────────────────────────────────────────────────────

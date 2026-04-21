@@ -35,6 +35,10 @@ interface VersionsState {
   healthDots: Record<string, Record<string, "green" | "amber" | "red">>;
   setHealthDot: (projectKey: string, versionId: string, dot: "green" | "amber" | "red") => void;
 
+  /** projectKey → set of version ids that have QA approval */
+  qaApprovedVersions: Record<string, string[]>;
+  setQaApproved: (projectKey: string, versionId: string, approved: boolean) => void;
+
   /** versionId → comparison version id selected for that version's diff panel */
   comparisonVersionId: Record<string, string>;
   setComparisonVersionId: (versionId: string, comparisonId: string) => void;
@@ -117,6 +121,25 @@ export const useVersionsStore = create<VersionsState>()(
                 ...(state.healthDots[projectKey] ?? {}),
                 [versionId]: dot,
               },
+            },
+          };
+        });
+      },
+
+      qaApprovedVersions: {},
+
+      setQaApproved: (projectKey, versionId, approved) => {
+        set((state) => {
+          const current = state.qaApprovedVersions[projectKey] ?? [];
+          const alreadyApproved = current.includes(versionId);
+          if (approved === alreadyApproved) return state; // no change
+          const next = approved
+            ? [...current, versionId]
+            : current.filter((id) => id !== versionId);
+          return {
+            qaApprovedVersions: {
+              ...state.qaApprovedVersions,
+              [projectKey]: next,
             },
           };
         });

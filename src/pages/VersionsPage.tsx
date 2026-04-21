@@ -30,6 +30,39 @@ import { ExecutionListPanel } from "@/components/versions/ExecutionListPanel";
 import { ManageVersionsTab } from "@/components/versions/ManageVersionsTab";
 import { FeedbackPanel } from "@/components/versions/FeedbackPanel";
 
+// Small reusable section header for the sidebar
+function SectionLabel({
+  icon,
+  label,
+  count,
+  accent = "slate",
+  muted = false,
+}: {
+  icon?: React.ReactNode;
+  label: string;
+  count: number;
+  accent?: "amber" | "violet" | "slate";
+  muted?: boolean;
+}) {
+  const textColor =
+    accent === "amber"
+      ? "text-amber-500 dark:text-amber-400"
+      : accent === "violet"
+        ? "text-violet-500 dark:text-violet-400"
+        : muted
+          ? "text-slate-400 dark:text-slate-600"
+          : "text-slate-500 dark:text-slate-400";
+  return (
+    <div className={cn("flex items-center gap-1.5 px-1 py-1 text-[10px] font-bold uppercase tracking-wider", textColor)}>
+      {icon}
+      {label}
+      <span className="ml-auto rounded-full bg-slate-200/80 px-1.5 py-px text-slate-500 font-semibold dark:bg-slate-700 dark:text-slate-400">
+        {count}
+      </span>
+    </div>
+  );
+}
+
 export function VersionsPage() {
   const executionProjectKey = useExecutionProjectKey();
   const queryClient = useQueryClient();
@@ -41,6 +74,8 @@ export function VersionsPage() {
     setSelectedVersionId,
     healthDots,
     setHealthDot,
+    qaApprovedVersions,
+    setQaApproved,
     versionGroups,
   } = useVersionsStore();
 
@@ -202,6 +237,18 @@ export function VersionsPage() {
     [executionProjectKey, setHealthDot],
   );
 
+  const handleApprovalUpdate = useCallback(
+    (id: string, approved: boolean) => {
+      if (executionProjectKey) setQaApproved(executionProjectKey, id, approved);
+    },
+    [executionProjectKey, setQaApproved],
+  );
+
+  const qaApprovedSet = useMemo(
+    () => new Set(executionProjectKey ? (qaApprovedVersions[executionProjectKey] ?? []) : []),
+    [executionProjectKey, qaApprovedVersions],
+  );
+
   if (!executionProjectKey) {
     return (
       <EmptyState icon={Tag} message="Set an Execution Project Key in Settings to view versions." />
@@ -267,162 +314,180 @@ export function VersionsPage() {
   }
 
   return (
-    <div className="flex h-full gap-6">
+    <div className="flex h-full gap-5">
       {/* Sidebar — version list */}
-      <div className="w-72 shrink-0 space-y-1 overflow-y-auto">
-        <div className="mb-2 flex items-center justify-between">
-          <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">Versions</p>
+      <div className="flex w-80 shrink-0 flex-col overflow-hidden rounded-xl border border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-900">
+        {/* Sidebar header */}
+        <div className="flex shrink-0 items-center justify-between border-b border-slate-200 px-3 py-2.5 dark:border-slate-700">
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+              Versions
+            </span>
+            {executionProjectKey && (
+              <span className="rounded bg-slate-200 px-1.5 py-0.5 font-mono text-[10px] font-medium text-slate-600 dark:bg-slate-700 dark:text-slate-300">
+                {executionProjectKey}
+              </span>
+            )}
+          </div>
           <div className="flex items-center gap-1">
             <PageHelpButton pageId="versions" />
             <button
               onClick={handleReload}
               disabled={isRefreshing}
               title="Reload versions and data"
-              className="rounded p-1 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 disabled:opacity-40 dark:hover:bg-slate-700 dark:text-slate-400"
+              className="rounded p-1 text-slate-400 transition-colors hover:bg-slate-200 hover:text-slate-600 disabled:opacity-40 dark:hover:bg-slate-700 dark:text-slate-400"
             >
               <RefreshCw className={cn("h-3.5 w-3.5", isRefreshing && "animate-spin")} />
             </button>
           </div>
         </div>
 
-        <div className="relative mb-3">
-          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
-          <input
-            autoCorrect="off" autoCapitalize="off" spellCheck={false}
-            type="text"
-            placeholder="Filter versions…"
-            value={versionFilter}
-            onChange={(e) => setVersionFilter(e.target.value)}
-            className="w-full rounded-md border border-slate-200 bg-white py-1.5 pl-8 pr-3 text-sm text-slate-700 placeholder:text-slate-400 focus:border-slate-400 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:placeholder:text-slate-500 dark:focus:border-slate-500"
-          />
-          {versionFilter && (
-            <button
-              onClick={() => setVersionFilter("")}
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300"
-              aria-label="Clear filter"
-            >
-              <X className="h-3.5 w-3.5" />
-            </button>
-          )}
-        </div>
-
-        {projectGroups.length > 0 && (
-          <>
-            <div className="mb-1 flex items-center gap-1 text-xs font-semibold uppercase tracking-wider text-violet-500">
-              <Layers className="h-3 w-3" />
-              Groups
-            </div>
-            <div className="space-y-1">
-              {projectGroups.map((g) => (
-                <VersionGroupCard
-                  key={g.id}
-                  group={g}
-                  versions={allVersions}
-                  isActive={selectedGroup?.id === g.id}
-                  onClick={handleSelectGroup}
-                />
-              ))}
-            </div>
-            <div className="my-2 border-t border-slate-100 dark:border-slate-700" />
-          </>
-        )}
-
-        {favouriteVersions.length > 0 && (
-          <>
-            <div className="mb-1 flex items-center gap-1 text-xs font-semibold uppercase tracking-wider text-amber-400">
-              <Star className="h-3 w-3 fill-current" />
-              Favourites
-            </div>
-            <div className="space-y-1">
-              {favouriteVersions.map((v) => (
-                <VersionCard
-                  key={v.id}
-                  version={v}
-                  isActive={selectedVersion?.id === v.id}
-                  isFavourite={true}
-                  onClick={handleSelectVersion}
-                  onToggleFavourite={handleToggleFavourite}
-                  {...(healthDotMap[v.id] ? { healthDot: healthDotMap[v.id] } : {})}
-                />
-              ))}
-            </div>
-            {(unreleasedVersions.length > 0 ||
-              releasedVersions.length > 0 ||
-              archivedVersions.length > 0) && (
-              <div className="my-2 border-t border-slate-100 dark:border-slate-700" />
-            )}
-          </>
-        )}
-
-        {unreleasedVersions.length > 0 && (
-          <div className="space-y-1">
-            {unreleasedVersions.map((v) => (
-              <VersionCard
-                key={v.id}
-                version={v}
-                isActive={selectedVersion?.id === v.id}
-                isFavourite={false}
-                onClick={handleSelectVersion}
-                onToggleFavourite={handleToggleFavourite}
-                {...(healthDotMap[v.id] ? { healthDot: healthDotMap[v.id] } : {})}
-              />
-            ))}
-          </div>
-        )}
-
-        <div className={cn(unreleasedVersions.length > 0 && "mt-3")}>
-          <button
-            onClick={() => setShowReleased((s) => !s)}
-            className="flex w-full items-center justify-between rounded px-1 py-0.5 text-xs font-semibold uppercase tracking-wider text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300 transition-colors"
-          >
-            <span className="flex items-center gap-1">
-              <CheckCircle className="h-3 w-3" />
-              Released ({releasedVersions.length})
-            </span>
-            <ChevronDown
-              className={cn(
-                "h-3 w-3 transition-transform duration-200",
-                showReleased && "rotate-180",
-              )}
+        {/* Search */}
+        <div className="shrink-0 px-2.5 py-2">
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+            <input
+              autoCorrect="off" autoCapitalize="off" spellCheck={false}
+              type="text"
+              placeholder="Filter versions…"
+              value={versionFilter}
+              onChange={(e) => setVersionFilter(e.target.value)}
+              className="w-full rounded-md border border-slate-200 bg-white py-1.5 pl-8 pr-7 text-xs text-slate-700 placeholder:text-slate-400 focus:border-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-400/30 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:placeholder:text-slate-500 dark:focus:border-indigo-500"
             />
-          </button>
-          {showReleased && releasedVersions.length > 0 && (
-            <div className="mt-1 space-y-1">
-              {releasedVersions.map((v) => (
-                <VersionCard
-                  key={v.id}
-                  version={v}
-                  isActive={selectedVersion?.id === v.id}
-                  isFavourite={false}
-                  onClick={handleSelectVersion}
-                  onToggleFavourite={handleToggleFavourite}
-                  {...(healthDotMap[v.id] ? { healthDot: healthDotMap[v.id] } : {})}
+            {versionFilter && (
+              <button
+                onClick={() => setVersionFilter("")}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300"
+                aria-label="Clear filter"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Scrollable list */}
+        <div className="flex-1 overflow-y-auto space-y-0.5 px-2.5 pb-3">
+          {projectGroups.length > 0 && (
+            <div className="mb-2">
+              <SectionLabel icon={<Layers className="h-3 w-3" />} label="Groups" count={projectGroups.length} accent="violet" />
+              <div className="mt-1 space-y-1">
+                {projectGroups.map((g) => (
+                  <VersionGroupCard
+                    key={g.id}
+                    group={g}
+                    versions={allVersions}
+                    isActive={selectedGroup?.id === g.id}
+                    onClick={handleSelectGroup}
+                  />
+                ))}
+              </div>
+              <div className="my-2 border-t border-slate-200 dark:border-slate-700" />
+            </div>
+          )}
+
+          {favouriteVersions.length > 0 && (
+            <div className="mb-2">
+              <SectionLabel icon={<Star className="h-3 w-3 fill-current" />} label="Favourites" count={favouriteVersions.length} accent="amber" />
+              <div className="mt-1 space-y-1">
+                {favouriteVersions.map((v) => (
+                  <VersionCard
+                    key={v.id}
+                    version={v}
+                    isActive={selectedVersion?.id === v.id}
+                    isFavourite={true}
+                    onClick={handleSelectVersion}
+                    onToggleFavourite={handleToggleFavourite}
+                    {...(healthDotMap[v.id] ? { healthDot: healthDotMap[v.id] } : {})}
+                    qaApproved={qaApprovedSet.has(v.id)}
+                  />
+                ))}
+              </div>
+              {(unreleasedVersions.length > 0 || releasedVersions.length > 0 || archivedVersions.length > 0) && (
+                <div className="my-2 border-t border-slate-200 dark:border-slate-700" />
+              )}
+            </div>
+          )}
+
+          {unreleasedVersions.length > 0 && (
+            <div className="mb-2">
+              <SectionLabel label="Unreleased" count={unreleasedVersions.length} accent="slate" />
+              <div className="mt-1 space-y-1">
+                {unreleasedVersions.map((v) => (
+                  <VersionCard
+                    key={v.id}
+                    version={v}
+                    isActive={selectedVersion?.id === v.id}
+                    isFavourite={false}
+                    onClick={handleSelectVersion}
+                    onToggleFavourite={handleToggleFavourite}
+                    {...(healthDotMap[v.id] ? { healthDot: healthDotMap[v.id] } : {})}
+                    qaApproved={qaApprovedSet.has(v.id)}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {releasedVersions.length > 0 && (
+            <div className="mb-1">
+              <button
+                onClick={() => setShowReleased((s) => !s)}
+                className="flex w-full items-center justify-between rounded-md px-2 py-1 transition-colors hover:bg-slate-200/60 dark:hover:bg-slate-700/50"
+              >
+                <span className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                  <CheckCircle className="h-3 w-3" />
+                  Released
+                  <span className="ml-0.5 rounded-full bg-slate-200 px-1.5 py-0.5 font-semibold text-slate-500 dark:bg-slate-700 dark:text-slate-400">
+                    {releasedVersions.length}
+                  </span>
+                </span>
+                <ChevronDown
+                  className={cn(
+                    "h-3 w-3 text-slate-400 transition-transform duration-150",
+                    showReleased && "rotate-180",
+                  )}
                 />
-              ))}
+              </button>
+              {showReleased && (
+                <div className="mt-1 space-y-1">
+                  {releasedVersions.map((v) => (
+                    <VersionCard
+                      key={v.id}
+                      version={v}
+                      isActive={selectedVersion?.id === v.id}
+                      isFavourite={false}
+                      onClick={handleSelectVersion}
+                      onToggleFavourite={handleToggleFavourite}
+                      {...(healthDotMap[v.id] ? { healthDot: healthDotMap[v.id] } : {})}
+                      qaApproved={qaApprovedSet.has(v.id)}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {archivedVersions.length > 0 && (
+            <div className="mb-1">
+              <SectionLabel label="Archived" count={archivedVersions.length} accent="slate" muted />
+              <div className="mt-1 space-y-1">
+                {archivedVersions.map((v) => (
+                  <VersionCard
+                    key={v.id}
+                    version={v}
+                    isActive={selectedVersion?.id === v.id}
+                    isFavourite={false}
+                    onClick={handleSelectVersion}
+                    onToggleFavourite={handleToggleFavourite}
+                    {...(healthDotMap[v.id] ? { healthDot: healthDotMap[v.id] } : {})}
+                    qaApproved={qaApprovedSet.has(v.id)}
+                  />
+                ))}
+              </div>
             </div>
           )}
         </div>
-
-        {archivedVersions.length > 0 && (
-          <>
-            <p className="mb-1 mt-4 text-xs font-semibold uppercase tracking-wider text-slate-300 dark:text-slate-500">
-              Archived
-            </p>
-            <div className="space-y-1">
-              {archivedVersions.map((v) => (
-                <VersionCard
-                  key={v.id}
-                  version={v}
-                  isActive={selectedVersion?.id === v.id}
-                  isFavourite={false}
-                  onClick={handleSelectVersion}
-                  onToggleFavourite={handleToggleFavourite}
-                  {...(healthDotMap[v.id] ? { healthDot: healthDotMap[v.id] } : {})}
-                />
-              ))}
-            </div>
-          </>
-        )}
       </div>
 
       {/* Main content */}
@@ -502,6 +567,7 @@ export function VersionsPage() {
               onReload={handleReload}
               isRefreshing={isRefreshing}
               onHealthUpdate={handleHealthUpdate}
+              onApprovalUpdate={handleApprovalUpdate}
             />
           ))}
           {activeTab === "manage" && (
