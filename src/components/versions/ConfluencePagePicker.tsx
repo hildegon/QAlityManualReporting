@@ -435,6 +435,7 @@ function buildTemplate(version: JiraVersion): string {
     <tr><th><p><strong>Name</strong></p></th><td><p>${escHtml(version.name)}</p></td></tr>
     <tr><th><p><strong>Status</strong></p></th><td><p>${released}</p></td></tr>
     <tr><th><p><strong>Date</strong></p></th><td><p>${escHtml(date)}</p></td></tr>
+    <tr><th><p><strong>QA Approval</strong></p></th><td><p>Pending</p></td></tr>
   </tbody>
 </table>
 

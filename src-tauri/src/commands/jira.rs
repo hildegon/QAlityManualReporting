@@ -5,8 +5,8 @@ use crate::{
     commands::config::load_config,
     models::jira::{
         DescriptionBlock, IssueLinkType, JiraBug, JiraComment, JiraCommentFlat, JiraComponent,
-        JiraCreatedIssue, JiraIssueDetail, JiraProject, JiraTransition, JiraUserSearchResult,
-        JiraVersion, VersionRelatedWork,
+        JiraCreatedIssue, JiraIssueDetail, JiraProject, JiraTransition, JiraUser,
+        JiraUserSearchResult, JiraVersion, VersionRelatedWork,
     },
     state::ApiUsageState,
 };
@@ -138,6 +138,21 @@ pub async fn get_jira_projects(app: AppHandle) -> Result<Vec<JiraProject>, Strin
 pub async fn validate_jira_credentials(app: AppHandle) -> Result<String, String> {
     let client = make_jira_client(&app)?;
     client.validate_credentials().await.map_err(format_err)
+}
+
+/// Return the full Jira profile of the authenticated user (account ID, display name, avatar).
+#[tauri::command]
+pub async fn get_current_jira_user(app: AppHandle) -> Result<JiraUser, String> {
+    let client = make_jira_client(&app)?;
+    client
+        .get_current_user()
+        .await
+        .map(|r| JiraUser {
+            account_id: r.account_id,
+            display_name: r.display_name,
+            avatar_urls: r.avatar_urls,
+        })
+        .map_err(format_err)
 }
 
 #[tauri::command]
@@ -495,6 +510,50 @@ pub async fn delete_version_property(
     let client = make_jira_client(&app)?;
     client
         .delete_version_property(&version_id, &property_key)
+        .await
+        .map_err(format_err)
+}
+
+/// Fetch a custom property stored on a Jira project.
+/// Returns the raw JSON value string, or `None` if the property does not exist.
+#[tauri::command]
+pub async fn get_project_property(
+    app: AppHandle,
+    project_key: String,
+    property_key: String,
+) -> Result<Option<String>, String> {
+    let client = make_jira_client(&app)?;
+    client
+        .get_project_property(&project_key, &property_key)
+        .await
+        .map_err(format_err)
+}
+
+/// Create or update a custom property on a Jira project.
+#[tauri::command]
+pub async fn set_project_property(
+    app: AppHandle,
+    project_key: String,
+    property_key: String,
+    value: String,
+) -> Result<(), String> {
+    let client = make_jira_client(&app)?;
+    client
+        .set_project_property(&project_key, &property_key, &value)
+        .await
+        .map_err(format_err)
+}
+
+/// Delete a custom property from a Jira project.
+#[tauri::command]
+pub async fn delete_project_property(
+    app: AppHandle,
+    project_key: String,
+    property_key: String,
+) -> Result<(), String> {
+    let client = make_jira_client(&app)?;
+    client
+        .delete_project_property(&project_key, &property_key)
         .await
         .map_err(format_err)
 }

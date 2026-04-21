@@ -125,6 +125,18 @@ export interface VersionRelatedWork {
   url?: string;
 }
 
+/**
+ * QA approval record stored as a Jira version property under the key `"qa-approval"`.
+ * Written by the app when a user explicitly approves a release via the QA Approval banner.
+ */
+export interface QaApproval {
+  approved: boolean;
+  display_name: string;
+  account_id: string;
+  approved_at: string;
+  note?: string;
+}
+
 /** A single issue link as returned by Jira's `issuelinks` field. */
 export interface JiraIssueLink {
   id: string;

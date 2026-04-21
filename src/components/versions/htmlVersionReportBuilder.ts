@@ -5,7 +5,7 @@
  * filterable tables, test-history timelines, and a sticky navigation bar.
  * Open in a browser and use "Print → Save as PDF" for a static copy.
  */
-import type { JiraBug, JiraVersion, TestExecution } from "@/types";
+import type { JiraBug, JiraVersion, TestExecution, QaApproval } from "@/types";
 import type { RunStats, TestRunHistory } from "@/services/queries";
 import type { IssueRow } from "./FeedbackPanel";
 import { CRITICAL_PRIORITIES } from "@/constants/statuses";
@@ -227,6 +227,7 @@ function buildChecklistSection(
   executions: TestExecution[],
   version: JiraVersion,
   feedbackRows: IssueRow[],
+  qaApproval?: QaApproval | null,
 ): string {
   const todoCount =
     (stats.counts["TODO"] ?? stats.counts["NOT RUN"] ?? 0) + (stats.counts["EXECUTING"] ?? 0);
@@ -339,6 +340,14 @@ function buildChecklistSection(
         : feedbackPending === 0
           ? "✓"
           : String(feedbackPending),
+    },
+    {
+      pass: !!qaApproval,
+      label: "QA Approved",
+      detail: qaApproval
+        ? `Approved by ${qaApproval.display_name} on ${new Date(qaApproval.approved_at).toLocaleDateString()}`
+        : "Not yet approved by QA",
+      metric: qaApproval ? "✓" : "—",
     },
   ];
 
@@ -972,6 +981,7 @@ export interface VersionReportParams {
   versionIssues: JiraBug[];
   executions: TestExecution[];
   feedback?: FeedbackReportData;
+  qaApproval?: QaApproval | null;
 }
 
 /**
@@ -979,7 +989,7 @@ export interface VersionReportParams {
  * Open the file in a browser and use "Print → Save as PDF" to produce a PDF.
  */
 export function buildVersionReportHTML(params: VersionReportParams): string {
-  const { version, projectKey, stats, bugs, versionIssues, executions, feedback } = params;
+  const { version, projectKey, stats, bugs, versionIssues, executions, feedback, qaApproval } = params;
   const date = new Date().toLocaleDateString(undefined, {
     year: "numeric",
     month: "long",
@@ -988,7 +998,7 @@ export function buildVersionReportHTML(params: VersionReportParams): string {
 
   const feedbackRows = feedback?.rows ?? [];
   const kpis = buildKpiRow(stats, bugs, versionIssues, executions, feedbackRows);
-  const checklist = buildChecklistSection(stats, bugs, versionIssues, executions, version, feedbackRows);
+  const checklist = buildChecklistSection(stats, bugs, versionIssues, executions, version, feedbackRows, qaApproval);
   const testResults = buildTestResultsSection(stats);
   const failedTests = buildFailedTestsSection(stats.failedTests);
   const bugsSection = buildBugsSection(bugs, stats.failedTests);

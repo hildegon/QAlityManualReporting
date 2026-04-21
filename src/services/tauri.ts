@@ -57,6 +57,9 @@ export const getJiraProjects = (): Promise<JiraProject[]> => invoke("get_jira_pr
 
 export const validateJiraCredentials = (): Promise<string> => invoke("validate_jira_credentials");
 
+/** Return the full Jira profile of the currently authenticated user. */
+export const getCurrentJiraUser = (): Promise<JiraUser> => invoke("get_current_jira_user");
+
 export const getProjectComponents = (projectKey: string): Promise<JiraComponent[]> =>
   invoke("get_project_components", { projectKey });
 
@@ -117,6 +120,18 @@ export const setVersionProperty = (versionId: string, propertyKey: string, value
 /** Delete a custom property from a Jira version. */
 export const deleteVersionProperty = (versionId: string, propertyKey: string): Promise<void> =>
   invoke("delete_version_property", { versionId, propertyKey });
+
+/** Get a custom JSON property stored on a Jira project. Returns the raw JSON value string, or null. */
+export const getProjectProperty = (projectKey: string, propertyKey: string): Promise<string | null> =>
+  invoke("get_project_property", { projectKey, propertyKey });
+
+/** Create or update a custom JSON property on a Jira project. `value` must be a valid JSON string. */
+export const setProjectProperty = (projectKey: string, propertyKey: string, value: string): Promise<void> =>
+  invoke("set_project_property", { projectKey, propertyKey, value });
+
+/** Delete a custom property from a Jira project. */
+export const deleteProjectProperty = (projectKey: string, propertyKey: string): Promise<void> =>
+  invoke("delete_project_property", { projectKey, propertyKey });
 
 /** Fetch all "Related Work" entries for a Jira version. */
 export const getVersionRelatedWork = (versionId: string): Promise<VersionRelatedWork[]> =>

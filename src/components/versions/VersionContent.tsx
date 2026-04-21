@@ -5,6 +5,7 @@ import { openPath } from "@tauri-apps/plugin-opener";
 import { useBugsByVersion, useVersionIssues, useVersionRunStats, useVersionRelatedWork, useConfluencePage } from "@/services/queries";
 import { cn } from "@/components/ui/utils";
 import { ReleaseReadinessChecklist } from "./ReleaseReadinessChecklist";
+import { QaApprovalBanner, parseQaApprovalFromBody } from "./QaApprovalBanner";
 import { VersionDashboard } from "./VersionDashboard";
 import { BugsPanel } from "./BugsPanel";
 import { VersionIssuesPanel } from "./VersionIssuesPanel";
@@ -30,8 +31,7 @@ export function VersionContent({
   onSelectExecution,
   onHealthUpdate,
 }: VersionContentProps) {
-  const {
-    data: bugs,
+  const { data: bugs,
     isLoading: bugsLoading,
     isError: bugsError,
     error: bugsErr,
@@ -52,6 +52,12 @@ export function VersionContent({
   const { data: feedbackPage } = useConfluencePage(feedbackPageId);
   const feedbackRows = useMemo(
     () => parseIssueRows(feedbackPage?.body_storage ?? ""),
+    [feedbackPage?.body_storage],
+  );
+
+  // QA approval — single source of truth is the row in the Confluence page body.
+  const qaApproval = useMemo(
+    () => parseQaApprovalFromBody(feedbackPage?.body_storage),
     [feedbackPage?.body_storage],
   );
 
@@ -79,6 +85,7 @@ export function VersionContent({
         bugs: bugs ?? [],
         versionIssues: versionIssues ?? [],
         executions,
+        qaApproval,
       };
       if (feedbackData) reportParams.feedback = feedbackData;
       const html = buildVersionReportHTML(reportParams);
@@ -119,6 +126,7 @@ export function VersionContent({
       </div>
 
       <div className="mb-3 space-y-3">
+        <QaApprovalBanner version={version} projectKey={projectKey} {...(feedbackPage ? { feedbackPage } : {})} />
         <ReleaseReadinessChecklist
           stats={stats}
           executions={executions}
@@ -126,6 +134,7 @@ export function VersionContent({
           versionIssues={versionIssues ?? []}
           version={version}
           feedbackRows={feedbackRows}
+          qaApproval={qaApproval}
         />
       </div>
 

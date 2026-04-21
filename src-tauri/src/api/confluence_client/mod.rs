@@ -323,7 +323,7 @@ impl ConfluenceClient {
         title: &str,
         body: &str,
     ) -> Result<ConfluencePage> {
-        let url = format!("{}/pages/{}", self.base_url, page_id.trim());
+        let url = format!("{}/pages/{}?body-format=storage", self.base_url, page_id.trim());
 
         let payload = serde_json::json!({
             "id": page_id,

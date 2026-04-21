@@ -53,6 +53,8 @@ export const queryKeys = {
   stepStatuses: (projectId: string) => ["xray", "step-statuses", projectId] as const,
   versionProperty: (versionId: string, propertyKey: string) =>
     ["jira", "version-property", versionId, propertyKey] as const,
+  projectProperty: (projectKey: string, propertyKey: string) =>
+    ["jira", "project-property", projectKey, propertyKey] as const,
   versionRelatedWork: (versionId: string) =>
     ["jira", "version-related-work", versionId] as const,
   bugsByVersion: (projectKey: string, versionName: string) =>
@@ -84,4 +86,5 @@ export const queryKeys = {
     ["confluence", "attachment-file", downloadUrl] as const,
   // Usage
   apiUsage: ["api-usage"] as const,
+  currentJiraUser: ["jira", "current-user"] as const,
 };

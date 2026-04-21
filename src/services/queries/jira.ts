@@ -251,6 +251,9 @@ export function useUpdateVersion(projectKey: string) {
 
 // ── Version properties ────────────────────────────────────────────────────────
 
+/** Property key used to store QA approval state on a Jira version. */
+export const QA_APPROVAL_PROPERTY_KEY = "qa-approval";
+
 /** Fetch a custom property from a Jira version. Returns null if not yet set. */
 export function useVersionProperty(versionId: string | null, propertyKey: string) {
   return useQuery<string | null>({
@@ -284,6 +287,68 @@ export function useDeleteVersionProperty(versionId: string, propertyKey: string)
     onSuccess: () => {
       queryClient.setQueryData(
         queryKeys.versionProperty(versionId, propertyKey),
+        null,
+      );
+    },
+  });
+}
+
+// ── Project properties ────────────────────────────────────────────────────────
+
+/** Prefix used to namespace QA approval project properties; full key is `${prefix}.${versionId}`. */
+export const QA_APPROVAL_PROPERTY_PREFIX = "qa-approval";
+
+/** Build the QA-approval project-property key for a given version id. */
+const qaApprovalKey = (versionId: string) => `${QA_APPROVAL_PROPERTY_PREFIX}.${versionId}`;
+
+/** Fetch a custom JSON property from a Jira project. Returns the raw JSON string or null. */
+export function useProjectProperty(projectKey: string | null, propertyKey: string) {
+  return useQuery<string | null>({
+    queryKey: queryKeys.projectProperty(projectKey ?? "", propertyKey),
+    queryFn: () => api.getProjectProperty(projectKey!, propertyKey),
+    enabled: !!projectKey,
+    staleTime: 5 * 60 * 1_000,
+    gcTime: Infinity,
+    retry: false,
+  });
+}
+
+/** Fetch the QA approval entry for a given (project, version). Returns null if not approved. */
+export function useQaApproval(projectKey: string | null, versionId: string | null) {
+  const propertyKey = versionId ? qaApprovalKey(versionId) : "";
+  return useQuery<string | null>({
+    queryKey: queryKeys.projectProperty(projectKey ?? "", propertyKey),
+    queryFn: () => api.getProjectProperty(projectKey!, propertyKey),
+    enabled: !!projectKey && !!versionId,
+    staleTime: 5 * 60 * 1_000,
+    gcTime: Infinity,
+    retry: false,
+  });
+}
+
+/** Save the QA approval entry for a (project, version). Body must be a valid JSON string. */
+export function useSetQaApproval(projectKey: string, versionId: string) {
+  const queryClient = useQueryClient();
+  const propertyKey = qaApprovalKey(versionId);
+  return useMutation<void, Error, string>({
+    mutationFn: (value) => api.setProjectProperty(projectKey, propertyKey, value),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.projectProperty(projectKey, propertyKey),
+      });
+    },
+  });
+}
+
+/** Revoke the QA approval entry for a (project, version). */
+export function useDeleteQaApproval(projectKey: string, versionId: string) {
+  const queryClient = useQueryClient();
+  const propertyKey = qaApprovalKey(versionId);
+  return useMutation<void, Error, void>({
+    mutationFn: () => api.deleteProjectProperty(projectKey, propertyKey),
+    onSuccess: () => {
+      queryClient.setQueryData(
+        queryKeys.projectProperty(projectKey, propertyKey),
         null,
       );
     },
@@ -626,5 +691,19 @@ export function useCreateBug() {
         queryKey: queryKeys.bugsByVersion(projectKey, versionName),
       });
     },
+  });
+}
+
+
+// ── Current Jira user ─────────────────────────────────────────────────────────
+
+/** Fetch the full Jira profile of the currently authenticated user. Cached for the session. */
+export function useCurrentJiraUser() {
+  return useQuery<JiraUser>({
+    queryKey: queryKeys.currentJiraUser,
+    queryFn: api.getCurrentJiraUser,
+    staleTime: Infinity,
+    gcTime: Infinity,
+    retry: false,
   });
 }

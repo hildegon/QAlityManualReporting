@@ -57,7 +57,10 @@ export const useConfluencePage = (pageId: string | undefined) =>
     queryKey: queryKeys.confluencePage(pageId ?? ""),
     queryFn: () => getConfluencePage(pageId!),
     enabled: !!pageId,
-    staleTime: 30_000,
+    // staleTime: 0 so the page is always considered stale and refetched on every
+    // mount. This ensures the approval state (stored in the page body) is always
+    // current — even if it was changed in Confluence outside the app.
+    staleTime: 0,
   });
 
 // ── Mutations ─────────────────────────────────────────────────────────────────
@@ -89,18 +92,68 @@ export const useCreateConfluencePage = () => {
   });
 };
 
-/** Update an existing Confluence page's title and/or body. */
+/**
+ * Update an existing Confluence page's title and/or body.
+ *
+ * Accepts either a pre-computed `body` string or a `transform` function that
+ * receives the current page body and returns the new body. When a `transform`
+ * is provided the mutation always fetches the latest page first to get the
+ * correct version number, making it resilient to 409 Conflict errors caused
+ * by stale cached version numbers.
+ *
+ * If a plain `body` is provided and Confluence returns 409, the mutation
+ * automatically re-fetches the page and retries once with the fresh version.
+ */
 export const useUpdateConfluencePage = () => {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (vars: {
+    mutationFn: async (vars: {
       pageId: string;
-      versionNumber: number;
       title: string;
-      body: string;
-    }) =>
-      updateConfluencePage(vars.pageId, vars.versionNumber, vars.title, vars.body),
-    onSuccess: (_data, vars) => {
+      /** Pre-computed body. Ignored when `transform` is provided. */
+      body?: string;
+      /**
+       * A function that receives the current page body and returns the new
+       * body to write. When provided, the mutation fetches the latest page to
+       * guarantee the version number is correct before writing.
+       */
+      transform?: (currentBody: string) => string;
+      /** Hint for the initial attempt when using plain `body`. */
+      versionNumber?: number;
+    }) => {
+      if (vars.transform) {
+        // Always fetch latest to get the correct version + body.
+        // Note: the Rust layer already adds +1, so we pass the current version as-is.
+        const page = await getConfluencePage(vars.pageId);
+        const newBody = vars.transform(page.body_storage ?? "");
+        const version = page.version_number ?? 0;
+        return updateConfluencePage(vars.pageId, version, page.title, newBody);
+      }
+
+      // Plain body path — attempt once, then retry on 409.
+      const body = vars.body ?? "";
+      const tryUpdate = async (versionNumber: number) =>
+        updateConfluencePage(vars.pageId, versionNumber, vars.title, body);
+
+      if (vars.versionNumber != null) {
+        try {
+          return await tryUpdate(vars.versionNumber);
+        } catch (err) {
+          if (!String(err).includes("409")) throw err;
+          // Stale version — re-fetch and retry once.
+        }
+      }
+      // Re-fetch and pass current version (Rust adds +1 internally).
+      const fresh = await getConfluencePage(vars.pageId);
+      return tryUpdate(fresh.version_number ?? 1);
+    },
+    onSuccess: (updatedPage, vars) => {
+      // Immediately populate the cache with the page returned by the update so
+      // all consumers (banner, checklist, report) reflect the new state without
+      // waiting for a background refetch.
+      qc.setQueryData(queryKeys.confluencePage(vars.pageId), updatedPage);
+      // Also invalidate to ensure a background refresh picks up any server-side
+      // changes we didn't apply locally (e.g. metadata fields).
       void qc.invalidateQueries({
         queryKey: queryKeys.confluencePage(vars.pageId),
       });

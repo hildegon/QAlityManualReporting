@@ -30,6 +30,28 @@ impl JiraClient {
             .to_owned())
     }
 
+    /// Return the full profile of the authenticated Jira user.
+    ///
+    /// Uses `GET /rest/api/3/myself` — same endpoint as credential validation but
+    /// returns the full `JiraUser` struct (account ID + display name + avatar).
+    pub async fn get_current_user(&self) -> Result<JiraUserSearchResult> {
+        let url = format!("{}/rest/api/3/myself", self.base_url);
+        self.track_response(
+            self.client
+                .get(&url)
+                .header("Authorization", &self.auth_header)
+                .header("Accept", "application/json")
+                .send()
+                .await
+                .context("Failed to reach Jira /myself")?,
+        )?
+        .error_for_status()
+        .context("Jira /myself request failed")?
+        .json()
+        .await
+        .context("Failed to parse Jira /myself response")
+    }
+
     /// Search Jira users by display name or email (up to 20 results).
     ///
     /// Uses `GET /rest/api/3/user/search?query=<q>&maxResults=20`.

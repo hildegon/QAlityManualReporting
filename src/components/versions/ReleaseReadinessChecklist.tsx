@@ -1,8 +1,8 @@
-import { ListChecks, CheckCircle2, XCircle, AlertTriangle, Loader2, Calendar } from "lucide-react";
+import { ListChecks, CheckCircle2, XCircle, AlertTriangle, Loader2, Calendar, ShieldCheck, Shield } from "lucide-react";
 import type { useVersionRunStats } from "@/services/queries";
 import { CRITICAL_PRIORITIES, normalizeStatusKey } from "@/constants/statuses";
 import { cn } from "@/components/ui/utils";
-import type { JiraBug, JiraVersion, TestExecution } from "@/types";
+import type { JiraBug, JiraVersion, TestExecution, QaApproval } from "@/types";
 import type { IssueRow } from "./FeedbackPanel";
 
 interface ChecklistItem {
@@ -22,6 +22,7 @@ interface ReleaseReadinessChecklistProps {
   versionIssues: JiraBug[];
   version: JiraVersion;
   feedbackRows?: IssueRow[];
+  qaApproval?: QaApproval | null;
 }
 
 function ReleaseDatePill({ version }: { version: JiraVersion }) {
@@ -84,6 +85,7 @@ export function ReleaseReadinessChecklist({
   versionIssues,
   version,
   feedbackRows = [],
+  qaApproval,
 }: ReleaseReadinessChecklistProps) {
   const isLoading = stats.pagesLoaded < stats.pagesExpected;
 
@@ -213,6 +215,14 @@ export function ReleaseReadinessChecklist({
             : String(feedbackPending),
       pass: feedbackTotal > 0 && feedbackPending === 0,
     },
+    {
+      label: "QA Approved",
+      detail: qaApproval
+        ? `Approved by ${qaApproval.display_name}`
+        : "Not yet approved by QA",
+      metric: qaApproval ? "✓" : "—",
+      pass: !!qaApproval,
+    },
   ];
 
   const passCount = items.filter((i) => i.pass).length;
@@ -259,11 +269,18 @@ export function ReleaseReadinessChecklist({
                 : item.pass
                   ? "text-emerald-600 dark:text-emerald-400"
                   : "text-red-500 dark:text-red-400";
+          const isQaRow = item.label === "QA Approved";
           return (
           <li key={item.label} className="flex items-center gap-3 px-4 py-2">
             <span className="shrink-0">
               {item.loading ? (
                 <Loader2 className="h-4 w-4 animate-spin text-slate-400" />
+              ) : isQaRow ? (
+                item.pass ? (
+                  <ShieldCheck className={cn("h-4 w-4", iconColor)} />
+                ) : (
+                  <Shield className="h-4 w-4 text-slate-300 dark:text-slate-600" />
+                )
               ) : sev === "amber" ? (
                 <AlertTriangle className={cn("h-4 w-4", iconColor)} />
               ) : item.pass || sev === "green" ? (
