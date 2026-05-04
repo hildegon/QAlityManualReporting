@@ -278,6 +278,7 @@ impl XrayClient {
         let jql = format!("project = '{project_key}'");
 
         let mut memberships: HashMap<String, Vec<TestSetMemberInfo>> = HashMap::new();
+        let mut set_to_tests: HashMap<String, Vec<String>> = HashMap::new();
         let mut test_sets: Vec<XrayTestSet> = Vec::new();
         let mut start: u32 = 0;
 
@@ -307,6 +308,18 @@ impl XrayClient {
                         .or_default()
                         .push(info.clone());
                 }
+
+                // Build the reverse map: setIssueId → [testIssueId]
+                let test_ids: Vec<String> = ts
+                    .tests
+                    .results
+                    .iter()
+                    .map(|m| m.issue_id.clone())
+                    .collect();
+                set_to_tests
+                    .entry(ts.issue_id.clone())
+                    .or_default()
+                    .extend(test_ids);
 
                 // If this test set has more than 100 members, queue follow-up.
                 let members_total = ts.tests.total.unwrap_or(ts.tests.results.len() as u32);
@@ -360,6 +373,13 @@ impl XrayClient {
                         .or_default()
                         .push(info.clone());
                 }
+                // Add overflow members to the reverse map too.
+                let overflow_ids: Vec<String> =
+                    page_results.iter().map(|m| m.issue_id.clone()).collect();
+                set_to_tests
+                    .entry(set_issue_id.clone())
+                    .or_default()
+                    .extend(overflow_ids);
 
                 member_start += fetched;
                 if fetched == 0 {
@@ -370,6 +390,7 @@ impl XrayClient {
 
         Ok(TestSetMembershipsResponse {
             memberships,
+            set_to_tests,
             test_sets,
         })
     }

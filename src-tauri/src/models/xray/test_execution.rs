@@ -1,5 +1,5 @@
-use serde::{Deserialize, Serialize};
 use super::{XrayStatus, XrayUser};
+use serde::{Deserialize, Serialize};
 
 // ── Test Executions ───────────────────────────────────────────────────────────
 

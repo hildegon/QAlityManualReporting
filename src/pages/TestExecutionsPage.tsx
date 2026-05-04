@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useRef, useDeferredValue } from "react";
+import { useState, useMemo, useCallback, useRef, useDeferredValue, useEffect } from "react";
 import {
   useTestExecutions,
   useRenameIssue,
@@ -191,6 +191,15 @@ export function TestExecutionsPage() {
     e.stopPropagation();
     setCloneTarget(exec);
   }, []);
+
+  useEffect(() => {
+    if (selected && executions) {
+      const updated = executions.find((e) => e.jira.key === selected.jira.key);
+      if (updated && updated !== selected) {
+        setSelected(updated);
+      }
+    }
+  }, [executions, selected]);
 
   if (!executionProjectKey) {
     return (

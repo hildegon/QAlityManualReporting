@@ -1,5 +1,5 @@
-use serde::{Deserialize, Serialize};
 use super::{XrayIssueType, XrayStatus, XrayTest};
+use serde::{Deserialize, Serialize};
 
 // ── Test Plans ────────────────────────────────────────────────────────────────
 

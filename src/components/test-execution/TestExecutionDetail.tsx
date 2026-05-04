@@ -160,7 +160,12 @@ export function TestExecutionDetail({
   const queryClient = useQueryClient();
 
   // Test-set membership data for the filter
-  const { testSets, membership } = useTestSetMembership(contentProjectKey ?? null);
+  const {
+    testSets,
+    membership,
+    setToTests,
+    isLoading: membershipLoading,
+  } = useTestSetMembership(contentProjectKey ?? null);
 
   // ── Fix version state ──────────────────────────────────────────────────────
   // Derive the Jira project key from the issue key (e.g. "PROJ-123" → "PROJ").
@@ -441,6 +446,26 @@ export function TestExecutionDetail({
     );
   }, [allTests, addTestSearch]);
 
+  // ── Runs / execution-data helpers ───────────────────────────────────────────
+  // Flatten all pages into a single runs array
+  const runs = useMemo(() => data?.pages.flatMap((page) => page.results) ?? [], [data]);
+
+  // Set of test issue_ids already present in this execution
+  const testsAlreadyInExecution = useMemo(
+    () => new Set(runs.map((run) => run.test.issue_id)),
+    [runs],
+  );
+
+  // Set of test-set issue_ids that have at least one test in this execution
+  const testSetIssueIdsInExecution = useMemo(
+    () =>
+      new Set(
+        runs.flatMap((run) => (membership.get(run.test.issue_id) ?? []).map((m) => m.issueId)),
+      ),
+    [runs, membership],
+  );
+
+  // ── Add-tests panel handlers ───────────────────────────────────────────────
   const toggleSelectedTest = (issueId: string) => {
     setSelectedTestIds((prev) => {
       const next = new Set(prev);
@@ -453,30 +478,32 @@ export function TestExecutionDetail({
     });
   };
 
-  /** Fetch all tests in a set and add them to selectedTestIds. */
+  /** Add tests from a set that are not already in the execution (synchronous — uses setToTests from batch membership query, zero extra API calls). */
   const handleSelectFromSet = useCallback(
-    async (setIssueId: string) => {
+    (setIssueId: string) => {
       setLoadingSetId(setIssueId);
       try {
-        const setTests = await queryClient.fetchQuery({
-          queryKey: queryKeys.testSetTests(setIssueId),
-          queryFn: () => api.getTestSetTests(setIssueId),
-          staleTime: 5 * 60 * 1_000,
-        });
+        const testIds = setToTests.get(setIssueId);
+        if (!testIds || testIds.length === 0) {
+          showToast(setToast, "This test set has no tests to add.", "success");
+          return;
+        }
+        const newIds = testIds.filter((id) => !testsAlreadyInExecution.has(id));
+        if (newIds.length === 0) {
+          showToast(setToast, "All tests from this set are already in the execution.", "success");
+          return;
+        }
         setSelectedTestIds((prev) => {
           const next = new Set(prev);
-          for (const t of setTests) next.add(t.issue_id);
+          for (const id of newIds) next.add(id);
           return next;
         });
-        // Switch to the tests tab so the user sees what got selected.
         setAddTab("tests");
-      } catch {
-        // silently ignore — button re-enables
       } finally {
         setLoadingSetId(null);
       }
     },
-    [queryClient],
+    [setToTests, testsAlreadyInExecution],
   );
 
   const handleConfirmAddTests = () => {
@@ -499,9 +526,6 @@ export function TestExecutionDetail({
       },
     );
   };
-
-  // Flatten all pages into a single runs array
-  const runs = useMemo(() => data?.pages.flatMap((page) => page.results) ?? [], [data]);
 
   // Apply text search, optional status filter, then optional status sort.
   const filteredRuns = useMemo(() => {
@@ -684,10 +708,7 @@ export function TestExecutionDetail({
         .join(","),
     [virtualRows],
   );
-  const expandedRunKeys = useMemo(
-    () => [...expandedRuns].sort().join(","),
-    [expandedRuns],
-  );
+  const expandedRunKeys = useMemo(() => [...expandedRuns].sort().join(","), [expandedRuns]);
 
   // Force a height recomputation whenever the rendered structure changes or
   // expanded rows toggle. Without this, the virtualizer can keep stale
@@ -929,7 +950,11 @@ export function TestExecutionDetail({
       const move = (delta: number) => {
         if (items.length === 0) return;
         const nextIdx =
-          currentIdx < 0 ? (delta > 0 ? 0 : items.length - 1) : (currentIdx + delta + items.length) % items.length;
+          currentIdx < 0
+            ? delta > 0
+              ? 0
+              : items.length - 1
+            : (currentIdx + delta + items.length) % items.length;
         const next = items[nextIdx];
         if (next) focusRun(next.run.id);
       };
@@ -1091,10 +1116,13 @@ export function TestExecutionDetail({
             <p className="text-xs text-slate-500 dark:text-slate-400">
               Select a test set to add all its tests to this execution.
             </p>
+            {membershipLoading && <p className="text-xs text-slate-400">Loading test set data…</p>}
             <div className="flex items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-1.5 dark:border-slate-600 dark:bg-slate-800">
               <Search className="h-3.5 w-3.5 shrink-0 text-slate-400" />
               <input
-                autoCorrect="off" autoCapitalize="off" spellCheck={false}
+                autoCorrect="off"
+                autoCapitalize="off"
+                spellCheck={false}
                 type="text"
                 placeholder="Filter test sets…"
                 value={addSetSearch}
@@ -1124,6 +1152,13 @@ export function TestExecutionDetail({
                   <ul className="divide-y divide-slate-100 dark:divide-slate-700">
                     {filteredAddSets.map((ts) => {
                       const isLoading = loadingSetId === ts.issue_id;
+                      const inExecution = testSetIssueIdsInExecution.has(ts.issue_id);
+                      const setTestIds = setToTests.get(ts.issue_id);
+                      const totalCount = setTestIds?.length ?? 0;
+                      const presentCount = setTestIds
+                        ? setTestIds.filter((id) => testsAlreadyInExecution.has(id)).length
+                        : 0;
+                      const fullyIncluded = totalCount > 0 && presentCount === totalCount;
                       return (
                         <li
                           key={ts.issue_id}
@@ -1136,18 +1171,44 @@ export function TestExecutionDetail({
                             <span className="text-sm text-slate-800 dark:text-slate-200">
                               {ts.jira.summary}
                             </span>
+                            {inExecution && totalCount > 0 && (
+                              <span
+                                className={cn(
+                                  "ml-2 rounded-full px-1.5 py-0.5 text-[10px] font-medium",
+                                  fullyIncluded
+                                    ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"
+                                    : "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400",
+                                )}
+                              >
+                                {presentCount}/{totalCount} already added
+                              </span>
+                            )}
                           </div>
                           <button
-                            disabled={isLoading || loadingSetId !== null}
-                            onClick={() => void handleSelectFromSet(ts.issue_id)}
-                            className="flex shrink-0 items-center gap-1 rounded border border-slate-200 bg-white px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-300"
+                            disabled={
+                              isLoading ||
+                              loadingSetId !== null ||
+                              fullyIncluded ||
+                              membershipLoading
+                            }
+                            onClick={() => handleSelectFromSet(ts.issue_id)}
+                            className={cn(
+                              "flex shrink-0 items-center gap-1 rounded border px-2 py-1 text-xs font-medium transition-colors disabled:opacity-50",
+                              fullyIncluded
+                                ? "border-emerald-200 bg-emerald-50 text-emerald-600 dark:border-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-400"
+                                : inExecution && presentCount !== null
+                                  ? "border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-400 dark:hover:bg-amber-900/40"
+                                  : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-300",
+                            )}
                           >
                             {isLoading ? (
                               <Loader2 className="h-3 w-3 animate-spin" />
+                            ) : fullyIncluded ? (
+                              <CheckCheck className="h-3 w-3" />
                             ) : (
                               <Plus className="h-3 w-3" />
                             )}
-                            Select
+                            {fullyIncluded ? "All added" : inExecution ? "Add remaining" : "Select"}
                           </button>
                         </li>
                       );
@@ -1168,7 +1229,9 @@ export function TestExecutionDetail({
             <div className="flex items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-1.5 dark:border-slate-600 dark:bg-slate-800">
               <Search className="h-3.5 w-3.5 shrink-0 text-slate-400" />
               <input
-                autoCorrect="off" autoCapitalize="off" spellCheck={false}
+                autoCorrect="off"
+                autoCapitalize="off"
+                spellCheck={false}
                 type="text"
                 placeholder="Search by key or summary…"
                 value={addTestSearch}
@@ -1197,16 +1260,28 @@ export function TestExecutionDetail({
                 ) : (
                   <ul className="divide-y divide-slate-100 dark:divide-slate-700">
                     {filteredAddTests.map((test) => {
-                      const checked = selectedTestIds.has(test.issue_id);
+                      const alreadyThere = testsAlreadyInExecution.has(test.issue_id);
+                      const checked = !alreadyThere && selectedTestIds.has(test.issue_id);
                       return (
                         <li key={test.issue_id}>
-                          <label className="flex cursor-pointer items-start gap-3 px-3 py-2 hover:bg-slate-50 dark:hover:bg-slate-700/40">
-                            <input
-                              type="checkbox"
-                              className="mt-0.5 h-4 w-4 shrink-0 accent-blue-600"
-                              checked={checked}
-                              onChange={() => toggleSelectedTest(test.issue_id)}
-                            />
+                          <label
+                            className={cn(
+                              "flex items-start gap-3 px-3 py-2",
+                              alreadyThere
+                                ? "cursor-default opacity-50"
+                                : "cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-700/40",
+                            )}
+                          >
+                            {alreadyThere ? (
+                              <CheckCheck className="mt-0.5 h-4 w-4 shrink-0 text-emerald-500" />
+                            ) : (
+                              <input
+                                type="checkbox"
+                                className="mt-0.5 h-4 w-4 shrink-0 accent-blue-600"
+                                checked={checked}
+                                onChange={() => toggleSelectedTest(test.issue_id)}
+                              />
+                            )}
                             <div className="min-w-0">
                               <span className="mr-1.5 font-mono text-xs text-slate-500">
                                 {test.jira.key}
@@ -1214,6 +1289,11 @@ export function TestExecutionDetail({
                               <span className="text-sm text-slate-800 dark:text-slate-200">
                                 {test.jira.summary}
                               </span>
+                              {alreadyThere && (
+                                <span className="ml-2 text-xs text-emerald-600 dark:text-emerald-400">
+                                  already added
+                                </span>
+                              )}
                             </div>
                           </label>
                         </li>
@@ -1354,6 +1434,7 @@ export function TestExecutionDetail({
                             issueKey: execution.jira.key,
                             transitionId: t.id,
                             executionProjectKey: execProjectKey ?? "",
+                            toStatusName: t.to?.name ?? t.name,
                           });
                         }}
                       >
@@ -1415,6 +1496,7 @@ export function TestExecutionDetail({
                             issueKey: execution.jira.key,
                             accountId: u.account_id,
                             executionProjectKey: execProjectKey ?? "",
+                            displayName: u.display_name,
                           });
                         }}
                       >
@@ -1445,7 +1527,9 @@ export function TestExecutionDetail({
                 <div className="absolute left-0 top-full z-20 mt-1 w-56 rounded-md border border-slate-200 bg-white shadow-lg dark:border-slate-700 dark:bg-slate-800">
                   <div className="p-1.5">
                     <input
-                      autoCorrect="off" autoCapitalize="off" spellCheck={false}
+                      autoCorrect="off"
+                      autoCapitalize="off"
+                      spellCheck={false}
                       autoFocus
                       placeholder="Search versions…"
                       value={versionSearch}
@@ -1478,6 +1562,7 @@ export function TestExecutionDetail({
                             issueKey: execution.jira.key,
                             versionId: v.id,
                             executionProjectKey: execProjectKey ?? "",
+                            versionName: v.name,
                           });
                         }}
                       >
@@ -1568,9 +1653,9 @@ export function TestExecutionDetail({
             <Plus className="h-3.5 w-3.5" />
             Add tests
           </button>
-          {addTestsPanel}
         </div>
       )}
+      {addTestsPanel && <div className="mb-3">{addTestsPanel}</div>}
 
       {runs.length > 0 && (
         <>
@@ -1582,7 +1667,9 @@ export function TestExecutionDetail({
                 <div className="flex flex-1 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 shadow-sm dark:border-slate-700 dark:bg-slate-800">
                   <Search className="h-3.5 w-3.5 shrink-0 text-slate-400" />
                   <input
-                    autoCorrect="off" autoCapitalize="off" spellCheck={false}
+                    autoCorrect="off"
+                    autoCapitalize="off"
+                    spellCheck={false}
                     type="text"
                     placeholder="Filter by key or name…"
                     value={testSearch}
@@ -1643,7 +1730,10 @@ export function TestExecutionDetail({
                   <Bug className="h-3.5 w-3.5" />
                   {autoOpenFailKit ? "Kit on" : "Kit off"}
                 </button>
-                <span className="mx-0.5 h-6 w-px shrink-0 bg-slate-200 dark:bg-slate-700" aria-hidden />
+                <span
+                  className="mx-0.5 h-6 w-px shrink-0 bg-slate-200 dark:bg-slate-700"
+                  aria-hidden
+                />
                 <button
                   onClick={() => setAddPanelOpen((prev) => !prev)}
                   title="Add tests to this execution"
@@ -1673,7 +1763,10 @@ export function TestExecutionDetail({
                   <CheckCheck className="h-3.5 w-3.5" />
                   {isSelectMode ? "Cancel" : "Select"}
                 </button>
-                <span className="mx-0.5 h-6 w-px shrink-0 bg-slate-200 dark:bg-slate-700" aria-hidden />
+                <span
+                  className="mx-0.5 h-6 w-px shrink-0 bg-slate-200 dark:bg-slate-700"
+                  aria-hidden
+                />
                 <button
                   onClick={() => setHelpOpen(true)}
                   title="Help & keyboard shortcuts (press ?)"
@@ -1719,7 +1812,9 @@ export function TestExecutionDetail({
 
             {/* Status filter */}
             <div className="mb-2 flex items-center gap-2">
-              <span className="text-xs font-medium text-slate-500 dark:text-slate-400">Filter:</span>
+              <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
+                Filter:
+              </span>
               {statuses.map((s) => {
                 const isActive = statusFilter?.toUpperCase() === s.name.toUpperCase();
                 return (
@@ -1757,9 +1852,6 @@ export function TestExecutionDetail({
               )}
             </div>
           </div>
-
-          {/* Add-tests panel — outside sticky to avoid covering the list */}
-          {addTestsPanel && <div className="mb-3">{addTestsPanel}</div>}
 
           {/* Help modal — driven by toolbar button or `?` shortcut */}
           <PageHelpButton
@@ -1812,9 +1904,9 @@ export function TestExecutionDetail({
                           <strong>
                             {loadAllProgress.currentPage}/{loadAllProgress.totalPages}
                           </strong>{" "}
-                          · <strong>{runs.length}</strong> of{" "}
-                          <strong>{totalFromServer}</strong> loaded ·{" "}
-                          {Math.round((Date.now() - loadAllProgress.startedAt) / 1000)}s elapsed
+                          · <strong>{runs.length}</strong> of <strong>{totalFromServer}</strong>{" "}
+                          loaded · {Math.round((Date.now() - loadAllProgress.startedAt) / 1000)}s
+                          elapsed
                         </>
                       ) : (
                         <>
@@ -1822,17 +1914,16 @@ export function TestExecutionDetail({
                           <strong>
                             {loadAllProgress.currentPage}/{loadAllProgress.totalPages}
                           </strong>{" "}
-                          · <strong>{runs.length}</strong> of{" "}
-                          <strong>{totalFromServer}</strong> tests loaded ·{" "}
+                          · <strong>{runs.length}</strong> of <strong>{totalFromServer}</strong>{" "}
+                          tests loaded ·{" "}
                           {Math.round((Date.now() - loadAllProgress.startedAt) / 1000)}s elapsed
                         </>
                       )}
                     </>
                   ) : (
                     <>
-                      Showing <strong>{runs.length}</strong> of{" "}
-                      <strong>{totalFromServer}</strong> tests.{" "}
-                      {totalFromServer - runs.length} more available.
+                      Showing <strong>{runs.length}</strong> of <strong>{totalFromServer}</strong>{" "}
+                      tests. {totalFromServer - runs.length} more available.
                     </>
                   )}
                 </span>
@@ -1964,7 +2055,8 @@ export function TestExecutionDetail({
                     run.test_type?.name?.toLowerCase() === "cucumber" || !!run.gherkin;
                   // With lightweight data, steps may not be loaded yet —
                   // assume all Manual/Cucumber tests are expandable
-                  const isManual = run.test_type?.name?.toLowerCase() === "manual" ||
+                  const isManual =
+                    run.test_type?.name?.toLowerCase() === "manual" ||
                     (!run.test_type && !isCucumber);
                   const hasSteps = isManual || isCucumber;
                   const isExpanded = expandedRuns.has(run.id);
@@ -1974,10 +2066,7 @@ export function TestExecutionDetail({
                       key={run.id}
                       data-index={virtualRow.index}
                       ref={virtualizer.measureElement}
-                      className={cn(
-                        "bg-white dark:bg-slate-800",
-                        isExpanded && "z-[1]",
-                      )}
+                      className={cn("bg-white dark:bg-slate-800", isExpanded && "z-[1]")}
                       style={{
                         position: "absolute",
                         top: 0,
@@ -2171,7 +2260,9 @@ export function TestExecutionDetail({
                                   Link defect(s)
                                 </p>
                                 <input
-                                  autoCorrect="off" autoCapitalize="off" spellCheck={false}
+                                  autoCorrect="off"
+                                  autoCapitalize="off"
+                                  spellCheck={false}
                                   autoFocus
                                   value={defectInputValue}
                                   onChange={(e) => setDefectInputValue(e.target.value)}
@@ -2244,21 +2335,25 @@ export function TestExecutionDetail({
                           {(recentByProject[execProjectKey ?? ""] ?? []).slice(0, 5).length > 0 && (
                             <div className="flex flex-wrap items-center gap-1.5">
                               <span className="text-[10px] text-slate-400">Recent:</span>
-                              {(recentByProject[execProjectKey ?? ""] ?? []).slice(0, 5).map((c, i) => (
-                                <button
-                                  key={i}
-                                  onClick={() => setCommentValue(c)}
-                                  title={c}
-                                  className="max-w-[200px] truncate rounded border border-slate-200 bg-white px-2 py-0.5 text-[10px] text-slate-600 hover:bg-slate-100 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600"
-                                >
-                                  {c.length > 50 ? c.slice(0, 50) + "…" : c}
-                                </button>
-                              ))}
+                              {(recentByProject[execProjectKey ?? ""] ?? [])
+                                .slice(0, 5)
+                                .map((c, i) => (
+                                  <button
+                                    key={i}
+                                    onClick={() => setCommentValue(c)}
+                                    title={c}
+                                    className="max-w-[200px] truncate rounded border border-slate-200 bg-white px-2 py-0.5 text-[10px] text-slate-600 hover:bg-slate-100 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600"
+                                  >
+                                    {c.length > 50 ? c.slice(0, 50) + "…" : c}
+                                  </button>
+                                ))}
                             </div>
                           )}
                           <div className="flex items-center gap-2">
                             <input
-                              autoCorrect="off" autoCapitalize="off" spellCheck={false}
+                              autoCorrect="off"
+                              autoCapitalize="off"
+                              spellCheck={false}
                               autoFocus
                               className="flex-1 rounded border border-slate-200 bg-white px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200 dark:focus:ring-slate-500"
                               placeholder="Add a comment..."
@@ -2276,7 +2371,11 @@ export function TestExecutionDetail({
                             >
                               Save
                             </Button>
-                            <Button size="sm" variant="ghost" onClick={() => setActiveComment(null)}>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => setActiveComment(null)}
+                            >
                               Cancel
                             </Button>
                           </div>
@@ -2500,10 +2599,12 @@ const RunExpandedPanel = memo(function RunExpandedPanel({
   setToast,
 }: RunExpandedPanelProps) {
   // Lazy-load full run details (steps, iterations, Gherkin, evidence)
-  const { data: detail, isLoading, isError, error } = useTestRunDetail(
-    run.test.issue_id,
-    executionIssueId,
-  );
+  const {
+    data: detail,
+    isLoading,
+    isError,
+    error,
+  } = useTestRunDetail(run.test.issue_id, executionIssueId);
 
   // Merge: use fetched detail if available, else fall back to the (possibly slim) run
   const fullRun = detail ?? run;
@@ -2536,17 +2637,13 @@ const RunExpandedPanel = memo(function RunExpandedPanel({
 
   if (isError) {
     return (
-      <div className="px-6 py-4 text-sm text-red-500">
-        Failed to load details: {String(error)}
-      </div>
+      <div className="px-6 py-4 text-sm text-red-500">Failed to load details: {String(error)}</div>
     );
   }
 
   if (!hasManualSteps && !isCucumber) {
     return (
-      <div className="px-6 py-3 text-sm text-slate-400 italic">
-        No steps defined for this test.
-      </div>
+      <div className="px-6 py-3 text-sm text-slate-400 italic">No steps defined for this test.</div>
     );
   }
 
@@ -2892,7 +2989,9 @@ function StepsPanel({
                       {isEditingActual ? (
                         <div className="flex items-center gap-1">
                           <input
-                            autoCorrect="off" autoCapitalize="off" spellCheck={false}
+                            autoCorrect="off"
+                            autoCapitalize="off"
+                            spellCheck={false}
                             autoFocus
                             className="flex-1 rounded border border-slate-200 bg-white px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-slate-400 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200"
                             placeholder="Actual result..."
@@ -2946,7 +3045,9 @@ function StepsPanel({
                       {isEditingComment ? (
                         <div className="flex items-center gap-1">
                           <input
-                            autoCorrect="off" autoCapitalize="off" spellCheck={false}
+                            autoCorrect="off"
+                            autoCapitalize="off"
+                            spellCheck={false}
                             autoFocus
                             className="flex-1 rounded border border-slate-200 bg-white px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-slate-400 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200"
                             placeholder="Step comment..."

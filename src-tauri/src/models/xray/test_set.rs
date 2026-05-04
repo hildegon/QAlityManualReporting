@@ -1,5 +1,5 @@
-use serde::{Deserialize, Serialize};
 use super::{XrayStatus, XrayTest};
+use serde::{Deserialize, Serialize};
 
 // ── Test Sets ─────────────────────────────────────────────────────────────────
 
@@ -65,10 +65,13 @@ pub struct TestSetMemberInfo {
 
 /// Response from `get_all_test_set_memberships`.
 /// Maps `test_issue_id → Vec<TestSetMemberInfo>` (which test sets each test belongs to).
+/// Also maps `set_issue_id → Vec<test_issue_id>` (which tests each set contains).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TestSetMembershipsResponse {
     /// Map from test issue ID to the list of test sets it belongs to.
     pub memberships: std::collections::HashMap<String, Vec<TestSetMemberInfo>>,
+    /// Map from test set issue ID to the list of test issue IDs it contains.
+    pub set_to_tests: std::collections::HashMap<String, Vec<String>>,
     /// The full list of test sets in the project.
     pub test_sets: Vec<XrayTestSet>,
 }

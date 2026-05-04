@@ -1,5 +1,5 @@
-use serde::{Deserialize, Serialize};
 use super::{StepStatus, TestType};
+use serde::{Deserialize, Serialize};
 
 // ── Test Runs ─────────────────────────────────────────────────────────────────
 

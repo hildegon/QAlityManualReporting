@@ -1,5 +1,5 @@
-use serde::{Deserialize, Serialize};
 use super::{LatestTestStatus, TestType, XrayStatus, XrayUser};
+use serde::{Deserialize, Serialize};
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
 

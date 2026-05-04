@@ -455,9 +455,18 @@ mod tests {
             "evidence": null
         }"#;
         let run: TestRun = serde_json::from_str(json).unwrap();
-        assert!(run.defects.is_empty(), "null defects should deserialize to empty Vec");
-        assert!(run.parameters.is_empty(), "null parameters should deserialize to empty Vec");
-        assert!(run.evidence.is_empty(), "null evidence should deserialize to empty Vec");
+        assert!(
+            run.defects.is_empty(),
+            "null defects should deserialize to empty Vec"
+        );
+        assert!(
+            run.parameters.is_empty(),
+            "null parameters should deserialize to empty Vec"
+        );
+        assert!(
+            run.evidence.is_empty(),
+            "null evidence should deserialize to empty Vec"
+        );
     }
 
     #[test]
@@ -468,9 +477,18 @@ mod tests {
             "test": {"issueId": "t-3", "jira": "{\"key\":\"T-3\",\"summary\":\"s\"}"}
         }"#;
         let run: TestRun = serde_json::from_str(json).unwrap();
-        assert!(run.defects.is_empty(), "missing defects should default to empty Vec");
-        assert!(run.parameters.is_empty(), "missing parameters should default to empty Vec");
-        assert!(run.evidence.is_empty(), "missing evidence should default to empty Vec");
+        assert!(
+            run.defects.is_empty(),
+            "missing defects should default to empty Vec"
+        );
+        assert!(
+            run.parameters.is_empty(),
+            "missing parameters should default to empty Vec"
+        );
+        assert!(
+            run.evidence.is_empty(),
+            "missing evidence should default to empty Vec"
+        );
         assert!(run.steps.is_none());
         assert!(run.gherkin.is_none());
         assert!(run.comment.is_none());
@@ -593,7 +611,10 @@ mod tests {
         }"#;
 
         let run: TestRun = serde_json::from_str(json).unwrap();
-        assert_eq!(run.gherkin.as_deref(), Some("Feature: Login\n  Scenario: Valid login"));
+        assert_eq!(
+            run.gherkin.as_deref(),
+            Some("Feature: Login\n  Scenario: Valid login")
+        );
         assert_eq!(run.scenario_type.as_deref(), Some("Scenario"));
         let results = run.results.as_ref().unwrap();
         assert_eq!(results.len(), 1);
@@ -604,7 +625,10 @@ mod tests {
         let steps = results[0].steps.as_ref().unwrap();
         assert_eq!(steps[0].keyword.as_deref(), Some("Given"));
         assert_eq!(steps[0].embeddings.len(), 1);
-        assert_eq!(steps[0].embeddings[0].mime_type.as_deref(), Some("image/png"));
+        assert_eq!(
+            steps[0].embeddings[0].mime_type.as_deref(),
+            Some("image/png")
+        );
         assert!(steps[0].embeddings[0].data.is_some());
     }
 
@@ -753,7 +777,9 @@ mod tests {
         assert_eq!(h1.latest_status.as_ref().unwrap().name, "PASS");
         assert_eq!(h1.latest_status.as_ref().unwrap().is_final, Some(true));
         assert_eq!(h1.test_runs.as_ref().unwrap().results.len(), 1);
-        assert!(h1.test_runs.as_ref().unwrap().results[0].finished_on.is_some());
+        assert!(h1.test_runs.as_ref().unwrap().results[0]
+            .finished_on
+            .is_some());
 
         let h2 = &result.get_tests.results[1];
         assert!(h2.test_runs.as_ref().unwrap().results.is_empty());
@@ -858,7 +884,10 @@ mod tests {
         let result: TestRunStatsResult = serde_json::from_str(json).unwrap();
         assert_eq!(result.test_runs.total, 2);
         assert_eq!(result.test_runs.results[0].status.name, "PASS");
-        assert_eq!(result.test_runs.results[0].test_type.as_ref().unwrap().name, "Manual");
+        assert_eq!(
+            result.test_runs.results[0].test_type.as_ref().unwrap().name,
+            "Manual"
+        );
         assert_eq!(result.test_runs.results[1].test.jira.key, "T-2");
     }
 
@@ -938,7 +967,10 @@ mod tests {
             result.create_test_execution.test_execution.issue_id,
             "new-exec-1"
         );
-        assert_eq!(result.create_test_execution.test_execution.jira.key, "PROJ-600");
+        assert_eq!(
+            result.create_test_execution.test_execution.jira.key,
+            "PROJ-600"
+        );
     }
 
     #[test]
@@ -1245,7 +1277,13 @@ mod tests {
             }
         }"#;
         let result: GetTestRunResult = serde_json::from_str(json).unwrap();
-        let iters = result.get_test_run.as_ref().unwrap().iterations.as_ref().unwrap();
+        let iters = result
+            .get_test_run
+            .as_ref()
+            .unwrap()
+            .iterations
+            .as_ref()
+            .unwrap();
         assert_eq!(iters.results.len(), 1);
     }
 
@@ -1265,6 +1303,9 @@ mod tests {
                 "t-1": [{"issue_id": "ts-1", "key": "TS-1", "summary": "Set A"}],
                 "t-2": []
             },
+            "set_to_tests": {
+                "ts-1": ["t-1"]
+            },
             "test_sets": [
                 {
                     "issueId": "ts-1",
@@ -1276,6 +1317,8 @@ mod tests {
         assert_eq!(resp.memberships.len(), 2);
         assert_eq!(resp.memberships["t-1"].len(), 1);
         assert!(resp.memberships["t-2"].is_empty());
+        assert_eq!(resp.set_to_tests.len(), 1);
+        assert_eq!(resp.set_to_tests["ts-1"], vec!["t-1"]);
         assert_eq!(resp.test_sets.len(), 1);
     }
 

@@ -93,6 +93,8 @@ interface TransitionIssueVars {
   executionProjectKey: string;
   /** If set, the versionIssues query for this version is also invalidated. */
   versionName?: string;
+  /** New status name — used for optimistic cache update. */
+  toStatusName?: string;
 }
 
 /** Apply a workflow transition to a Jira issue and invalidate the executions list. */
@@ -100,20 +102,39 @@ export function useTransitionIssue() {
   const queryClient = useQueryClient();
   return useMutation<void, Error, TransitionIssueVars>({
     mutationFn: ({ issueKey, transitionId }) => api.transitionIssue(issueKey, transitionId),
-    onSuccess: (_data, { issueKey, executionProjectKey, versionName }) => {
-      // Invalidate transitions cache so re-opening the dialog shows fresh options
+    onMutate: async ({ issueKey, executionProjectKey, toStatusName }) => {
+      if (!toStatusName) return undefined;
+      const queryKey = queryKeys.testExecutions(executionProjectKey);
+      await queryClient.cancelQueries({ queryKey });
+      const previous = queryClient.getQueryData(queryKey);
+      queryClient.setQueryData(queryKey, (old: unknown) => {
+        if (!Array.isArray(old)) return old;
+        return old.map(
+          (item: { issue_id?: string; jira?: { key?: string; status?: { name: string } } }) => {
+            const key = item.jira?.key ?? "";
+            if (item.issue_id === issueKey || key === issueKey) {
+              return { ...item, jira: { ...item.jira, status: { name: toStatusName } } };
+            }
+            return item;
+          },
+        );
+      });
+      return { previous, queryKey };
+    },
+    onError: (_err, _vars, context) => {
+      const ctx = context as { previous: unknown; queryKey: readonly unknown[] } | undefined;
+      if (ctx) queryClient.setQueryData(ctx.queryKey, ctx.previous);
+    },
+    onSettled: (_data, _err, { issueKey, executionProjectKey, versionName }) => {
       void queryClient.invalidateQueries({
         queryKey: queryKeys.issueTransitions(issueKey),
       });
-      // Refresh the issue detail modal if it's open
       void queryClient.invalidateQueries({
         queryKey: queryKeys.issueDetail(issueKey),
       });
-      // Refresh the executions list to show the updated status
       void queryClient.invalidateQueries({
         queryKey: queryKeys.testExecutions(executionProjectKey),
       });
-      // Refresh version issues panel if a version context was provided
       if (versionName) {
         void queryClient.invalidateQueries({
           queryKey: queryKeys.versionIssues(executionProjectKey, versionName),
@@ -158,6 +179,8 @@ interface UpdateAssigneeVars {
   accountId?: string;
   /** Execution project key — used to invalidate the executions list on success. */
   executionProjectKey: string;
+  /** Display name — used for optimistic cache update (unused when unassigning). */
+  displayName?: string;
 }
 
 /** Update (or clear) the assignee of a Jira issue and invalidate the executions list. */
@@ -165,7 +188,35 @@ export function useUpdateAssignee() {
   const queryClient = useQueryClient();
   return useMutation<void, Error, UpdateAssigneeVars>({
     mutationFn: ({ issueKey, accountId }) => api.updateAssignee(issueKey, accountId),
-    onSuccess: (_data, { executionProjectKey }) => {
+    onMutate: async ({ issueKey, executionProjectKey, accountId, displayName }) => {
+      const queryKey = queryKeys.testExecutions(executionProjectKey);
+      await queryClient.cancelQueries({ queryKey });
+      const previous = queryClient.getQueryData(queryKey);
+      queryClient.setQueryData(queryKey, (old: unknown) => {
+        if (!Array.isArray(old)) return old;
+        return old.map(
+          (item: {
+            issue_id?: string;
+            jira?: { key?: string; assignee?: { account_id?: string; display_name?: string } };
+          }) => {
+            const key = item.jira?.key ?? "";
+            if (item.issue_id === issueKey || key === issueKey) {
+              const assignee = accountId
+                ? { account_id: accountId, display_name: displayName ?? "" }
+                : undefined;
+              return { ...item, jira: { ...item.jira, assignee } };
+            }
+            return item;
+          },
+        );
+      });
+      return { previous, queryKey };
+    },
+    onError: (_err, _vars, context) => {
+      const ctx = context as { previous: unknown; queryKey: readonly unknown[] } | undefined;
+      if (ctx) queryClient.setQueryData(ctx.queryKey, ctx.previous);
+    },
+    onSettled: (_data, _err, { executionProjectKey }) => {
       void queryClient.invalidateQueries({
         queryKey: queryKeys.testExecutions(executionProjectKey),
       });
@@ -180,6 +231,8 @@ interface UpdateExecutionFixVersionVars {
   versionId: string;
   /** Execution project key — used to invalidate the executions list on success. */
   executionProjectKey: string;
+  /** Version name — used for optimistic cache update (unused when clearing). */
+  versionName?: string;
 }
 
 /** Update (or clear) the fix version of a Test Execution and invalidate the executions list. */
@@ -187,7 +240,34 @@ export function useUpdateExecutionFixVersion() {
   const queryClient = useQueryClient();
   return useMutation<void, Error, UpdateExecutionFixVersionVars>({
     mutationFn: ({ issueKey, versionId }) => api.updateIssueFixVersion(issueKey, versionId),
-    onSuccess: (_data, { executionProjectKey }) => {
+    onMutate: async ({ issueKey, executionProjectKey, versionId, versionName }) => {
+      const queryKey = queryKeys.testExecutions(executionProjectKey);
+      await queryClient.cancelQueries({ queryKey });
+      const previous = queryClient.getQueryData(queryKey);
+      queryClient.setQueryData(queryKey, (old: unknown) => {
+        if (!Array.isArray(old)) return old;
+        return old.map(
+          (item: {
+            issue_id?: string;
+            jira?: { key?: string; fix_versions?: Array<{ id: string; name: string }> };
+          }) => {
+            const key = item.jira?.key ?? "";
+            if (item.issue_id === issueKey || key === issueKey) {
+              const fix_versions =
+                versionId && versionName ? [{ id: versionId, name: versionName }] : undefined;
+              return { ...item, jira: { ...item.jira, fix_versions } };
+            }
+            return item;
+          },
+        );
+      });
+      return { previous, queryKey };
+    },
+    onError: (_err, _vars, context) => {
+      const ctx = context as { previous: unknown; queryKey: readonly unknown[] } | undefined;
+      if (ctx) queryClient.setQueryData(ctx.queryKey, ctx.previous);
+    },
+    onSettled: (_data, _err, { executionProjectKey }) => {
       void queryClient.invalidateQueries({
         queryKey: queryKeys.testExecutions(executionProjectKey),
       });
@@ -215,7 +295,13 @@ export function useCreateVersion(projectKey: string) {
   return useMutation<
     JiraVersion,
     Error,
-    { projectId: string; name: string; description?: string; startDate?: string; releaseDate?: string }
+    {
+      projectId: string;
+      name: string;
+      description?: string;
+      startDate?: string;
+      releaseDate?: string;
+    }
   >({
     mutationFn: ({ projectId, name, description, startDate, releaseDate }) =>
       api.createVersion(projectId, name, description, startDate, releaseDate),
@@ -285,10 +371,7 @@ export function useDeleteVersionProperty(versionId: string, propertyKey: string)
   return useMutation<void, Error, void>({
     mutationFn: () => api.deleteVersionProperty(versionId, propertyKey),
     onSuccess: () => {
-      queryClient.setQueryData(
-        queryKeys.versionProperty(versionId, propertyKey),
-        null,
-      );
+      queryClient.setQueryData(queryKeys.versionProperty(versionId, propertyKey), null);
     },
   });
 }
@@ -347,10 +430,7 @@ export function useDeleteQaApproval(projectKey: string, versionId: string) {
   return useMutation<void, Error, void>({
     mutationFn: () => api.deleteProjectProperty(projectKey, propertyKey),
     onSuccess: () => {
-      queryClient.setQueryData(
-        queryKeys.projectProperty(projectKey, propertyKey),
-        null,
-      );
+      queryClient.setQueryData(queryKeys.projectProperty(projectKey, propertyKey), null);
     },
   });
 }
@@ -372,11 +452,7 @@ export function useVersionRelatedWork(versionId: string | null) {
 /** Create a "Related Work" entry on a Jira version and invalidate its cache. */
 export function useCreateVersionRelatedWork(versionId: string) {
   const queryClient = useQueryClient();
-  return useMutation<
-    VersionRelatedWork,
-    Error,
-    { category: string; title: string; url: string }
-  >({
+  return useMutation<VersionRelatedWork, Error, { category: string; title: string; url: string }>({
     mutationFn: ({ category, title, url }) =>
       api.createVersionRelatedWork(versionId, category, title, url),
     onSuccess: () => {
@@ -391,8 +467,7 @@ export function useCreateVersionRelatedWork(versionId: string) {
 export function useDeleteVersionRelatedWork(versionId: string) {
   const queryClient = useQueryClient();
   return useMutation<void, Error, string, VersionRelatedWork[] | undefined>({
-    mutationFn: (relatedWorkId) =>
-      api.deleteVersionRelatedWork(versionId, relatedWorkId),
+    mutationFn: (relatedWorkId) => api.deleteVersionRelatedWork(versionId, relatedWorkId),
     onMutate: async (relatedWorkId) => {
       await queryClient.cancelQueries({
         queryKey: queryKeys.versionRelatedWork(versionId),
@@ -408,10 +483,7 @@ export function useDeleteVersionRelatedWork(versionId: string) {
     },
     onError: (_err, _vars, previous) => {
       if (previous !== undefined) {
-        queryClient.setQueryData(
-          queryKeys.versionRelatedWork(versionId),
-          previous,
-        );
+        queryClient.setQueryData(queryKeys.versionRelatedWork(versionId), previous);
       }
     },
     onSettled: () => {
@@ -656,7 +728,13 @@ export function useCreateBug() {
       }
       return result;
     },
-    onMutate: async ({ projectKey, versionName, summary, assigneeAccountId, assigneeDisplayName }) => {
+    onMutate: async ({
+      projectKey,
+      versionName,
+      summary,
+      assigneeAccountId,
+      assigneeDisplayName,
+    }) => {
       const queryKey = queryKeys.bugsByVersion(projectKey, versionName);
       await queryClient.cancelQueries({ queryKey });
       const previous = queryClient.getQueryData<JiraBug[]>(queryKey);
@@ -683,7 +761,9 @@ export function useCreateBug() {
       return { previous, queryKey };
     },
     onError: (_err, _vars, context) => {
-      const ctx = context as { previous: JiraBug[] | undefined; queryKey: readonly unknown[] } | undefined;
+      const ctx = context as
+        | { previous: JiraBug[] | undefined; queryKey: readonly unknown[] }
+        | undefined;
       if (ctx) queryClient.setQueryData(ctx.queryKey, ctx.previous);
     },
     onSettled: (_data, _err, { projectKey, versionName }) => {
@@ -693,7 +773,6 @@ export function useCreateBug() {
     },
   });
 }
-
 
 // ── Current Jira user ─────────────────────────────────────────────────────────
 

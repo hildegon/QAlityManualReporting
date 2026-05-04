@@ -1,5 +1,5 @@
-import { useState, useRef, useEffect, useMemo, useDeferredValue } from "react";
-import { useGetTestSets } from "@/services/queries";
+import { useState, useRef, useEffect, useMemo, useCallback, useDeferredValue } from "react";
+import { useGetTestSets, useTestSetMembership } from "@/services/queries";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -27,12 +27,14 @@ export function TestSetsSourcePanel({
   onRegisterReload,
 }: TestSetsPanelProps) {
   const { data: testSets, isLoading, isError, error, refetch } = useGetTestSets(projectKey);
+  const { setToTests } = useTestSetMembership(projectKey);
 
   useEffect(() => {
     onRegisterReload(refetch);
   }, [onRegisterReload, refetch]);
 
   const [search, setSearch] = useState("");
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const q = useDeferredValue(search).trim().toLowerCase();
   const filtered = useMemo(
     () =>
@@ -46,6 +48,32 @@ export function TestSetsSourcePanel({
   const filteredIds = useMemo(() => filtered.map((ts) => ts.issue_id), [filtered]);
   const allFilteredSelected =
     filteredIds.length > 0 && filteredIds.every((id) => selectedIds.has(id));
+  const allExpanded = filteredIds.length > 0 && filteredIds.every((id) => expandedIds.has(id));
+
+  const handleToggleExpand = useCallback((setId: string) => {
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(setId)) next.delete(setId);
+      else next.add(setId);
+      return next;
+    });
+  }, []);
+
+  const handleExpandAll = useCallback(() => {
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      for (const id of filteredIds) next.add(id);
+      return next;
+    });
+  }, [filteredIds]);
+
+  const handleCollapseAll = useCallback(() => {
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      for (const id of filteredIds) next.delete(id);
+      return next;
+    });
+  }, [filteredIds]);
 
   const mouseDownRef = useRef<{
     testSetId: string;
@@ -132,15 +160,25 @@ export function TestSetsSourcePanel({
             </span>
           )}
         </span>
-        {allFilteredSelected ? (
-          <button className="hover:text-slate-700" onClick={onClearAll}>
-            Deselect all
-          </button>
-        ) : (
-          <button className="hover:text-slate-700" onClick={() => onSelectAll(filteredIds)}>
-            Select all
-          </button>
-        )}
+        <div className="flex items-center gap-2">
+          {filtered.length > 0 && (
+            <button
+              className="hover:text-slate-700 dark:hover:text-slate-200"
+              onClick={allExpanded ? handleCollapseAll : handleExpandAll}
+            >
+              {allExpanded ? "Collapse all" : "Expand all"}
+            </button>
+          )}
+          {allFilteredSelected ? (
+            <button className="hover:text-slate-700" onClick={onClearAll}>
+              Deselect all
+            </button>
+          ) : (
+            <button className="hover:text-slate-700" onClick={() => onSelectAll(filteredIds)}>
+              Select all
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="flex-1 space-y-1.5 overflow-y-auto">
@@ -156,6 +194,9 @@ export function TestSetsSourcePanel({
               selected={selectedIds.has(ts.issue_id)}
               onToggle={() => onToggle(ts.issue_id)}
               onMouseDown={(e) => handleMouseDown(e, ts)}
+              isExpanded={expandedIds.has(ts.issue_id)}
+              onToggleExpand={() => handleToggleExpand(ts.issue_id)}
+              memberCount={setToTests?.get(ts.issue_id)?.length ?? 0}
             />
           ))
         )}

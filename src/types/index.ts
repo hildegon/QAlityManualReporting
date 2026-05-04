@@ -510,6 +510,7 @@ export interface TestSetMemberInfo {
 /** Response from `get_all_test_set_memberships` — maps test issue IDs to their test sets. */
 export interface TestSetMembershipsResponse {
   memberships: Record<string, TestSetMemberInfo[]>;
+  set_to_tests: Record<string, string[]>;
   test_sets: XrayTestSet[];
 }
 

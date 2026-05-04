@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useMemo } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { useInfiniteQuery, useQuery, useQueryClient, type InfiniteData, type QueryClient } from "@tanstack/react-query";
+import {
+  useInfiniteQuery,
+  useQuery,
+  useQueryClient,
+  type InfiniteData,
+  type QueryClient,
+} from "@tanstack/react-query";
 import type {
   TestExecution,
   TestPlan,
@@ -41,9 +47,8 @@ async function ensureTestsListener(queryClient: QueryClient) {
       (event) => {
         const { project_key, tests, done } = event.payload;
         // Always call setQueryData so React re-renders on every batch including the final done signal.
-        queryClient.setQueryData<XrayTest[]>(
-          queryKeys.tests(project_key),
-          (prev) => (tests.length > 0 ? [...(prev ?? []), ...tests] : (prev ?? [])),
+        queryClient.setQueryData<XrayTest[]>(queryKeys.tests(project_key), (prev) =>
+          tests.length > 0 ? [...(prev ?? []), ...tests] : (prev ?? []),
         );
         if (done) {
           testStreamMap.set(project_key, "done");
@@ -136,10 +141,7 @@ export function useTestRuns(executionIssueId: string | null) {
  * providing `testIssueId` and `execIssueId`. Cached indefinitely since
  * details are immutable for completed runs.
  */
-export function useTestRunDetail(
-  testIssueId: string | null,
-  execIssueId: string | null,
-) {
+export function useTestRunDetail(testIssueId: string | null, execIssueId: string | null) {
   return useQuery<TestRun | null>({
     queryKey: queryKeys.testRunDetail(testIssueId ?? "", execIssueId ?? ""),
     queryFn: () => api.getSingleTestRun(testIssueId!, execIssueId!),
@@ -396,13 +398,23 @@ export function useTestSetMembership(projectKey: string | null) {
     return map;
   }, [data]);
 
+  // Reverse map: setIssueId → [testIssueId, ...] — derived from batch membership, zero extra calls.
+  const setToTests = useMemo(() => {
+    const map = new Map<string, string[]>();
+    if (!data) return map;
+    for (const [setIssueId, testIds] of Object.entries(data.set_to_tests)) {
+      map.set(setIssueId, testIds);
+    }
+    return map;
+  }, [data]);
+
   return {
     testSets: data?.test_sets ?? [],
     membership,
+    setToTests,
     isLoading,
   };
 }
-
 
 /** Fetch Xray test detail (testType, steps, gherkin) for a single test by its Jira key. */
 export function useTestDetail(testKey: string | null) {

@@ -625,6 +625,63 @@ coalescing window (`pendingInvalidations` in `queries/xray-mutations.ts`, `DEBOU
 
 ---
 
+## API Call Economy
+
+**Xray Cloud and Jira Cloud are rate-limited.** The app must minimise API calls. Every
+unnecessary query wastes rate-limit budget and slows the UI.
+
+### Golden rules
+
+1. **Never N+1.** If you need data for N items (test sets, versions, executions, etc.),
+   first check if a batch endpoint covers it. Do NOT loop over items calling individual
+   GraphQL queries.
+
+2. **Batch endpoints that already exist:**
+
+   | Endpoint | Covers | Use instead of |
+   |---|---|---|
+   | `getAllTestSetMemberships` | All test set → test relationships in 1–3 paginated queries | Per-set `getTestSetTests` calls |
+   | `getAllTestSetTestsWithStatus` | Coverage status for all sets in a single query | Per-set status lookups |
+   | `useTestSetMembership` hook | Returns `membership` (test→sets) AND `setToTests` (set→test IDs) | Any per-set queries |
+   | `useCoverageBatch` | Batch coverage query from `testSetTestsWithStatus` | Individual test-set status queries |
+
+3. **`useTestSetMembership` is the single source of truth** for test-set-to-test
+   relationships. Its `setToTests` map (`Map<setIssueId, string[]>`) is built from the
+   batch membership query — **zero extra API calls**. Before adding per-set `getTestSetTests`:
+   - Check if `setToTests` already has the data you need (just issue IDs)
+   - If you need full test objects (summary, status), consider whether a `fetchQuery`
+     per user click is acceptable (user-initiated = OK; automatic in a loop = NOT OK)
+
+4. **`staleTime` is your friend** — use generous values (`Infinity` for static enums,
+   5+ min for slow-changing data). Only the rare "must be fresh" case needs 30s or less.
+
+5. **Mutation invalidation is debounced** (500ms coalescing window in
+   `xray-mutations/helpers.ts`). Don't bypass this with manual `invalidateQueries` in
+   mutation `onSuccess` — use the debounced helper.
+
+6. **Rate-limit errors (429)** are surfaced as `rateLimitUntil` in `uiStore`. The UI
+   shows a countdown banner. Queries auto-retry with exponential backoff (1s/2s/4s up
+   to 30s). Mutations retry once after the block window.
+
+### N+1 patterns to avoid
+
+| Location | What it did | Fixed? |
+|---|---|---|
+| TestExecutionDetail.tsx (add panel) | `useEffect` loop: `fetchQuery(testSetTests)` per set on panel open | ✅ Now uses `setToTests` from batch membership |
+| TestPlansPage.tsx (drag-drop) | `Promise.all` + `fetchQuery(testSetTests)` per dropped set | User-initiated, N usually 1 — acceptable |
+| VersionGroups.tsx | `useQueries` per version for bugs + issues + executions | ⚠️ Known — consolidate if it causes rate-limit issues |
+| version-stats.ts | `useQueries` per execution for run stats (concurrency-capped at 6) | ⚠️ Known — investigate single-batch alternative |
+| FeedbackPanel.tsx | `useQueries` per user for display name | Low severity (1–3 users) |
+
+### Think before adding a new query
+
+1. Is there already a batch endpoint that returns this data?
+2. Can I derive the data from existing query cache rather than fetching?
+3. If I'm adding a loop over items, can I batch it into one endpoint?
+4. Is this user-initiated (= fine) or automatic (= must be minimised)?
+
+---
+
 ## Known Gotchas (read before editing)
 
 1. **`src/services/queries/` is the barrel** for all TanStack Query hooks. New hooks go
