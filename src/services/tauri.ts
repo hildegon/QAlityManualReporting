@@ -5,6 +5,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
   AppConfig,
+  ApiUsageSnapshot,
   ConfluenceAttachment,
   ConfluenceChild,
   ConfluencePage,
@@ -559,5 +560,5 @@ export const copyConfluenceAttachments = (
 
 // ── API Usage ─────────────────────────────────────────────────────────────────
 
-export const getApiUsage = (): Promise<import("@/types").ApiUsageSnapshot> =>
+export const getApiUsage = (): Promise<ApiUsageSnapshot> =>
   invoke("get_api_usage");

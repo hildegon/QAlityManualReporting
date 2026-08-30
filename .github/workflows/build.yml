@@ -6,6 +6,10 @@ on:
     tags: ["v*"]
   workflow_dispatch:
 
+# Jobs grant only the additional permissions they require below.
+permissions:
+  contents: read
+
 jobs:
   # Delete all previous QAlity artifacts before building so storage never accumulates.
   # The GitHub API lists up to 100 artifacts per page; for typical repos this covers
@@ -17,43 +21,37 @@ jobs:
       actions: write   # required to list and delete artifacts via the REST API
     steps:
       - name: Delete all previous QAlity artifacts
-        uses: actions/github-script@v7
+        # github-script v7, reviewed 2026-08-30.
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b
         with:
           script: |
-            const perPage = 100;
-            let page = 1;
-            let deleted = 0;
-
-            while (true) {
-              const { data } = await github.rest.actions.listArtifactsForRepo({
+            const artifacts = await github.paginate(
+              github.rest.actions.listArtifactsForRepo,
+              {
                 owner: context.repo.owner,
-                repo:  context.repo.repo,
-                per_page: perPage,
-                page,
-              });
+                repo: context.repo.repo,
+                per_page: 100,
+              }
+            );
+            const targets = artifacts.filter(a => a.name.startsWith("QAlity-v"));
+            await Promise.all(
+              targets.map(a =>
+                github.rest.actions.deleteArtifact({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  artifact_id: a.id,
+                })
+              )
+            );
 
-              const targets = data.artifacts.filter(a => a.name.startsWith("QAlity-v"));
-              await Promise.all(
-                targets.map(a =>
-                  github.rest.actions.deleteArtifact({
-                    owner:       context.repo.owner,
-                    repo:        context.repo.repo,
-                    artifact_id: a.id,
-                  })
-                )
-              );
-              deleted += targets.length;
-
-              if (data.artifacts.length < perPage) break;
-              page++;
-            }
-
-            core.info(`Deleted ${deleted} old artifact(s).`);
+            core.info(`Deleted ${targets.length} old artifact(s).`);
 
   build:
     name: Build ${{ matrix.platform }}
     runs-on: ${{ matrix.os }}
     needs: cleanup-artifacts
+    permissions:
+      contents: read
     strategy:
       fail-fast: false
       matrix:
@@ -74,7 +72,8 @@ jobs:
             rust-target: x86_64-pc-windows-msvc
 
     steps:
-      - uses: actions/checkout@v4
+      # checkout v4, reviewed 2026-08-30.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
 
       - name: Read app version
         id: app_version
@@ -82,7 +81,8 @@ jobs:
         run: echo "version=$(jq -r '.version' src-tauri/tauri.conf.json)" >> "$GITHUB_OUTPUT"
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        # setup-node v4, reviewed 2026-08-30.
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: "20"
 
@@ -93,23 +93,19 @@ jobs:
           sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        # stable branch commit reviewed 2026-08-30.
+        uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c
         with:
           targets: ${{ matrix.rust-target }}
 
       - name: Clean and reinstall dependencies (Unix)
         if: runner.os != 'Windows'
-        run: |
-          rm -rf node_modules package-lock.json
-          npm install
+        run: npm ci
 
       - name: Clean and reinstall dependencies (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
-        run: |
-          if (Test-Path node_modules) { Remove-Item -Recurse -Force node_modules }
-          if (Test-Path package-lock.json) { Remove-Item -Force package-lock.json }
-          npm install
+        run: npm ci
 
       - name: Build
         run: npm run build
@@ -120,15 +116,36 @@ jobs:
           xattr -cr src-tauri/target/release/bundle/macos/QAlity.app
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        # upload-artifact v4, reviewed 2026-08-30.
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: QAlity-v${{ steps.app_version.outputs.version }}-${{ matrix.platform }}
           path: src-tauri/target/release/bundle/
           retention-days: 1
 
-      - name: Create Release
-        if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
+
+  release:
+    name: Create Draft Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    needs: build
+    permissions:
+      contents: write  # required to create the draft GitHub release
+    steps:
+      - name: Download all platform artifacts
+        # download-artifact v4, reviewed 2026-08-30.
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
-          files: src-tauri/target/release/bundle/**/*
+          path: release-artifacts
+
+      - name: Create Release
+        # action-gh-release v2, reviewed 2026-08-30.
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65
+        with:
+          files: |
+            release-artifacts/**/*.dmg
+            release-artifacts/**/*.msi
+            release-artifacts/**/*.exe
+            release-artifacts/**/*.deb
+            release-artifacts/**/*.AppImage
           draft: true

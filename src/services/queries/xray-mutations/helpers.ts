@@ -2,7 +2,7 @@
  * Internal helpers shared across all xray-mutations submodules.
  * Not re-exported from the public barrel — import directly from this file.
  */
-import { type InfiniteData, useQueryClient } from "@tanstack/react-query";
+import type { InfiniteData, QueryClient } from "@tanstack/react-query";
 import type { TestRun, TestRunsPage } from "@/types";
 import { queryKeys } from "../queryKeys";
 
@@ -34,7 +34,7 @@ const DEBOUNCE_MS = 500;
 const pendingInvalidations = new Map<string, ReturnType<typeof setTimeout>>();
 
 export function debouncedInvalidateTestRuns(
-  queryClient: ReturnType<typeof useQueryClient>,
+  queryClient: QueryClient,
   executionIssueId: string,
 ) {
   const existing = pendingInvalidations.get(executionIssueId);
@@ -62,7 +62,7 @@ export function debouncedInvalidateTestRuns(
 const pendingStepInvalidations = new Map<string, ReturnType<typeof setTimeout>>();
 
 export function debouncedInvalidateStepResults(
-  queryClient: ReturnType<typeof useQueryClient>,
+  queryClient: QueryClient,
   testRunId: string,
 ) {
   const existing = pendingStepInvalidations.get(testRunId);

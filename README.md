@@ -21,7 +21,8 @@ test work without leaving the desktop:
 - **Create test executions** — pick a test plan and/or individual tests to include.
 - **Create tests** — with numbered steps, component, and test-set links in one form.
 - **Encrypted credentials** — Jira and Xray credentials are stored locally, encrypted with
-  AES-256-GCM. Nothing is sent to any third-party server.
+  AES-256-GCM. Requests go directly to the Jira, Xray, and Confluence services configured by
+  the user.
 
 ---
 
@@ -56,8 +57,9 @@ test work without leaving the desktop:
 
 ### Install and run
 
+Clone the repository from its Git hosting page, then run:
+
 ```bash
-git clone <repository-url>
 cd QAlityManualReporting
 npm install
 npm run dev          # opens the Tauri desktop window with HMR
@@ -92,7 +94,8 @@ builds are incremental.
 
 ## Architecture
 
-All API calls flow through the Rust backend — TypeScript never calls Jira or Xray directly:
+All API calls flow through the Rust backend — TypeScript never calls Jira, Xray, or Confluence
+directly:
 
 ```
 UI component
@@ -100,7 +103,7 @@ UI component
        └─ tauri invoke()  (src/services/tauri.ts)
             └─ Rust command handler  (src-tauri/src/commands/)
                  └─ HTTP client  (src-tauri/src/api/)
-                      └─ Jira REST API / Xray Cloud GraphQL
+                       └─ Jira REST API / Xray Cloud GraphQL / Confluence REST API
 ```
 
 ### Key modules
@@ -109,7 +112,7 @@ UI component
 src/
 ├── services/
 │   ├── tauri.ts          # typed invoke() wrappers — one function per Tauri command
-│   └── queries.ts        # TanStack Query hooks + mutations (canonical file)
+│   └── queries/          # TanStack Query hooks + mutations (barrel directory)
 ├── stores/
 │   ├── projectStore.ts   # active project, credentials flag
 │   └── uiStore.ts        # toast, modal state
@@ -125,9 +128,11 @@ src-tauri/src/
 ├── commands/
 │   ├── config.rs         # AES-256-GCM credential storage
 │   ├── jira.rs           # Jira REST API commands
+│   ├── confluence.rs     # Confluence REST API commands
 │   └── xray.rs           # Xray Cloud GraphQL commands
 └── api/
     ├── jira_client.rs    # raw Jira HTTP client
+    ├── confluence_client/    # raw Confluence HTTP client
     └── xray_client.rs    # raw Xray GraphQL client (OAuth2, token cache)
 ```
 
@@ -164,16 +169,18 @@ A 32-byte random key is generated on first run and stored alongside the encrypte
 - **Rate limiting** — background page-loads are staggered 300 ms apart; a sticky banner
   with a live countdown appears when Xray's rate limit is hit.
 - **Queries barrel** — `src/services/queries/` is a barrel (`index.ts` re-exports all).
-  Submodules: `queryKeys.ts`, `config.ts`, `jira.ts`, `xray-queries.ts`, `xray-mutations.ts`,
+  Submodules: `queryKeys.ts`, `config.ts`, `jira.ts`, `confluence.ts`, `xray-queries.ts`,
+  `xray-mutations.ts`,
   `version-stats.ts`. Import via `@/services/queries`.
 
 ---
 
 ## Contributing
 
-1. Create a branch: `feature/<desc>`, `fix/<desc>`, or `chore/<desc>`.
+1. Create a branch using the `feature/short-description`, `fix/short-description`, or
+   `chore/short-description` convention.
 2. Follow the code style in [AGENTS.md](AGENTS.md).
-3. Before opening a PR, run `npm run check` and `cargo clippy -- -D warnings` — both must
+3. Before opening a PR, run `npm run check` and `cd src-tauri && cargo clippy -- -D warnings` — both must
    pass with zero warnings/errors.
 4. Use [Conventional Commits](https://www.conventionalcommits.org/): `feat(scope): …`,
    `fix(scope): …`, etc. Subject line ≤ 72 characters.
@@ -182,4 +189,8 @@ A 32-byte random key is generated on first run and stored alongside the encrypte
 
 ## License
 
-Private repository — all rights reserved.
+This public project is available under the [MIT License](LICENSE).
+
+See the [security policy](SECURITY.md) for private vulnerability reporting
+and the [privacy policy](PRIVACY.md) for details about local data and network
+requests.

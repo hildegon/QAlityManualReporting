@@ -2,6 +2,8 @@
 
 This guide explains how to obtain and use QAlity executables across all platforms.
 
+In filename examples, `${VERSION}` denotes the release version.
+
 ---
 
 ## For Users: Download & Install
@@ -9,26 +11,26 @@ This guide explains how to obtain and use QAlity executables across all platform
 ### macOS
 
 **Option 1: DMG Installer (Recommended)**
-1. Download `QAlity_0.1.0_aarch64.dmg` (Apple Silicon) or `QAlity_0.1.0_x86_64.dmg` (Intel)
+1. Download the `QAlity-v${VERSION}-macos-aarch64` CI artifact and open its ARM64 installer
 2. Double-click the `.dmg` file
 3. Drag "QAlity" to the Applications folder
 4. Open Applications → QAlity to launch
 
 **Option 2: Direct App Bundle**
-- Download `QAlity.zip` or `QAlity.app` folder
+- Download the `QAlity.app` bundle
 - Extract and move to Applications folder
 - Double-click to launch
 
 ### Windows
 
 **Option 1: NSIS Installer**
-1. Download `QAlity_0.1.0_x64-setup.exe`
+1. Download the `QAlity-v${VERSION}-windows` CI artifact and run its `QAlity_${VERSION}_x64-setup.exe` installer
 2. Run the installer
 3. Follow the on-screen prompts
 4. Launch from Start Menu → QAlity
 
 **Option 2: MSI Installer**
-1. Download `QAlity_0.1.0_x64_en-US.msi`
+1. Download the `QAlity-v${VERSION}-windows` CI artifact and open its `QAlity_${VERSION}_x64_en-US.msi` installer
 2. Double-click to open Windows Installer
 3. Follow prompts to install
 4. Launch from Start Menu → QAlity
@@ -37,13 +39,13 @@ This guide explains how to obtain and use QAlity executables across all platform
 
 **Option 1: AppImage (Works on any distro, no installation)**
 ```bash
-chmod +x QAlity_0.1.0_amd64.AppImage
-./QAlity_0.1.0_amd64.AppImage
+chmod +x "QAlity_${VERSION}_amd64.AppImage"
+./"QAlity_${VERSION}_amd64.AppImage"
 ```
 
 **Option 2: Debian/Ubuntu**
 ```bash
-sudo apt install ./qality_0.1.0_amd64.deb
+sudo apt install "./qality_${VERSION}_amd64.deb"
 qality  # Launch from command line
 ```
 
@@ -59,11 +61,10 @@ Use the AppImage for widest compatibility.
 1. Go to [Actions](../../actions)
 2. Click on the latest workflow run
 3. Scroll to "Artifacts" section
-4. Download the artifact for your platform:
-   - `macos-aarch64` — macOS ARM64 (Apple Silicon)
-   - `macos-x86_64` — macOS Intel
-   - `windows` — Windows installers
-   - `linux` — Linux AppImage + deb
+4. Download the artifact for your platform. The current macOS CI artifact is ARM64-only:
+   - `QAlity-v${VERSION}-macos-aarch64` — macOS ARM64 (Apple Silicon)
+   - `QAlity-v${VERSION}-windows` — Windows installers
+   - `QAlity-v${VERSION}-linux` — Linux AppImage + deb
 
 ### From GitHub Releases
 
@@ -75,9 +76,10 @@ Use the AppImage for widest compatibility.
 
 To create builds on your machine:
 
+Obtain the source from its Git hosting page and open a terminal in the repository directory,
+then run:
+
 ```bash
-# Clone repository
-git clone <repo-url>
 cd QAlityManualReporting
 npm install
 
@@ -98,7 +100,6 @@ npm run build
 |---|---|---|---|
 | **macOS** | `.dmg` (disk image) | ~5 MB | Standard macOS distribution |
 | **macOS** | `.app` (bundle) | ~50 MB | Direct execution, portable |
-| **macOS** | `.zip` | ~50 MB | Archive for transfer |
 | **Windows** | `.exe` (NSIS) | ~80 MB | Standalone installer |
 | **Windows** | `.msi` | ~80 MB | Windows Installer package |
 | **Linux** | `.AppImage` | ~100 MB | Portable, any distro |
@@ -110,7 +111,7 @@ npm run build
 
 ### macOS
 - **OS:** macOS 10.13 or later
-- **Architecture:** Apple Silicon (ARM64) or Intel (x86_64)
+- **Architecture:** Apple Silicon (ARM64)
 - **RAM:** 2 GB minimum
 
 ### Windows
@@ -149,10 +150,10 @@ chmod +x QAlity_*.AppImage
 **Missing dependencies (if not using AppImage)**
 ```bash
 # Ubuntu/Debian
-sudo apt install libwebkit2gtk-4.0-37
+sudo apt install webkit2gtk-4.1
 
 # Fedora
-sudo dnf install webkit2gtk4.0
+sudo dnf install webkit2gtk4.1
 
 # Arch
 sudo pacman -S webkit2gtk
@@ -164,7 +165,7 @@ sudo pacman -S webkit2gtk
 
 For organizations requiring code-signed binaries:
 
-- **macOS:** Requestapple.conf.json signing configuration (see BUILD_GUIDE.md)
+- **macOS:** Configure signing in tauri.conf.json (see BUILD_GUIDE.md)
 - **Windows:** Configure certificate signing in tauri.conf.json
 - **Linux:** Not required, but `.deb` can be GPG-signed
 

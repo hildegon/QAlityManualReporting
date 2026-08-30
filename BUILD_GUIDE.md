@@ -6,6 +6,12 @@ for macOS, Windows, or Linux.
 QAlity is a [Tauri 2](https://tauri.app) application. The frontend is built with Vite and the
 backend is a Rust binary. Both must be compiled together to produce the final executable.
 
+The examples below use the current application version:
+
+```bash
+VERSION=2.3.0
+```
+
 ---
 
 ## Quick Start: Download Pre-Built Executables
@@ -16,10 +22,9 @@ Pre-built installers for **macOS**, **Windows**, and **Linux** are automatically
 
 | Platform | Installer Format | Download |
 |---|---|---|
-| **macOS ARM64** | `.dmg` | `QAlity_0.1.0_aarch64.dmg` |
-| **macOS Intel** | `.dmg` | `QAlity_0.1.0_x86_64.dmg` |
-| **Windows** | `.exe` or `.msi` | `QAlity_<version>_x64-setup.exe` or `.msi` |
-| **Linux** | `.AppImage` or `.deb` | `QAlity_<version>_amd64.AppImage` or `.deb` |
+| **macOS ARM64** | `.dmg` | `QAlity-v${VERSION}-macos-aarch64` |
+| **Windows** | `.exe` or `.msi` | `QAlity-v${VERSION}-windows` |
+| **Linux** | `.AppImage` or `.deb` | `QAlity-v${VERSION}-linux` |
 
 ---
 
@@ -136,8 +141,9 @@ sudo pacman -S --needed \
 
 ## Clone and install dependencies
 
+Clone the repository from its Git hosting page, then run:
+
 ```bash
-git clone <repository-url>
 cd QAlityManualReporting
 
 # Install JavaScript/TypeScript dependencies
@@ -190,23 +196,23 @@ All installers are written to `src-tauri/target/release/bundle/`.
 | Format | Path | Notes |
 |---|---|---|
 | `.app` bundle | `bundle/macos/QAlity.app` | Can be run directly or distributed |
-| `.dmg` disk image | `bundle/dmg/QAlity_<version>_<arch>.dmg` | Standard macOS distribution format |
+| `.dmg` disk image | `bundle/dmg/QAlity_${VERSION}_aarch64.dmg` | Standard macOS distribution format |
 
 The `.app` bundle uses the system **WKWebView** (no Chromium dependency).
 
-To build for Apple Silicon and Intel in the same binary:
+CI currently produces an Apple Silicon ARM64 build. To build the same target locally:
 
 ```bash
-rustup target add x86_64-apple-darwin aarch64-apple-darwin
-npm run build -- --target universal-apple-darwin
+rustup target add aarch64-apple-darwin
+npm run build -- --target aarch64-apple-darwin
 ```
 
 ### Windows
 
 | Format | Path | Notes |
 |---|---|---|
-| `.msi` installer | `bundle/msi/QAlity_<version>_x64_en-US.msi` | Windows Installer package |
-| `.exe` NSIS installer | `bundle/nsis/QAlity_<version>_x64-setup.exe` | Standalone installer |
+| `.msi` installer | `bundle/msi/QAlity_${VERSION}_x64_en-US.msi` | Windows Installer package |
+| `.exe` NSIS installer | `bundle/nsis/QAlity_${VERSION}_x64-setup.exe` | Standalone installer |
 
 Both use the system **WebView2** runtime.
 
@@ -221,39 +227,40 @@ npm run build -- --target i686-pc-windows-msvc
 
 | Format | Path | Notes |
 |---|---|---|
-| `.deb` package | `bundle/deb/qality_<version>_amd64.deb` | Debian / Ubuntu |
-| `.AppImage` | `bundle/appimage/QAlity_<version>_amd64.AppImage` | Portable, any distro |
+| `.deb` package | `bundle/deb/qality_${VERSION}_amd64.deb` | Debian / Ubuntu |
+| `.AppImage` | `bundle/appimage/QAlity_${VERSION}_amd64.AppImage` | Portable, any distro |
 
 Install the `.deb`:
 
 ```bash
-sudo dpkg -i bundle/deb/qality_<version>_amd64.deb
+sudo dpkg -i "bundle/deb/qality_${VERSION}_amd64.deb"
 ```
 
 Run the AppImage directly (no installation needed):
 
 ```bash
-chmod +x QAlity_<version>_amd64.AppImage
-./QAlity_<version>_amd64.AppImage
+chmod +x "QAlity_${VERSION}_amd64.AppImage"
+./"QAlity_${VERSION}_amd64.AppImage"
 ```
 
 ---
 
 ## Automated multi-platform builds (CI/CD)
 
-Every push to `main` and tag push (e.g., `v0.1.0`) automatically triggers a GitHub Actions workflow that builds QAlity for all three platforms: **macOS**, **Windows**, and **Linux**.
+Pushes to `main`, tags matching `v*` (for example, `v${VERSION}`), or a manual workflow dispatch trigger a GitHub Actions workflow that builds QAlity for all three platforms: **macOS**, **Windows**, and **Linux**.
 
 **How it works:**
 
 1. GitHub Actions runs on three separate machines (macOS, Ubuntu, Windows)
 2. Each machine compiles the app natively for its platform
 3. Finished builds (`.dmg`, `.exe`, `.deb`, `.AppImage`, etc.) are uploaded as artifacts
-4. On tagged releases, builds are automatically published to GitHub Releases
+4. On tagged releases, builds are automatically created as draft releases for review; they are not published automatically
 
 **To download the latest builds:**
 
 1. Go to [GitHub Actions](../../actions) and select the latest workflow run
-2. Download the artifact for your platform (e.g., `macos-aarch64`, `linux`, `windows`)
+2. Download the artifact for your platform: `QAlity-v${VERSION}-macos-aarch64`,
+   `QAlity-v${VERSION}-windows`, or `QAlity-v${VERSION}-linux`
 3. Or: Go to [GitHub Releases](../../releases) and download the final installer
 
 **To build locally on your machine:**
@@ -302,20 +309,21 @@ For distribution:
 **macOS** — Refer to the Tauri signing documentation:
 https://tauri.app/distribute/sign/macos/
 
-Set the following environment variables before running `npm run build`:
+Set the following environment variables to values from your Apple Developer
+account and signing setup before running `npm run build`:
 
-```bash
-export APPLE_SIGNING_IDENTITY="Developer ID Application: Your Name (TEAMID)"
-export APPLE_ID="your@email.com"
-export APPLE_PASSWORD="your-app-specific-password"
-export APPLE_TEAM_ID="YOURTEAMID"
-```
+- `APPLE_SIGNING_IDENTITY` — the Developer ID Application certificate identity.
+- `APPLE_ID` — the Apple Developer account identifier used for notarisation.
+- `APPLE_PASSWORD` — an app-specific password for notarisation.
+- `APPLE_TEAM_ID` — the Apple Developer Team ID.
 
 **Windows** — Refer to:
 https://tauri.app/distribute/sign/windows/
 
-Set `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` as environment
-variables, or configure `bundle.windows.certificateThumbprint` in `tauri.conf.json`.
+For Tauri updater signing, set `TAURI_SIGNING_PRIVATE_KEY` and
+`TAURI_SIGNING_PRIVATE_KEY_PASSWORD` as environment variables. Windows Authenticode signing
+is separate; configure the Windows certificate settings in `tauri.conf.json` as described in
+the Tauri signing documentation.
 
 **Linux** — Signing is not required for `.deb` or `.AppImage` distribution.
 
@@ -330,7 +338,8 @@ If you download a built `.app` or `.dmg` from GitHub Actions and see this error,
 **Fix — Run this command:**
 
 ```bash
-xattr -cr /path/to/QAlity.app
+APP_PATH="$HOME/Downloads/QAlity.app"
+xattr -cr "$APP_PATH"
 ```
 
 Example:

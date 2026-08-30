@@ -42,7 +42,8 @@ export const useConfluenceStore = create<ConfluenceStoreState>()(
 
       removeVersionPage: (versionId) =>
         set((s) => {
-          const { [versionId]: _, ...rest } = s.versionPageMap;
+          const rest = { ...s.versionPageMap };
+          delete rest[versionId];
           return { versionPageMap: rest };
         }),
     }),
